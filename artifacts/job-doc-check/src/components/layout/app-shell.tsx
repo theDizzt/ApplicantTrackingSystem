@@ -1,5 +1,5 @@
 import { Link, useLocation } from "wouter"
-import { FileText, Building2, BrainCircuit, Users, CreditCard, LogOut, LayoutDashboard } from "lucide-react"
+import { FileText, Building2, Users, CreditCard, LogOut, LayoutDashboard, BrainCircuit } from "lucide-react"
 import { useGetMe, useLogout } from "@workspace/api-client-react"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
@@ -18,51 +18,55 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         setLocation("/")
       },
       onError: () => {
-        toast.error("Logout failed")
+        toast.error("로그아웃에 실패했습니다")
       }
     })
   }
 
   const navItems = [
-    { href: "/dashboard", label: "Overview", icon: LayoutDashboard },
-    { href: "/resumes", label: "My Resumes", icon: FileText },
-    { href: "/companies", label: "Target Companies", icon: Building2 },
-    { href: "/analyses", label: "AI Analysis", icon: BrainCircuit },
-    { href: "/interviews", label: "Interview Prep", icon: Users },
-    { href: "/subscription", label: "Subscription", icon: CreditCard },
+    { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
+    { href: "/resumes", label: "내 이력서", icon: FileText },
+    { href: "/companies", label: "지원 회사", icon: Building2 },
+    { href: "/analyses", label: "AI 서류 심사", icon: BrainCircuit },
+    { href: "/interviews", label: "면접 연습", icon: Users },
+    { href: "/subscription", label: "구독 관리", icon: CreditCard },
   ]
 
   return (
     <div className="flex min-h-screen w-full bg-background flex-col md:flex-row">
       <aside className="md:w-64 border-r bg-card flex flex-col md:fixed md:h-screen z-10 w-full shrink-0">
-        <div className="p-4 border-b flex items-center gap-2 font-bold text-lg text-primary bg-card">
-          <BrainCircuit className="w-6 h-6" />
-          AI 서류 심사관
-        </div>
-        
-        <div className="flex-1 overflow-y-auto py-4 px-3 space-y-1">
+        {/* Logo */}
+        <Link href="/" className="p-4 border-b flex items-center gap-3 hover:bg-slate-50 transition-colors">
+          <img src="/logo.png" alt="AI ATENAN" className="h-8 w-auto" />
+          <div className="leading-none">
+            <div className="text-[10px] font-bold text-slate-400 tracking-widest uppercase">AI ATENAN</div>
+            <div className="text-sm font-bold text-slate-800 tracking-tight">AI 서류 심사관</div>
+          </div>
+        </Link>
+
+        <div className="flex-1 overflow-y-auto py-4 px-3 space-y-0.5">
           {navItems.map((item) => {
             const Icon = item.icon
             const isActive = location.startsWith(item.href)
             return (
-              <Link 
-                key={item.href} 
+              <Link
+                key={item.href}
                 href={item.href}
                 className={cn(
-                  "flex items-center gap-3 px-3 py-2 rounded-md text-sm font-medium transition-colors",
-                  isActive 
-                    ? "bg-primary text-primary-foreground" 
+                  "flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-colors",
+                  isActive
+                    ? "bg-primary text-primary-foreground"
                     : "text-muted-foreground hover:bg-muted hover:text-foreground"
                 )}
               >
-                <Icon className="w-4 h-4" />
+                <Icon className="w-4 h-4 shrink-0" />
                 {item.label}
               </Link>
             )
           })}
         </div>
 
-        <div className="p-4 border-t space-y-4">
+        <div className="p-4 border-t space-y-3">
           <div className="text-sm">
             {isLoading ? (
               <div className="space-y-2">
@@ -71,20 +75,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
             ) : user ? (
               <div>
-                <div className="font-medium text-foreground">{user.name}</div>
-                <div className="text-xs text-muted-foreground">{user.email}</div>
-                <div className="mt-1">
-                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary/10 text-primary">
-                    {user.subscriptionStatus.toUpperCase()} PLAN
+                <div className="font-semibold text-foreground">{user.name}</div>
+                <div className="text-xs text-muted-foreground truncate">{user.email}</div>
+                <div className="mt-1.5">
+                  <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-primary/10 text-primary">
+                    {user.subscriptionStatus.toUpperCase()}
                   </span>
                 </div>
               </div>
             ) : null}
           </div>
-          
-          <Button variant="outline" className="w-full justify-start text-muted-foreground" onClick={handleLogout}>
+
+          <Button variant="outline" className="w-full justify-start text-muted-foreground text-sm" onClick={handleLogout}>
             <LogOut className="w-4 h-4 mr-2" />
-            Sign Out
+            로그아웃
           </Button>
         </div>
       </aside>
