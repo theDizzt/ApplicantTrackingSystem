@@ -64,7 +64,10 @@ router.post("/resumes/upload", requireAuth, upload.single("file"), async (req, r
     return;
   }
 
-  const ext = path.extname(req.file.originalname).toLowerCase();
+  // multer receives multipart filenames as Latin-1; re-encode to UTF-8 so
+  // Korean (and any non-ASCII) characters are not garbled.
+  const originalName = Buffer.from(req.file.originalname, "latin1").toString("utf8");
+  const ext = path.extname(originalName).toLowerCase();
   let extractedText = "";
 
   try {
@@ -84,7 +87,7 @@ router.post("/resumes/upload", requireAuth, upload.single("file"), async (req, r
     return;
   }
 
-  const title = (req.body.title as string | undefined)?.trim() || extractTitle(req.file.originalname);
+  const title = (req.body.title as string | undefined)?.trim() || extractTitle(originalName);
 
   const [resume] = await db.insert(resumesTable)
     .values({
