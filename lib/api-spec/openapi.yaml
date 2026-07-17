@@ -834,13 +834,11 @@ components:
           type: ["integer", "null"]
         jobMatchFeedback:
           type: ["string", "null"]
-        physiognomyScore:
-          type: ["integer", "null"]
-        physiognomyFeedback:
-          type: ["string", "null"]
         improvementSuggestions:
           type: ["string", "null"]
         urlAnalysisResult:
+          type: ["string", "null"]
+        richAnalysisResult:
           type: ["string", "null"]
         resumeTitle:
           type: ["string", "null"]

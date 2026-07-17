@@ -189,13 +189,11 @@ export interface Analysis {
   /** @nullable */
   jobMatchFeedback?: string | null;
   /** @nullable */
-  physiognomyScore?: number | null;
-  /** @nullable */
-  physiognomyFeedback?: string | null;
-  /** @nullable */
   improvementSuggestions?: string | null;
   /** @nullable */
   urlAnalysisResult?: string | null;
+  /** @nullable */
+  richAnalysisResult?: string | null;
   /** @nullable */
   resumeTitle?: string | null;
   /** @nullable */

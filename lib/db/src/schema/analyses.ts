@@ -16,10 +16,9 @@ export const analysesTable = pgTable("analyses", {
   languageFeedback: text("language_feedback"),
   jobMatchScore: integer("job_match_score"),
   jobMatchFeedback: text("job_match_feedback"),
-  physiognomyScore: integer("physiognomy_score"),
-  physiognomyFeedback: text("physiognomy_feedback"),
   improvementSuggestions: text("improvement_suggestions"),
   urlAnalysisResult: text("url_analysis_result"),
+  richAnalysisResult: text("rich_analysis_result"), // JSON: technicalSkills, personality, orgFit, urlAiEvaluation
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   completedAt: timestamp("completed_at", { withTimezone: true }),
 });
