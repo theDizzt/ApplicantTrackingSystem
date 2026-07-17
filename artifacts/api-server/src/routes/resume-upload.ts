@@ -8,37 +8,28 @@ import { promisify } from "util";
 import { db, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { logger } from "../lib/logger";
+import { openai } from "../lib/openai";
 
 const execFileAsync = promisify(execFile);
-
 const router: IRouter = Router();
 
-// Use memory storage so we don't write to disk
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits: { fileSize: 10 * 1024 * 1024 },
   fileFilter(_req, file, cb) {
     const ext = path.extname(file.originalname).toLowerCase();
-    if ([".pdf", ".doc", ".docx"].includes(ext)) {
-      cb(null, true);
-    } else {
-      cb(new Error("PDF 또는 DOCX 파일만 업로드 가능합니다."));
-    }
+    if ([".pdf", ".doc", ".docx"].includes(ext)) cb(null, true);
+    else cb(new Error("PDF 또는 DOCX 파일만 업로드 가능합니다."));
   },
 });
 
 async function parsePdf(buffer: Buffer): Promise<string> {
-  // Use system pdftotext (poppler-utils) — reliable across all Node.js versions
-  const tmpIn = path.join(os.tmpdir(), `resume_${Date.now()}.pdf`);
-  const tmpOut = path.join(os.tmpdir(), `resume_${Date.now()}.txt`);
+  const tmpIn  = path.join(os.tmpdir(), `resume_${Date.now()}_in.pdf`);
+  const tmpOut = path.join(os.tmpdir(), `resume_${Date.now()}_out.txt`);
   try {
     await fs.writeFile(tmpIn, buffer);
-    // -enc UTF-8  — output encoding
-    // -layout    — preserve layout spacing
-    // tmpOut     — write to file (stdout doesn't handle binary well)
     await execFileAsync("pdftotext", ["-enc", "UTF-8", "-layout", tmpIn, tmpOut]);
-    const text = await fs.readFile(tmpOut, "utf-8");
-    return text;
+    return await fs.readFile(tmpOut, "utf-8");
   } finally {
     await fs.unlink(tmpIn).catch(() => {});
     await fs.unlink(tmpOut).catch(() => {});
@@ -53,9 +44,50 @@ async function parseDocx(buffer: Buffer): Promise<string> {
 
 function extractTitle(filename: string): string {
   return path.basename(filename, path.extname(filename))
-    .replace(/[-_]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+    .replace(/[-_]/g, " ").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * AI로 이력서 텍스트를 분석하여:
+ * 1. 자기소개서 섹션을 분리
+ * 2. 표 형태 데이터를 마크다운 테이블로 변환
+ */
+async function splitAndFormatWithAI(
+  rawText: string
+): Promise<{ resumeContent: string; coverLetter: string }> {
+  const systemPrompt = `당신은 이력서 파싱 전문가입니다. 아래 텍스트에서 이력서 본문과 자기소개서를 분리하고, 표 형태 데이터를 마크다운 테이블로 변환하세요.
+
+반환 형식 (JSON):
+{
+  "resumeContent": "이력서 본문 (자기소개서 완전 제외. 표는 마크다운 테이블로 변환)",
+  "coverLetter":   "자기소개서 전체 텍스트 (없으면 빈 문자열)"
+}
+
+규칙:
+1. 자기소개서: '자기소개서', '성장과정', '지원동기', '직무 역량', '입사 후 포부', '장단점' 등 서술형 에세이 섹션 전체를 coverLetter에 넣습니다. 이력서 본문에서는 완전히 제거합니다.
+2. 마크다운 테이블: 스페이스로 정렬된 열 데이터(학력, 경력, 자격증 목록 등)를 | 헤더1 | 헤더2 | 형식으로 변환합니다.
+3. 이력서 본문(resumeContent)은 마크다운 테이블과 일반 텍스트로만 구성하세요.
+4. 오직 JSON만 반환하세요. 마크다운 코드 블록 없이.`;
+
+  try {
+    const response = await openai.chat.completions.create({
+      model: "gpt-5.6-luna",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user",   content: rawText.slice(0, 14000) },
+      ],
+      response_format: { type: "json_object" },
+    });
+    const raw = response.choices[0]?.message?.content ?? "{}";
+    const result = JSON.parse(raw);
+    return {
+      resumeContent: typeof result.resumeContent === "string" ? result.resumeContent.trim() : rawText,
+      coverLetter:   typeof result.coverLetter   === "string" ? result.coverLetter.trim()   : "",
+    };
+  } catch (err) {
+    logger.warn({ err }, "AI split failed – using raw text as-is");
+    return { resumeContent: rawText, coverLetter: "" };
+  }
 }
 
 router.post("/resumes/upload", requireAuth, upload.single("file"), async (req, res): Promise<void> => {
@@ -64,17 +96,16 @@ router.post("/resumes/upload", requireAuth, upload.single("file"), async (req, r
     return;
   }
 
-  // multer receives multipart filenames as Latin-1; re-encode to UTF-8 so
-  // Korean (and any non-ASCII) characters are not garbled.
+  // multer 파일명 Latin-1 → UTF-8 재인코딩
   const originalName = Buffer.from(req.file.originalname, "latin1").toString("utf8");
   const ext = path.extname(originalName).toLowerCase();
-  let extractedText = "";
+  let rawText = "";
 
   try {
     if (ext === ".pdf") {
-      extractedText = await parsePdf(req.file.buffer);
+      rawText = await parsePdf(req.file.buffer);
     } else if (ext === ".docx" || ext === ".doc") {
-      extractedText = await parseDocx(req.file.buffer);
+      rawText = await parseDocx(req.file.buffer);
     }
   } catch (err) {
     logger.error({ err }, "File parsing failed");
@@ -82,33 +113,36 @@ router.post("/resumes/upload", requireAuth, upload.single("file"), async (req, r
     return;
   }
 
-  if (!extractedText.trim()) {
+  if (!rawText.trim()) {
     res.status(422).json({ error: "파일에서 텍스트를 추출할 수 없습니다. 스캔된 이미지 PDF이거나 빈 파일일 수 있습니다." });
     return;
   }
+
+  // AI로 자기소개서 분리 + 표 마크다운 변환
+  const { resumeContent, coverLetter } = await splitAndFormatWithAI(rawText);
 
   const title = (req.body.title as string | undefined)?.trim() || extractTitle(originalName);
 
   const [resume] = await db.insert(resumesTable)
     .values({
-      userId: req.session.userId!,
+      userId:      req.session.userId!,
       title,
-      content: extractedText,
-      coverLetter: null,
-      photoUrl: null,
-      fileUrl: null,
+      content:     resumeContent || rawText,
+      coverLetter: coverLetter || null,
+      photoUrl:    null,
+      fileUrl:     null,
     })
     .returning();
 
   res.status(201).json({
-    id: resume.id,
-    userId: resume.userId,
-    title: resume.title,
-    content: resume.content ?? null,
+    id:          resume.id,
+    userId:      resume.userId,
+    title:       resume.title,
+    content:     resume.content     ?? null,
     coverLetter: resume.coverLetter ?? null,
-    photoUrl: resume.photoUrl ?? null,
-    fileUrl: resume.fileUrl ?? null,
-    createdAt: resume.createdAt.toISOString(),
+    photoUrl:    resume.photoUrl    ?? null,
+    fileUrl:     resume.fileUrl     ?? null,
+    createdAt:   resume.createdAt.toISOString(),
   });
 });
 
