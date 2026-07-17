@@ -3,20 +3,34 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: AI 서류 심사관 API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: auth
+    description: Authentication operations
+  - name: subscription
+    description: Subscription management
+  - name: companies
+    description: Company profile management
+  - name: resumes
+    description: Resume management
+  - name: analyses
+    description: AI analysis operations
+  - name: interviews
+    description: Interview session operations
+  - name: dashboard
+    description: Dashboard summary
+
 paths:
   /healthz:
     get:
       operationId: healthCheck
       tags: [health]
       summary: Health check
-      description: Returns server health status
       responses:
         "200":
           description: Healthy
@@ -24,6 +38,555 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  # Auth
+  /auth/register:
+    post:
+      operationId: register
+      tags: [auth]
+      summary: Register a new user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RegisterInput"
+      responses:
+        "201":
+          description: Registered
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "409":
+          description: Email already in use
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/login:
+    post:
+      operationId: login
+      tags: [auth]
+      summary: Login with email and password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LoginInput"
+      responses:
+        "200":
+          description: Logged in
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /auth/logout:
+    post:
+      operationId: logout
+      tags: [auth]
+      summary: Logout current user
+      responses:
+        "200":
+          description: Logged out
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  /auth/me:
+    get:
+      operationId: getMe
+      tags: [auth]
+      summary: Get current user
+      responses:
+        "200":
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuthUser"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # Subscription
+  /subscription/plans:
+    get:
+      operationId: listSubscriptionPlans
+      tags: [subscription]
+      summary: List available subscription plans
+      responses:
+        "200":
+          description: Plans list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/SubscriptionPlan"
+
+  /subscription/me:
+    get:
+      operationId: getMySubscription
+      tags: [subscription]
+      summary: Get current user subscription status
+      responses:
+        "200":
+          description: Subscription info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSubscription"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /subscription/subscribe:
+    post:
+      operationId: subscribe
+      tags: [subscription]
+      summary: Subscribe to a plan
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubscribeInput"
+      responses:
+        "200":
+          description: Subscribed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserSubscription"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /subscription/cancel:
+    post:
+      operationId: cancelSubscription
+      tags: [subscription]
+      summary: Cancel current subscription
+      responses:
+        "200":
+          description: Cancelled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MessageResponse"
+
+  # Companies
+  /companies:
+    get:
+      operationId: listCompanies
+      tags: [companies]
+      summary: List all companies the user has added
+      responses:
+        "200":
+          description: Companies list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Company"
+    post:
+      operationId: createCompany
+      tags: [companies]
+      summary: Add a company profile
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompanyInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Company"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /companies/{id}:
+    get:
+      operationId: getCompany
+      tags: [companies]
+      summary: Get a company profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Company
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Company"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateCompany
+      tags: [companies]
+      summary: Update a company profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CompanyUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Company"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteCompany
+      tags: [companies]
+      summary: Delete a company profile
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # Resumes
+  /resumes:
+    get:
+      operationId: listResumes
+      tags: [resumes]
+      summary: List all resumes of the user
+      responses:
+        "200":
+          description: Resumes list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Resume"
+    post:
+      operationId: createResume
+      tags: [resumes]
+      summary: Create a resume with JSON body
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResumeInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Resume"
+
+  /resumes/{id}:
+    get:
+      operationId: getResume
+      tags: [resumes]
+      summary: Get a resume
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Resume
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Resume"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    patch:
+      operationId: updateResume
+      tags: [resumes]
+      summary: Update a resume
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ResumeUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Resume"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteResume
+      tags: [resumes]
+      summary: Delete a resume
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+
+  # Analyses
+  /analyses:
+    get:
+      operationId: listAnalyses
+      tags: [analyses]
+      summary: List all analyses for the user
+      responses:
+        "200":
+          description: Analyses list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Analysis"
+    post:
+      operationId: createAnalysis
+      tags: [analyses]
+      summary: Start an AI analysis for a resume + company
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnalysisInput"
+      responses:
+        "201":
+          description: Analysis started
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Analysis"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /analyses/{id}:
+    get:
+      operationId: getAnalysis
+      tags: [analyses]
+      summary: Get an analysis result
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Analysis"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  # Interviews
+  /interviews:
+    get:
+      operationId: listInterviews
+      tags: [interviews]
+      summary: List all interview sessions for the user
+      responses:
+        "200":
+          description: Interview sessions list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/InterviewSession"
+    post:
+      operationId: createInterview
+      tags: [interviews]
+      summary: Generate interview questions for a resume + company
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/InterviewInput"
+      responses:
+        "201":
+          description: Interview session created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterviewSession"
+
+  /interviews/{id}:
+    get:
+      operationId: getInterview
+      tags: [interviews]
+      summary: Get interview session with questions and answers
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Interview session
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterviewSession"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /interviews/{id}/answers:
+    post:
+      operationId: submitAnswers
+      tags: [interviews]
+      summary: Submit answers to interview questions
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AnswersInput"
+      responses:
+        "200":
+          description: Answers saved
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterviewSession"
+
+  /interviews/{id}/evaluate:
+    post:
+      operationId: evaluateAnswers
+      tags: [interviews]
+      summary: AI evaluation of interview answers
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Evaluation complete
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterviewSession"
+
+  # Dashboard
+  /dashboard:
+    get:
+      operationId: getDashboard
+      tags: [dashboard]
+      summary: Get dashboard summary stats
+      responses:
+        "200":
+          description: Dashboard summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DashboardSummary"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +597,372 @@ components:
       required:
         - status
 
+    ErrorResponse:
+      type: object
+      properties:
+        error:
+          type: string
+      required:
+        - error
+
+    MessageResponse:
+      type: object
+      properties:
+        message:
+          type: string
+      required:
+        - message
+
+    # Auth
+    RegisterInput:
+      type: object
+      required: [email, password, name]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+        name:
+          type: string
+
+    LoginInput:
+      type: object
+      required: [email, password]
+      properties:
+        email:
+          type: string
+        password:
+          type: string
+
+    AuthUser:
+      type: object
+      required: [id, email, name, subscriptionStatus, createdAt]
+      properties:
+        id:
+          type: integer
+        email:
+          type: string
+        name:
+          type: string
+        subscriptionStatus:
+          type: string
+          enum: [free, basic, premium]
+        createdAt:
+          type: string
+
+    # Subscription
+    SubscriptionPlan:
+      type: object
+      required: [id, name, price, analysesPerMonth, description]
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        price:
+          type: integer
+        analysesPerMonth:
+          type: integer
+        description:
+          type: string
+        features:
+          type: array
+          items:
+            type: string
+
+    UserSubscription:
+      type: object
+      required: [status, planId, analysesUsed, analysesLimit]
+      properties:
+        status:
+          type: string
+          enum: [free, basic, premium, cancelled]
+        planId:
+          type: ["string", "null"]
+        analysesUsed:
+          type: integer
+        analysesLimit:
+          type: integer
+        expiresAt:
+          type: ["string", "null"]
+
+    SubscribeInput:
+      type: object
+      required: [planId]
+      properties:
+        planId:
+          type: string
+
+    # Companies
+    Company:
+      type: object
+      required: [id, userId, name, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        name:
+          type: string
+        siteUrl:
+          type: ["string", "null"]
+        jobPostingUrl:
+          type: ["string", "null"]
+        talentProfile:
+          type: ["string", "null"]
+        jobDescription:
+          type: ["string", "null"]
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    CompanyInput:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+        siteUrl:
+          type: string
+        jobPostingUrl:
+          type: string
+        talentProfile:
+          type: string
+        jobDescription:
+          type: string
+        notes:
+          type: string
+
+    CompanyUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        siteUrl:
+          type: string
+        jobPostingUrl:
+          type: string
+        talentProfile:
+          type: string
+        jobDescription:
+          type: string
+        notes:
+          type: string
+
+    # Resumes
+    Resume:
+      type: object
+      required: [id, userId, title, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        title:
+          type: string
+        content:
+          type: ["string", "null"]
+        coverLetter:
+          type: ["string", "null"]
+        photoUrl:
+          type: ["string", "null"]
+        fileUrl:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+
+    ResumeInput:
+      type: object
+      required: [title]
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        coverLetter:
+          type: string
+        photoUrl:
+          type: string
+        fileUrl:
+          type: string
+
+    ResumeUpdate:
+      type: object
+      properties:
+        title:
+          type: string
+        content:
+          type: string
+        coverLetter:
+          type: string
+        photoUrl:
+          type: string
+        fileUrl:
+          type: string
+
+    # Analyses
+    Analysis:
+      type: object
+      required: [id, userId, resumeId, companyId, status, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        resumeId:
+          type: integer
+        companyId:
+          type: integer
+        status:
+          type: string
+          enum: [pending, processing, completed, failed]
+        overallResult:
+          type: ["string", "null"]
+          enum: [pass, fail, "null"]
+        overallScore:
+          type: ["integer", "null"]
+        aiWritingScore:
+          type: ["integer", "null"]
+        aiWritingFeedback:
+          type: ["string", "null"]
+        languageScore:
+          type: ["integer", "null"]
+        languageFeedback:
+          type: ["string", "null"]
+        jobMatchScore:
+          type: ["integer", "null"]
+        jobMatchFeedback:
+          type: ["string", "null"]
+        physiognomyScore:
+          type: ["integer", "null"]
+        physiognomyFeedback:
+          type: ["string", "null"]
+        improvementSuggestions:
+          type: ["string", "null"]
+        urlAnalysisResult:
+          type: ["string", "null"]
+        resumeTitle:
+          type: ["string", "null"]
+        companyName:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        completedAt:
+          type: ["string", "null"]
+
+    AnalysisInput:
+      type: object
+      required: [resumeId, companyId]
+      properties:
+        resumeId:
+          type: integer
+        companyId:
+          type: integer
+
+    # Interview
+    InterviewQuestion:
+      type: object
+      required: [id, question, order]
+      properties:
+        id:
+          type: integer
+        question:
+          type: string
+        order:
+          type: integer
+        answer:
+          type: ["string", "null"]
+        feedback:
+          type: ["string", "null"]
+        score:
+          type: ["integer", "null"]
+
+    InterviewSession:
+      type: object
+      required: [id, userId, resumeId, companyId, status, createdAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: integer
+        resumeId:
+          type: integer
+        companyId:
+          type: integer
+        status:
+          type: string
+          enum: [pending, questions_generated, answers_submitted, evaluated]
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/InterviewQuestion"
+        overallScore:
+          type: ["integer", "null"]
+        overallFeedback:
+          type: ["string", "null"]
+        resumeTitle:
+          type: ["string", "null"]
+        companyName:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+        evaluatedAt:
+          type: ["string", "null"]
+
+    InterviewInput:
+      type: object
+      required: [resumeId, companyId]
+      properties:
+        resumeId:
+          type: integer
+        companyId:
+          type: integer
+
+    QuestionAnswer:
+      type: object
+      required: [questionId, answer]
+      properties:
+        questionId:
+          type: integer
+        answer:
+          type: string
+
+    AnswersInput:
+      type: object
+      required: [answers]
+      properties:
+        answers:
+          type: array
+          items:
+            $ref: "#/components/schemas/QuestionAnswer"
+
+    # Dashboard
+    DashboardSummary:
+      type: object
+      required: [totalResumes, totalCompanies, totalAnalyses, passedAnalyses, failedAnalyses, pendingAnalyses, totalInterviews, averageScore, recentAnalyses, recentInterviews]
+      properties:
+        totalResumes:
+          type: integer
+        totalCompanies:
+          type: integer
+        totalAnalyses:
+          type: integer
+        passedAnalyses:
+          type: integer
+        failedAnalyses:
+          type: integer
+        pendingAnalyses:
+          type: integer
+        totalInterviews:
+          type: integer
+        averageScore:
+          type: ["integer", "null"]
+        recentAnalyses:
+          type: array
+          items:
+            $ref: "#/components/schemas/Analysis"
+        recentInterviews:
+          type: array
+          items:
+            $ref: "#/components/schemas/InterviewSession"

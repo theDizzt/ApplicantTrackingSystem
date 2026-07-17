@@ -1,0 +1,27 @@
+kind = "web"
+previewPath = "/"
+title = "AI 서류 심사관"
+version = "1.0.0"
+id = "artifacts/job-doc-check"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 19485
+
+[services.development]
+run = "pnpm --filter @workspace/job-doc-check run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/job-doc-check", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/job-doc-check/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "19485"
+BASE_PATH = "/"
