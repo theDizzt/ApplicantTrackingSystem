@@ -1,9 +1,15 @@
 import { Router, type IRouter } from "express";
 import multer from "multer";
 import path from "path";
+import os from "os";
+import fs from "fs/promises";
+import { execFile } from "child_process";
+import { promisify } from "util";
 import { db, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { logger } from "../lib/logger";
+
+const execFileAsync = promisify(execFile);
 
 const router: IRouter = Router();
 
@@ -22,11 +28,21 @@ const upload = multer({
 });
 
 async function parsePdf(buffer: Buffer): Promise<string> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const pdfParse = await import("pdf-parse" as any);
-  const fn = pdfParse.default ?? pdfParse;
-  const result = await fn(buffer);
-  return result.text as string;
+  // Use system pdftotext (poppler-utils) — reliable across all Node.js versions
+  const tmpIn = path.join(os.tmpdir(), `resume_${Date.now()}.pdf`);
+  const tmpOut = path.join(os.tmpdir(), `resume_${Date.now()}.txt`);
+  try {
+    await fs.writeFile(tmpIn, buffer);
+    // -enc UTF-8  — output encoding
+    // -layout    — preserve layout spacing
+    // tmpOut     — write to file (stdout doesn't handle binary well)
+    await execFileAsync("pdftotext", ["-enc", "UTF-8", "-layout", tmpIn, tmpOut]);
+    const text = await fs.readFile(tmpOut, "utf-8");
+    return text;
+  } finally {
+    await fs.unlink(tmpIn).catch(() => {});
+    await fs.unlink(tmpOut).catch(() => {});
+  }
 }
 
 async function parseDocx(buffer: Buffer): Promise<string> {
