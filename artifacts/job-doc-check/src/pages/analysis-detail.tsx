@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   ChevronLeft, CheckCircle2, XCircle, AlertTriangle,
-  Link2, ExternalLink, TrendingUp, Banknote, Award, GraduationCap,
+  Link2, ExternalLink, TrendingUp, Banknote, Award, GraduationCap, Heart,
 } from "lucide-react"
 
 // ── 타입 ──────────────────────────────────────────────────────────────────
@@ -45,6 +45,13 @@ interface RichAnalysis {
   graduationGap?: {
     detected: boolean; graduationYear: number; gapYears: number
     isLongGap: boolean; copingStrategy: string; sampleQuestions: string[]
+  }
+  motivationMatch?: {
+    score: number
+    feedback: string
+    highlights: string[]
+    weaknesses: string[]
+    hasCoverLetter: boolean
   }
 }
 
@@ -446,22 +453,128 @@ export default function AnalysisDetail() {
             </Card>
           )}
 
-          {/* ── 세부 피드백 ── */}
+          {/* ── 세부 피드백 2×2 그리드 ── */}
           <div className="grid md:grid-cols-2 gap-4">
-            {[
-              { label: "국어 및 설득력",  text: analysis.languageFeedback  },
-              { label: "채용공고 적합도", text: analysis.jobMatchFeedback  },
-              { label: "진정성 (AI 탐지)", text: analysis.aiWritingFeedback },
-            ].filter(f => f.text).map(({ label, text }) => (
-              <Card key={label} className="rounded-2xl border border-slate-100 shadow-sm">
+            {/* 국어 및 설득력 */}
+            {analysis.languageFeedback && (
+              <Card className="rounded-2xl border border-slate-100 shadow-sm">
                 <CardHeader className="pb-1 pt-4 px-5">
-                  <CardTitle className="text-sm font-bold text-slate-700">{label}</CardTitle>
+                  <CardTitle className="text-sm font-bold text-slate-700">국어 및 설득력</CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 pb-4">
-                  <p className="text-sm text-slate-600 leading-relaxed">{text}</p>
+                  <p className="text-sm text-slate-600 leading-relaxed">{analysis.languageFeedback}</p>
                 </CardContent>
               </Card>
-            ))}
+            )}
+
+            {/* 채용공고 적합도 */}
+            {analysis.jobMatchFeedback && (
+              <Card className="rounded-2xl border border-slate-100 shadow-sm">
+                <CardHeader className="pb-1 pt-4 px-5">
+                  <CardTitle className="text-sm font-bold text-slate-700">채용공고 적합도</CardTitle>
+                </CardHeader>
+                <CardContent className="px-5 pb-4">
+                  <p className="text-sm text-slate-600 leading-relaxed">{analysis.jobMatchFeedback}</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 진정성 (AI 탐지) */}
+            {analysis.aiWritingFeedback && (
+              <Card className="rounded-2xl border border-slate-100 shadow-sm">
+                <CardHeader className="pb-1 pt-4 px-5">
+                  <CardTitle className="text-sm font-bold text-slate-700">진정성 (AI 탐지)</CardTitle>
+                </CardHeader>
+                <CardContent className="px-5 pb-4">
+                  <p className="text-sm text-slate-600 leading-relaxed">{analysis.aiWritingFeedback}</p>
+                </CardContent>
+              </Card>
+            )}
+
+            {/* 지원 동기·입사 포부 매칭도 — 우측 하단 */}
+            {rich?.motivationMatch && (
+              <Card className="rounded-2xl border border-rose-100 shadow-sm bg-gradient-to-br from-rose-50/50 to-white">
+                <CardHeader className="pb-1 pt-4 px-5">
+                  <div className="flex items-center justify-between">
+                    <CardTitle className="text-sm font-bold text-rose-700 flex items-center gap-1.5">
+                      <Heart className="w-3.5 h-3.5 fill-rose-400 text-rose-400" />
+                      지원 동기·입사 포부 매칭도
+                    </CardTitle>
+                    <span className={`text-base font-black font-mono ${
+                      rich.motivationMatch.score >= 70 ? "text-emerald-600"
+                        : rich.motivationMatch.score >= 50 ? "text-amber-500"
+                        : "text-red-500"
+                    }`}>
+                      {rich.motivationMatch.score}점
+                    </span>
+                  </div>
+                  {/* 점수 바 */}
+                  <div className="mt-2 h-1.5 rounded-full bg-rose-100 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full transition-all duration-700 ${
+                        rich.motivationMatch.score >= 70 ? "bg-emerald-500"
+                          : rich.motivationMatch.score >= 50 ? "bg-amber-400"
+                          : "bg-red-500"
+                      }`}
+                      style={{ width: `${rich.motivationMatch.score}%` }}
+                    />
+                  </div>
+                </CardHeader>
+                <CardContent className="px-5 pb-4 space-y-3">
+                  {/* 자기소개서 없는 경우 안내 */}
+                  {!rich.motivationMatch.hasCoverLetter ? (
+                    <div className="rounded-lg bg-slate-50 border border-slate-100 px-3 py-2.5 flex items-start gap-2">
+                      <AlertTriangle className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
+                      <p className="text-sm text-slate-500 leading-relaxed">
+                        자기소개서가 등록되지 않아 지원 동기 매칭 분석을 진행할 수 없습니다.
+                        이력서에 자기소개서를 포함해 다시 심사하면 더 정밀한 분석을 받을 수 있습니다.
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      {/* 종합 피드백 */}
+                      <p className="text-sm text-slate-600 leading-relaxed">
+                        {rich.motivationMatch.feedback}
+                      </p>
+
+                      {/* 잘 매칭된 부분 */}
+                      {rich.motivationMatch.highlights.length > 0 && (
+                        <div className="rounded-lg bg-emerald-50 border border-emerald-100 px-3 py-2.5 space-y-1.5">
+                          <p className="text-xs font-bold text-emerald-700 flex items-center gap-1">
+                            <CheckCircle2 className="w-3 h-3" />잘 매칭된 내용
+                          </p>
+                          <ul className="space-y-1">
+                            {rich.motivationMatch.highlights.map((h, i) => (
+                              <li key={i} className="text-xs text-emerald-800 leading-relaxed flex items-start gap-1.5">
+                                <span className="shrink-0 mt-0.5 w-1 h-1 rounded-full bg-emerald-500 block" />
+                                {h}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+
+                      {/* 개선 필요 부분 */}
+                      {rich.motivationMatch.weaknesses.length > 0 && (
+                        <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2.5 space-y-1.5">
+                          <p className="text-xs font-bold text-amber-700 flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" />개선이 필요한 부분
+                          </p>
+                          <ul className="space-y-1">
+                            {rich.motivationMatch.weaknesses.map((w, i) => (
+                              <li key={i} className="text-xs text-amber-800 leading-relaxed flex items-start gap-1.5">
+                                <span className="shrink-0 mt-0.5 w-1 h-1 rounded-full bg-amber-500 block" />
+                                {w}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            )}
           </div>
 
           {/* ── 핵심 개선사항 ── */}

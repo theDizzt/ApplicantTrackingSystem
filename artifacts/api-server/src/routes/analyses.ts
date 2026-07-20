@@ -183,7 +183,7 @@ technicalSkills는 이력서에서 명시적으로 언급된 기술만 포함하
   "summary": "종합 인성 평가 (한국어, 3~5문장)"
 }`;
 
-  // ── 심사 3: 직무·조직 적합도 + 연봉 산정 + 예상 직급 + 졸업년도 격차 ──
+  // ── 심사 3: 직무·조직 적합도 + 연봉 산정 + 예상 직급 + 졸업년도 격차 + 지원 동기 매칭 ──
   const prompt3System = `당신은 채용 심사 전문가입니다. 이력서를 분석하여 아래 모든 항목을 평가하세요.
 오늘 날짜: ${today.toISOString().split("T")[0]}
 2026년 최저시급: ${MIN_WAGE_2026_HOURLY.toLocaleString()}원/시간, 월 ${MONTHLY_HOURS}시간 기준 연 최저연봉: 약 ${MIN_WAGE_ANNUAL_WAN.toLocaleString()}만원
@@ -220,6 +220,13 @@ technicalSkills는 이력서에서 명시적으로 언급된 기술만 포함하
     "isLongGap": 졸업년도가 ${threeYearsAgo}년 이하이면 true,
     "copingStrategy": "졸업 후 공백이 긴 경우 면접 대응 방안 (한국어, 3~5문장. isLongGap이 false면 빈 문자열)",
     "sampleQuestions": ["면접 질문 예시 (isLongGap이 false면 빈 배열)"]
+  },
+  "motivationMatch": {
+    "score": 0-100,
+    "feedback": "자기소개서의 지원 동기·입사 포부가 실제 지원 회사(채용 공고·인재상·사업 분야)와 얼마나 구체적으로 매칭되는지 종합 피드백 (한국어, 3~5문장). 자기소개서 내용이 없으면 '자기소개서 내용이 없어 평가가 어렵습니다.'",
+    "highlights": ["잘 매칭된 구체적 내용 (최대 3개, 없으면 빈 배열)"],
+    "weaknesses": ["실제 회사와 연관성이 부족하거나 개선이 필요한 부분 (최대 3개, 없으면 빈 배열)"],
+    "hasCoverLetter": true/false (자기소개서 내용 존재 여부)
   }
 }`;
 
@@ -234,6 +241,8 @@ technicalSkills는 이력서에서 명시적으로 언급된 기술만 포함하
   const salaryRaw = r3.salaryAnalysis as Record<string, unknown> | undefined;
   const rankRaw   = r3.expectedRank   as Record<string, unknown> | undefined;
   const gapRaw    = r3.graduationGap  as Record<string, unknown> | undefined;
+
+  const motivRaw = r3.motivationMatch as Record<string, unknown> | undefined;
 
   const richAnalysisResult = JSON.stringify({
     technicalSkills:     Array.isArray(r1.technicalSkills) ? r1.technicalSkills : [],
@@ -269,6 +278,13 @@ technicalSkills는 이력서에서 명시적으로 언급된 기술만 포함하
       isLongGap:      typeof gapRaw?.isLongGap      === "boolean" ? gapRaw.isLongGap      : false,
       copingStrategy: typeof gapRaw?.copingStrategy === "string"  ? gapRaw.copingStrategy : "",
       sampleQuestions: Array.isArray(gapRaw?.sampleQuestions)     ? gapRaw.sampleQuestions : [],
+    },
+    motivationMatch: {
+      score:          typeof motivRaw?.score          === "number"  ? motivRaw.score          : 0,
+      feedback:       typeof motivRaw?.feedback       === "string"  ? motivRaw.feedback       : "",
+      highlights:     Array.isArray(motivRaw?.highlights)           ? motivRaw.highlights     : [],
+      weaknesses:     Array.isArray(motivRaw?.weaknesses)           ? motivRaw.weaknesses     : [],
+      hasCoverLetter: typeof motivRaw?.hasCoverLetter === "boolean" ? motivRaw.hasCoverLetter : false,
     },
   });
 
