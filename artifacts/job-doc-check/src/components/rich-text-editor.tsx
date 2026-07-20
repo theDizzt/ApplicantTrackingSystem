@@ -3,7 +3,7 @@ import StarterKit from "@tiptap/starter-kit"
 import Underline from "@tiptap/extension-underline"
 import TextAlign from "@tiptap/extension-text-align"
 import Placeholder from "@tiptap/extension-placeholder"
-import { useEffect } from "react"
+import { useEffect, useRef } from "react"
 import {
   Bold, Italic, UnderlineIcon, List, ListOrdered,
   AlignLeft, AlignCenter, AlignRight, Heading2, Heading3,
