@@ -195,6 +195,12 @@ export default function ResumeDetail() {
     }
   }
 
+  // ── Hooks는 early return 위에 선언해야 합니다 (Rules of Hooks) ──────────
+  const isPending        = createResume.isPending || updateResume.isPending
+  const contentValue     = useWatch({ control: form.control, name: "content"     }) ?? ""
+  const coverLetterValue = useWatch({ control: form.control, name: "coverLetter" }) ?? ""
+  const hasTable = (t: string) => t.includes("|")
+
   if (!isNew && isLoading) {
     return (
       <div className="space-y-6 max-w-4xl">
@@ -205,11 +211,6 @@ export default function ResumeDetail() {
       </div>
     )
   }
-
-  const isPending        = createResume.isPending || updateResume.isPending
-  const contentValue     = useWatch({ control: form.control, name: "content"     }) ?? ""
-  const coverLetterValue = useWatch({ control: form.control, name: "coverLetter" }) ?? ""
-  const hasTable = (t: string) => t.includes("|")
 
   const ViewToggle = ({ view, setView }: { view: "edit"|"preview"; setView: (v:"edit"|"preview")=>void }) => (
     <div className="flex rounded-md border overflow-hidden text-xs">
