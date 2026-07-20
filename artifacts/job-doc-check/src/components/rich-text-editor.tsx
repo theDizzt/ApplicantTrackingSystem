@@ -75,17 +75,18 @@ export function RichTextEditor({
   })
 
   // 외부 value가 바뀔 때 (초기 로드 등) 에디터 내용 동기화
+  // emitUpdate: false 로 setContent 호출 → onChange 재트리거 방지 (무한루프 차단)
+  const isUpdatingRef = useRef(false)
   useEffect(() => {
-    if (!editor) return
+    if (!editor || isUpdatingRef.current) return
     const current = editor.getHTML()
-    if (value !== current && value !== undefined) {
-      // 빈 값이면 초기화
-      if (!value || value === "<p></p>") {
-        editor.commands.clearContent()
-      } else if (!current || current === "<p></p>") {
-        // 에디터가 비어있을 때만 setContent (커서 유지)
-        editor.commands.setContent(value, false)
-      }
+    // 에디터가 비어 있고 value에 실제 내용이 있을 때만 초기 세팅
+    const isEmpty = !current || current === "<p></p>"
+    const hasValue = value && value !== "<p></p>"
+    if (isEmpty && hasValue) {
+      isUpdatingRef.current = true
+      editor.commands.setContent(value, false) // false = emitUpdate off
+      isUpdatingRef.current = false
     }
   }, [value, editor])
 
