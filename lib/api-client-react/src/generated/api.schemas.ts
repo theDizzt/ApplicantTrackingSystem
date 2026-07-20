@@ -122,6 +122,8 @@ export interface Resume {
   /** @nullable */
   coverLetter?: string | null;
   /** @nullable */
+  desiredSalary?: number | null;
+  /** @nullable */
   photoUrl?: string | null;
   /** @nullable */
   fileUrl?: string | null;
@@ -132,6 +134,7 @@ export interface ResumeInput {
   title: string;
   content?: string;
   coverLetter?: string;
+  desiredSalary?: number;
   photoUrl?: string;
   fileUrl?: string;
 }
@@ -140,6 +143,7 @@ export interface ResumeUpdate {
   title?: string;
   content?: string;
   coverLetter?: string;
+  desiredSalary?: number;
   photoUrl?: string;
   fileUrl?: string;
 }

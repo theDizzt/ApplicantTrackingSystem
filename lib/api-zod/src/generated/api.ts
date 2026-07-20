@@ -231,6 +231,7 @@ export const ListResumesResponseItem = zod.object({
   "title": zod.string(),
   "content": zod.string().nullish(),
   "coverLetter": zod.string().nullish(),
+  "desiredSalary": zod.number().nullish(),
   "photoUrl": zod.string().nullish(),
   "fileUrl": zod.string().nullish(),
   "createdAt": zod.string()
@@ -245,6 +246,7 @@ export const CreateResumeBody = zod.object({
   "title": zod.string(),
   "content": zod.string().optional(),
   "coverLetter": zod.string().optional(),
+  "desiredSalary": zod.number().optional(),
   "photoUrl": zod.string().optional(),
   "fileUrl": zod.string().optional()
 })
@@ -255,6 +257,7 @@ export const CreateResumeResponse = zod.object({
   "title": zod.string(),
   "content": zod.string().nullish(),
   "coverLetter": zod.string().nullish(),
+  "desiredSalary": zod.number().nullish(),
   "photoUrl": zod.string().nullish(),
   "fileUrl": zod.string().nullish(),
   "createdAt": zod.string()
@@ -274,6 +277,7 @@ export const GetResumeResponse = zod.object({
   "title": zod.string(),
   "content": zod.string().nullish(),
   "coverLetter": zod.string().nullish(),
+  "desiredSalary": zod.number().nullish(),
   "photoUrl": zod.string().nullish(),
   "fileUrl": zod.string().nullish(),
   "createdAt": zod.string()
@@ -291,6 +295,7 @@ export const UpdateResumeBody = zod.object({
   "title": zod.string().optional(),
   "content": zod.string().optional(),
   "coverLetter": zod.string().optional(),
+  "desiredSalary": zod.number().optional(),
   "photoUrl": zod.string().optional(),
   "fileUrl": zod.string().optional()
 })
@@ -301,6 +306,7 @@ export const UpdateResumeResponse = zod.object({
   "title": zod.string(),
   "content": zod.string().nullish(),
   "coverLetter": zod.string().nullish(),
+  "desiredSalary": zod.number().nullish(),
   "photoUrl": zod.string().nullish(),
   "fileUrl": zod.string().nullish(),
   "createdAt": zod.string()

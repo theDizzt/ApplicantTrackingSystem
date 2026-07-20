@@ -12,6 +12,7 @@ function serializeResume(r: typeof resumesTable.$inferSelect) {
     title: r.title,
     content: r.content ?? null,
     coverLetter: r.coverLetter ?? null,
+    desiredSalary: r.desiredSalary ?? null,
     photoUrl: r.photoUrl ?? null,
     fileUrl: r.fileUrl ?? null,
     createdAt: r.createdAt.toISOString(),
@@ -26,11 +27,19 @@ router.get("/resumes", requireAuth, async (req, res): Promise<void> => {
 });
 
 router.post("/resumes", requireAuth, async (req, res): Promise<void> => {
-  const { title, content, coverLetter, photoUrl, fileUrl } = req.body;
+  const { title, content, coverLetter, desiredSalary, photoUrl, fileUrl } = req.body;
   if (!title) { res.status(400).json({ error: "이력서 제목을 입력해주세요." }); return; }
 
   const [resume] = await db.insert(resumesTable)
-    .values({ userId: req.session.userId!, title, content, coverLetter, photoUrl, fileUrl })
+    .values({
+      userId: req.session.userId!,
+      title,
+      content: content ?? null,
+      coverLetter: coverLetter ?? null,
+      desiredSalary: desiredSalary != null ? Number(desiredSalary) : null,
+      photoUrl: photoUrl ?? null,
+      fileUrl: fileUrl ?? null,
+    })
     .returning();
   res.status(201).json(serializeResume(resume));
 });
@@ -51,13 +60,14 @@ router.patch("/resumes/:id", requireAuth, async (req, res): Promise<void> => {
   const id = parseInt(rawId, 10);
   if (isNaN(id)) { res.status(400).json({ error: "유효하지 않은 ID입니다." }); return; }
 
-  const { title, content, coverLetter, photoUrl, fileUrl } = req.body;
+  const { title, content, coverLetter, desiredSalary, photoUrl, fileUrl } = req.body;
   const updateData: Record<string, unknown> = {};
-  if (title !== undefined) updateData.title = title;
-  if (content !== undefined) updateData.content = content;
-  if (coverLetter !== undefined) updateData.coverLetter = coverLetter;
-  if (photoUrl !== undefined) updateData.photoUrl = photoUrl;
-  if (fileUrl !== undefined) updateData.fileUrl = fileUrl;
+  if (title        !== undefined) updateData.title        = title;
+  if (content      !== undefined) updateData.content      = content;
+  if (coverLetter  !== undefined) updateData.coverLetter  = coverLetter;
+  if (desiredSalary !== undefined) updateData.desiredSalary = desiredSalary != null ? Number(desiredSalary) : null;
+  if (photoUrl     !== undefined) updateData.photoUrl     = photoUrl;
+  if (fileUrl      !== undefined) updateData.fileUrl      = fileUrl;
 
   const [resume] = await db.update(resumesTable).set(updateData)
     .where(and(eq(resumesTable.id, id), eq(resumesTable.userId, req.session.userId!)))

@@ -2,46 +2,56 @@ import { useParams, Link } from "wouter"
 import { useGetAnalysis, getGetAnalysisQueryKey } from "@workspace/api-client-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
-import { Badge } from "@/components/ui/badge"
-import { ChevronLeft, CheckCircle2, XCircle, AlertTriangle, Link2, ExternalLink, TrendingUp } from "lucide-react"
+import {
+  ChevronLeft, CheckCircle2, XCircle, AlertTriangle,
+  Link2, ExternalLink, TrendingUp, Banknote, Award, GraduationCap,
+} from "lucide-react"
 
-// ── 타입 정의 ──────────────────────────────────────────────────────────────
+// ── 타입 ──────────────────────────────────────────────────────────────────
 interface UrlCheckResult {
-  url: string
-  type: "github" | "portfolio" | "other"
-  accessible: boolean
-  statusCode?: number
+  url: string; type: "github" | "portfolio" | "other"
+  accessible: boolean; statusCode?: number
   githubData?: {
     login: string; name: string | null; bio: string | null
     publicRepos: number; followers: number; following: number
     topLanguages: string[]
-    pinnedRepos?: Array<{ name: string; description: string | null; language: string | null; stars: number }>
+    pinnedRepos?: { name: string; description: string | null; language: string | null; stars: number }[]
     totalStars: number; accountAge: string
   }
-  technicalAnalysis?: string
   error?: string
 }
 
-interface TechSkill { name: string; score: number }
-interface PersonalityDimension { name: string; score: number }
+interface TechSkill        { name: string; score: number }
+interface PersonalityDim   { name: string; score: number }
+interface SalaryField      { field: string; min: number; max: number }
+
 interface RichAnalysis {
   technicalSkills: TechSkill[]
   personalityAnalysis: {
-    score: number
-    dimensions: PersonalityDimension[]
-    strengths: string
-    concerns: string
-    summary: string
+    score: number; dimensions: PersonalityDim[]
+    strengths: string; concerns: string; summary: string
   }
   organizationalFit: { score: number; reasoning: string }
   urlAiEvaluation: string
+  salaryAnalysis?: {
+    estimatedMin: number; estimatedMax: number
+    byField: SalaryField[]
+    desiredSalaryComment: string; basis: string
+  }
+  expectedRank?: {
+    applicable: boolean; rank: string
+    yearsOfExperience: number; reasoning: string
+  }
+  graduationGap?: {
+    detected: boolean; graduationYear: number; gapYears: number
+    isLongGap: boolean; copingStrategy: string; sampleQuestions: string[]
+  }
 }
 
-// ── 공통 컴포넌트 ───────────────────────────────────────────────────────────
+// ── 공통 UI ───────────────────────────────────────────────────────────────
 function ScoreCircle({ score, label, color }: { score: number | null | undefined; label: string; color: string }) {
   const v = score ?? 0
-  const r = 45
-  const circ = 2 * Math.PI * r
+  const r = 45; const circ = 2 * Math.PI * r
   const offset = circ - (circ * v) / 100
   return (
     <div className="flex flex-col items-center gap-2 py-5 px-3">
@@ -49,14 +59,11 @@ function ScoreCircle({ score, label, color }: { score: number | null | undefined
         <svg className="w-full h-full -rotate-90" viewBox="0 0 100 100">
           <circle cx="50" cy="50" r={r} fill="none" stroke="currentColor" strokeWidth="8" className="text-slate-100" />
           <circle cx="50" cy="50" r={r} fill="none" stroke="currentColor" strokeWidth="8"
-            className={color}
-            strokeDasharray={circ} strokeDashoffset={offset}
-            strokeLinecap="round"
-            style={{ transition: "stroke-dashoffset 1s ease-out" }}
-          />
+            className={color} strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
+            style={{ transition: "stroke-dashoffset 1s ease-out" }} />
         </svg>
         <div className="absolute inset-0 flex items-center justify-center">
-          <span className="text-2xl font-black font-mono tracking-tight">{v}</span>
+          <span className="text-2xl font-black font-mono">{v}</span>
         </div>
       </div>
       <span className="text-xs font-semibold text-center text-slate-600 leading-tight">{label}</span>
@@ -74,21 +81,17 @@ function scoreColor(s: number | null | undefined) {
 function HBar({ score, color }: { score: number; color: string }) {
   return (
     <div className="h-2 rounded-full bg-slate-100 overflow-hidden flex-1">
-      <div
-        className={`h-full rounded-full transition-all duration-700 ${color}`}
-        style={{ width: `${score}%` }}
-      />
+      <div className={`h-full rounded-full transition-all duration-700 ${color}`} style={{ width: `${score}%` }} />
     </div>
   )
 }
-
-function barColor(score: number) {
-  if (score >= 70) return "bg-emerald-500"
-  if (score >= 50) return "bg-amber-400"
-  return "bg-red-500"
+function barColor(s: number) {
+  return s >= 70 ? "bg-emerald-500" : s >= 50 ? "bg-amber-400" : "bg-red-500"
 }
 
-// ── 메인 페이지 ─────────────────────────────────────────────────────────────
+function wan(n: number) { return `${n.toLocaleString()}만원` }
+
+// ── 메인 ─────────────────────────────────────────────────────────────────
 export default function AnalysisDetail() {
   const params = useParams()
   const analysisId = parseInt(params.id!, 10)
@@ -108,30 +111,31 @@ export default function AnalysisDetail() {
       <div className="space-y-6">
         <Skeleton className="h-10 w-64" />
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          {[1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-40 rounded-2xl" />)}
+          {[1,2,3,4].map(i => <Skeleton key={i} className="h-40 rounded-2xl" />)}
         </div>
-        <Skeleton className="h-64 w-full rounded-2xl" />
-        <Skeleton className="h-64 w-full rounded-2xl" />
+        {[1,2,3].map(i => <Skeleton key={i} className="h-64 w-full rounded-2xl" />)}
       </div>
     )
   }
 
   const isProcessing = analysis.status === "pending" || analysis.status === "processing"
 
-  // rich 데이터 파싱
   let rich: RichAnalysis | null = null
   if (analysis.richAnalysisResult) {
     try { rich = JSON.parse(analysis.richAnalysisResult) } catch { /* ignore */ }
   }
-
-  // URL 데이터 파싱
   let urlResults: UrlCheckResult[] = []
   if (analysis.urlAnalysisResult) {
     try { urlResults = JSON.parse(analysis.urlAnalysisResult) } catch { /* ignore */ }
   }
 
+  const salary = rich?.salaryAnalysis
+  const rank   = rich?.expectedRank
+  const gap    = rich?.graduationGap
+
   return (
     <div className="space-y-6 animate-in fade-in duration-500">
+
       {/* ── 헤더 ── */}
       <div className="flex items-start gap-4">
         <Link href="/analyses"
@@ -165,8 +169,7 @@ export default function AnalysisDetail() {
           <div className="text-right shrink-0">
             <div className="text-xs text-slate-400 font-medium">종합 점수</div>
             <div className="text-4xl font-black font-mono tracking-tighter leading-none mt-0.5">
-              {analysis.overallScore}
-              <span className="text-base font-normal text-slate-400">/100</span>
+              {analysis.overallScore}<span className="text-base font-normal text-slate-400">/100</span>
             </div>
           </div>
         )}
@@ -179,7 +182,7 @@ export default function AnalysisDetail() {
             <div className="w-14 h-14 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-6" />
             <h3 className="text-xl font-bold">검증된 AI 3개가 서류를 분석하고 있습니다</h3>
             <p className="text-slate-500 max-w-sm mt-2 text-sm leading-relaxed">
-              기술 역량·인성·직무 적합도를 병렬로 심사합니다. 약 30~60초 소요됩니다.
+              기술 역량·인성·직무 적합도·예상 연봉을 병렬 심사합니다. 약 30~60초 소요됩니다.
             </p>
           </CardContent>
         </Card>
@@ -190,9 +193,9 @@ export default function AnalysisDetail() {
           {/* ── 4대 점수 ── */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {[
-              { score: analysis.languageScore,  label: "국어 품질" },
-              { score: analysis.jobMatchScore,   label: "직무 적합도" },
-              { score: analysis.aiWritingScore,  label: "진정성 (AI 탐지)" },
+              { score: analysis.languageScore,                   label: "국어 품질" },
+              { score: analysis.jobMatchScore,                   label: "직무 적합도" },
+              { score: analysis.aiWritingScore,                  label: "진정성 (AI 탐지)" },
               { score: rich?.personalityAnalysis?.score ?? null, label: "인성 점수" },
             ].map(({ score, label }) => (
               <Card key={label} className="rounded-2xl border border-slate-100 shadow-sm">
@@ -201,25 +204,127 @@ export default function AnalysisDetail() {
             ))}
           </div>
 
+          {/* ── 예상 연봉 산정 ── */}
+          {salary && (
+            <Card className="rounded-2xl border border-emerald-100 shadow-sm bg-gradient-to-br from-emerald-50/60 to-white">
+              <CardHeader className="pb-2 pt-5 px-6">
+                <CardTitle className="text-base font-bold flex items-center gap-2 text-emerald-800">
+                  <Banknote className="w-4 h-4" />
+                  예상 연봉 산정 (2026 최저시급 기준)
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-6 pb-5 space-y-4">
+                {/* 종합 예상 범위 */}
+                <div className="flex items-center gap-4">
+                  <div className="rounded-xl bg-emerald-700 text-white px-5 py-3 text-center">
+                    <div className="text-xs font-medium opacity-80 mb-0.5">예상 연봉 범위</div>
+                    <div className="text-xl font-black tracking-tight">
+                      {wan(salary.estimatedMin)} ~ {wan(salary.estimatedMax)}
+                    </div>
+                  </div>
+                  {rank?.applicable && rank.rank && (
+                    <div className="rounded-xl bg-blue-700 text-white px-5 py-3 text-center">
+                      <div className="text-xs font-medium opacity-80 mb-0.5">예상 직급</div>
+                      <div className="text-xl font-black tracking-tight">{rank.rank}</div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 직군별 예상 연봉 */}
+                {salary.byField.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-emerald-700 uppercase tracking-wide">직군별 예상 연봉</p>
+                    {salary.byField.map((f) => (
+                      <div key={f.field} className="flex items-center gap-3">
+                        <span className="w-36 shrink-0 text-sm font-medium text-slate-700 truncate">{f.field}</span>
+                        <div className="h-2 rounded-full bg-emerald-100 overflow-hidden flex-1">
+                          <div className="h-full rounded-full bg-emerald-500"
+                            style={{ width: `${Math.min((f.max / 12000) * 100, 100)}%`, transition: "width 0.7s" }} />
+                        </div>
+                        <span className="text-xs text-slate-500 shrink-0">{wan(f.min)} ~ {wan(f.max)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* 희망 연봉 비교 */}
+                {salary.desiredSalaryComment && (
+                  <div className="rounded-xl bg-amber-50 border border-amber-100 px-4 py-3">
+                    <p className="text-xs font-bold text-amber-700 mb-1">희망 연봉 비교</p>
+                    <p className="text-sm text-amber-800 leading-relaxed">{salary.desiredSalaryComment}</p>
+                  </div>
+                )}
+
+                {/* 산정 근거 */}
+                {salary.basis && (
+                  <p className="text-xs text-slate-400 leading-relaxed">{salary.basis}</p>
+                )}
+
+                {/* 직급 근거 */}
+                {rank?.applicable && rank.reasoning && (
+                  <p className="text-sm text-slate-600 leading-relaxed border-t border-emerald-100 pt-3">
+                    <span className="font-semibold text-emerald-700">직급 산정 근거: </span>
+                    {rank.reasoning}
+                  </p>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── 졸업 공백 대응 ── */}
+          {gap?.isLongGap && (
+            <Card className="rounded-2xl border border-amber-200 shadow-sm bg-gradient-to-br from-amber-50/60 to-white">
+              <CardHeader className="pb-2 pt-5 px-6">
+                <CardTitle className="text-base font-bold flex items-center gap-2 text-amber-800">
+                  <GraduationCap className="w-4 h-4" />
+                  졸업 공백 면접 대응 방안
+                  <span className="ml-auto text-xs font-normal bg-amber-100 text-amber-700 rounded-full px-2.5 py-0.5">
+                    {gap.graduationYear}년 졸업 · {gap.gapYears}년 경과
+                  </span>
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-6 pb-5 space-y-4">
+                {gap.copingStrategy && (
+                  <div className="rounded-xl bg-white border border-amber-100 px-4 py-3">
+                    <p className="text-xs font-bold text-amber-700 mb-2">면접 대응 전략</p>
+                    <p className="text-sm text-slate-700 leading-relaxed">{gap.copingStrategy}</p>
+                  </div>
+                )}
+                {gap.sampleQuestions.length > 0 && (
+                  <div>
+                    <p className="text-xs font-bold text-amber-700 mb-2">예상 면접 질문 (반드시 준비)</p>
+                    <ul className="space-y-2">
+                      {gap.sampleQuestions.map((q, i) => (
+                        <li key={i} className="flex items-start gap-2">
+                          <span className="shrink-0 w-5 h-5 rounded-full bg-amber-100 text-amber-700 flex items-center justify-center text-xs font-bold">
+                            {i + 1}
+                          </span>
+                          <span className="text-sm text-slate-700 leading-relaxed">{q}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* ── 기술별 점수 ── */}
           {rich?.technicalSkills && rich.technicalSkills.length > 0 && (
             <Card className="rounded-2xl border border-slate-100 shadow-sm">
               <CardHeader className="pb-2 pt-5 px-6">
                 <CardTitle className="text-base font-bold flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-blue-600" />
-                  기술별 점수
+                  <TrendingUp className="w-4 h-4 text-blue-600" />기술별 점수
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-6 pb-5 space-y-2.5">
-                {rich.technicalSkills
-                  .sort((a, b) => b.score - a.score)
-                  .map((sk) => (
-                    <div key={sk.name} className="flex items-center gap-3">
-                      <span className="w-36 shrink-0 text-sm font-medium text-slate-700 truncate">{sk.name}</span>
-                      <HBar score={sk.score} color={barColor(sk.score)} />
-                      <span className="w-8 text-right text-sm font-bold font-mono text-slate-700">{sk.score}</span>
-                    </div>
-                  ))}
+                {rich.technicalSkills.sort((a, b) => b.score - a.score).map((sk) => (
+                  <div key={sk.name} className="flex items-center gap-3">
+                    <span className="w-36 shrink-0 text-sm font-medium text-slate-700 truncate">{sk.name}</span>
+                    <HBar score={sk.score} color={barColor(sk.score)} />
+                    <span className="w-8 text-right text-sm font-bold font-mono text-slate-700">{sk.score}</span>
+                  </div>
+                ))}
               </CardContent>
             </Card>
           )}
@@ -232,22 +337,17 @@ export default function AnalysisDetail() {
                 <span className="text-lg font-black text-purple-700">{rich.personalityAnalysis.score}점</span>
               </CardHeader>
               <CardContent className="px-6 pb-5 space-y-4">
-                {/* 세부 차원 바 */}
                 <div className="space-y-2.5">
                   {rich.personalityAnalysis.dimensions.map((d) => (
                     <div key={d.name} className="flex items-center gap-3">
                       <span className="w-24 shrink-0 text-sm font-medium text-slate-700">{d.name}</span>
                       <div className="h-2 rounded-full bg-slate-100 overflow-hidden flex-1">
-                        <div
-                          className="h-full rounded-full bg-purple-500 transition-all duration-700"
-                          style={{ width: `${d.score}%` }}
-                        />
+                        <div className="h-full rounded-full bg-purple-500 transition-all duration-700" style={{ width: `${d.score}%` }} />
                       </div>
                       <span className="w-8 text-right text-sm font-bold font-mono text-slate-700">{d.score}</span>
                     </div>
                   ))}
                 </div>
-                {/* 강점 / 확인 필요 */}
                 {rich.personalityAnalysis.strengths && (
                   <div className="rounded-xl bg-emerald-50 border border-emerald-100 px-4 py-3">
                     <p className="text-xs font-bold text-emerald-700 mb-1">강점</p>
@@ -267,47 +367,33 @@ export default function AnalysisDetail() {
             </Card>
           )}
 
-          {/* ── 온라인 기술 역량 확인 ── */}
+          {/* ── 온라인 기술 역량 ── */}
           {urlResults.length > 0 && (
             <Card className="rounded-2xl border border-slate-100 shadow-sm">
               <CardHeader className="pb-2 pt-5 px-6">
                 <CardTitle className="text-base font-bold flex items-center gap-2">
-                  <Link2 className="w-4 h-4 text-blue-600" />
-                  온라인 기술 역량 확인 (GitHub·URL)
+                  <Link2 className="w-4 h-4 text-blue-600" />온라인 기술 역량 확인 (GitHub·URL)
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-6 pb-5 space-y-3">
                 {urlResults.map((r, i) => (
                   <div key={i} className="flex items-start gap-2.5 flex-wrap">
-                    {/* 타입 배지 */}
-                    <span className={`shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-xs font-bold ${
-                      r.type === "github" ? "bg-slate-900 text-white" : "bg-blue-100 text-blue-700"
-                    }`}>
+                    <span className={`shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-xs font-bold ${r.type === "github" ? "bg-slate-900 text-white" : "bg-blue-100 text-blue-700"}`}>
                       {r.type === "github" ? "GitHub" : "URL"}
                     </span>
-                    {/* URL 링크 */}
                     <a href={r.url} target="_blank" rel="noreferrer"
                       className="flex items-center gap-1 text-sm text-blue-600 hover:underline break-all">
-                      {r.url}
-                      <ExternalLink className="w-3 h-3 shrink-0 opacity-60" />
+                      {r.url}<ExternalLink className="w-3 h-3 shrink-0 opacity-60" />
                     </a>
-                    {/* 상태 */}
-                    {r.accessible ? (
-                      <span className="shrink-0 text-xs text-slate-500">
-                        {r.type === "github" ? `${r.githubData?.topLanguages?.[0] ?? ""} · ★${r.githubData?.totalStars ?? 0}` : "웹 페이지"}
-                      </span>
-                    ) : (
-                      <span className="shrink-0 text-xs font-semibold text-red-500">
-                        확인 실패 {r.error ? `(${r.error})` : r.statusCode ? `(HTTP ${r.statusCode})` : ""}
-                      </span>
-                    )}
+                    {r.accessible
+                      ? <span className="shrink-0 text-xs text-slate-500">{r.type === "github" ? `${r.githubData?.topLanguages?.[0] ?? ""} · ★${r.githubData?.totalStars ?? 0}` : "웹 페이지"}</span>
+                      : <span className="shrink-0 text-xs font-semibold text-red-500">확인 실패 {r.error ? `(${r.error})` : r.statusCode ? `(HTTP ${r.statusCode})` : ""}</span>
+                    }
                   </div>
                 ))}
-
-                {/* GitHub 상세 */}
                 {urlResults.filter(r => r.type === "github" && r.githubData).map((r, i) => (
                   <div key={`gh-${i}`} className="rounded-xl bg-slate-50 border border-slate-100 p-4 space-y-2">
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span className="font-bold text-sm">@{r.githubData!.login}</span>
                       <span className="text-xs text-slate-400">· {r.githubData!.accountAge}</span>
                       <span className="text-xs text-slate-400">저장소 {r.githubData!.publicRepos}개</span>
@@ -321,22 +407,16 @@ export default function AnalysisDetail() {
                         ))}
                       </div>
                     )}
-                    {r.githubData!.pinnedRepos && r.githubData!.pinnedRepos.length > 0 && (
-                      <div className="space-y-1 pt-1">
-                        {r.githubData!.pinnedRepos.map(repo => (
-                          <div key={repo.name} className="flex items-center gap-2 text-xs text-slate-600">
-                            <span className="font-mono font-semibold">{repo.name}</span>
-                            {repo.language && <span className="text-slate-400">({repo.language})</span>}
-                            {repo.stars > 0 && <span>★{repo.stars}</span>}
-                            {repo.description && <span className="text-slate-400 truncate">— {repo.description}</span>}
-                          </div>
-                        ))}
+                    {r.githubData!.pinnedRepos?.map(repo => (
+                      <div key={repo.name} className="flex items-center gap-2 text-xs text-slate-600">
+                        <span className="font-mono font-semibold">{repo.name}</span>
+                        {repo.language && <span className="text-slate-400">({repo.language})</span>}
+                        {repo.stars > 0 && <span>★{repo.stars}</span>}
+                        {repo.description && <span className="text-slate-400 truncate">— {repo.description}</span>}
                       </div>
-                    )}
+                    ))}
                   </div>
                 ))}
-
-                {/* AI 종합 평가 */}
                 {rich?.urlAiEvaluation && (
                   <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 mt-1">
                     <p className="text-xs font-bold text-blue-700 mb-1">AI 평가</p>
@@ -357,10 +437,8 @@ export default function AnalysisDetail() {
               <CardContent className="px-6 pb-5">
                 <div className="mb-3">
                   <div className="h-2 rounded-full bg-slate-100 overflow-hidden">
-                    <div
-                      className="h-full rounded-full bg-teal-500 transition-all duration-700"
-                      style={{ width: `${rich.organizationalFit.score}%` }}
-                    />
+                    <div className="h-full rounded-full bg-teal-500 transition-all duration-700"
+                      style={{ width: `${rich.organizationalFit.score}%` }} />
                   </div>
                 </div>
                 <p className="text-sm text-slate-600 leading-relaxed">{rich.organizationalFit.reasoning}</p>
@@ -370,36 +448,20 @@ export default function AnalysisDetail() {
 
           {/* ── 세부 피드백 ── */}
           <div className="grid md:grid-cols-2 gap-4">
-            {analysis.languageFeedback && (
-              <Card className="rounded-2xl border border-slate-100 shadow-sm">
+            {[
+              { label: "국어 및 설득력",  text: analysis.languageFeedback  },
+              { label: "채용공고 적합도", text: analysis.jobMatchFeedback  },
+              { label: "진정성 (AI 탐지)", text: analysis.aiWritingFeedback },
+            ].filter(f => f.text).map(({ label, text }) => (
+              <Card key={label} className="rounded-2xl border border-slate-100 shadow-sm">
                 <CardHeader className="pb-1 pt-4 px-5">
-                  <CardTitle className="text-sm font-bold text-slate-700">국어 및 설득력</CardTitle>
+                  <CardTitle className="text-sm font-bold text-slate-700">{label}</CardTitle>
                 </CardHeader>
                 <CardContent className="px-5 pb-4">
-                  <p className="text-sm text-slate-600 leading-relaxed">{analysis.languageFeedback}</p>
+                  <p className="text-sm text-slate-600 leading-relaxed">{text}</p>
                 </CardContent>
               </Card>
-            )}
-            {analysis.jobMatchFeedback && (
-              <Card className="rounded-2xl border border-slate-100 shadow-sm">
-                <CardHeader className="pb-1 pt-4 px-5">
-                  <CardTitle className="text-sm font-bold text-slate-700">채용공고 적합도</CardTitle>
-                </CardHeader>
-                <CardContent className="px-5 pb-4">
-                  <p className="text-sm text-slate-600 leading-relaxed">{analysis.jobMatchFeedback}</p>
-                </CardContent>
-              </Card>
-            )}
-            {analysis.aiWritingFeedback && (
-              <Card className="rounded-2xl border border-slate-100 shadow-sm">
-                <CardHeader className="pb-1 pt-4 px-5">
-                  <CardTitle className="text-sm font-bold text-slate-700">진정성 (AI 탐지)</CardTitle>
-                </CardHeader>
-                <CardContent className="px-5 pb-4">
-                  <p className="text-sm text-slate-600 leading-relaxed">{analysis.aiWritingFeedback}</p>
-                </CardContent>
-              </Card>
-            )}
+            ))}
           </div>
 
           {/* ── 핵심 개선사항 ── */}
@@ -407,15 +469,13 @@ export default function AnalysisDetail() {
             <Card className="rounded-2xl border border-slate-100 shadow-sm">
               <CardHeader className="pb-2 pt-5 px-6">
                 <CardTitle className="text-base font-bold flex items-center gap-2">
-                  <AlertTriangle className="w-4 h-4 text-amber-500" />
-                  핵심 개선사항
+                  <AlertTriangle className="w-4 h-4 text-amber-500" />핵심 개선사항
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-6 pb-5">
                 <ul className="space-y-3">
                   {analysis.improvementSuggestions
-                    .split("\n")
-                    .filter((s) => s.trim().length > 0)
+                    .split("\n").filter(s => s.trim().length > 0)
                     .map((s, idx) => (
                       <li key={idx} className="flex items-start gap-3">
                         <div className="mt-0.5 w-5 h-5 rounded-full bg-amber-50 text-amber-600 flex items-center justify-center shrink-0 text-xs font-bold ring-1 ring-amber-100">

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react"
 import { useLocation, useParams } from "wouter"
-import { useForm } from "react-hook-form"
+import { useForm, useWatch } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { useCreateResume, useUpdateResume, useGetResume, getGetResumeQueryKey } from "@workspace/api-client-react"
@@ -15,10 +15,9 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ChevronLeft, Save, Upload, Eye, Pencil, Loader2 } from "lucide-react"
+import { ChevronLeft, Save, Upload, Eye, Pencil, Loader2, Banknote } from "lucide-react"
 
 // ── 마크다운 테이블 렌더러 ──────────────────────────────────────────────────
-// 마크다운 | col | col | 문법을 HTML <table>로 렌더링합니다.
 function MarkdownContent({ text }: { text: string }) {
   const blocks = splitToBlocks(text)
   return (
@@ -46,26 +45,20 @@ function MarkdownContent({ text }: { text: string }) {
   )
 }
 
-type TextBlock = { type: "text"; text: string }
+type TextBlock  = { type: "text";  text: string }
 type TableBlock = { type: "table"; rows: string[][] }
 type Block = TextBlock | TableBlock
 
 function splitToBlocks(text: string): Block[] {
   const lines = text.split("\n")
   const blocks: Block[] = []
-  let textBuf: string[] = []
+  let textBuf: string[]   = []
   let tableBuf: string[][] = []
   let inTable = false
 
-  const flushText = () => {
-    if (textBuf.length) {
-      blocks.push({ type: "text", text: textBuf.join("\n") })
-      textBuf = []
-    }
-  }
+  const flushText  = () => { if (textBuf.length)  { blocks.push({ type: "text",  text: textBuf.join("\n") }); textBuf  = [] } }
   const flushTable = () => {
     if (tableBuf.length) {
-      // remove separator rows (---|---) and empty rows
       const rows = tableBuf.filter(r => !r.every(c => /^[-: ]+$/.test(c)))
       if (rows.length) blocks.push({ type: "table", rows })
       tableBuf = []
@@ -78,8 +71,7 @@ function splitToBlocks(text: string): Block[] {
     const isTableRow = trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.includes("|", 1)
     if (isTableRow) {
       if (!inTable) { flushText(); inTable = true }
-      const cells = trimmed.slice(1, -1).split("|").map(c => c.trim())
-      tableBuf.push(cells)
+      tableBuf.push(trimmed.slice(1, -1).split("|").map(c => c.trim()))
     } else {
       if (inTable) flushTable()
       textBuf.push(line)
@@ -92,9 +84,10 @@ function splitToBlocks(text: string): Block[] {
 
 // ── 폼 스키마 ──────────────────────────────────────────────────────────────
 const resumeSchema = z.object({
-  title:       z.string().min(1, "제목을 입력해주세요"),
-  content:     z.string().optional(),
-  coverLetter: z.string().optional(),
+  title:         z.string().min(1, "제목을 입력해주세요"),
+  content:       z.string().optional(),
+  coverLetter:   z.string().optional(),
+  desiredSalary: z.string().optional(), // 문자열로 받아 숫자로 변환
 })
 
 // ── 메인 컴포넌트 ──────────────────────────────────────────────────────────
@@ -103,7 +96,7 @@ export default function ResumeDetail() {
   const [, setLocation] = useLocation()
   const queryClient = useQueryClient()
 
-  const isNew = !params.id || params.id === "new"
+  const isNew    = !params.id || params.id === "new"
   const resumeId = isNew ? 0 : parseInt(params.id!, 10)
 
   const { data: resume, isLoading } = useGetResume(resumeId, {
@@ -113,34 +106,32 @@ export default function ResumeDetail() {
   const createResume = useCreateResume()
   const updateResume = useUpdateResume()
 
-  // 파일 업로드 상태
   const fileInputRef   = useRef<HTMLInputElement>(null)
-  const [selectedFile, setSelectedFile]   = useState<File | null>(null)
-  const [uploadTitle,  setUploadTitle]    = useState("")
-  const [isUploading,  setIsUploading]    = useState(false)
+  const [selectedFile, setSelectedFile] = useState<File | null>(null)
+  const [uploadTitle,  setUploadTitle]  = useState("")
+  const [isUploading,  setIsUploading]  = useState(false)
 
-  // 미리보기 탭 상태 (이력서 내용 / 자기소개서)
   const [contentView,     setContentView]     = useState<"edit" | "preview">("edit")
   const [coverLetterView, setCoverLetterView] = useState<"edit" | "preview">("edit")
 
   const form = useForm<z.infer<typeof resumeSchema>>({
     resolver: zodResolver(resumeSchema),
-    defaultValues: { title: "", content: "", coverLetter: "" },
+    defaultValues: { title: "", content: "", coverLetter: "", desiredSalary: "" },
   })
 
   const initializedRef = useRef(false)
   useEffect(() => {
     if (resume && !initializedRef.current) {
       form.reset({
-        title:       resume.title       || "",
-        content:     resume.content     || "",
-        coverLetter: resume.coverLetter || "",
+        title:         resume.title         || "",
+        content:       resume.content       || "",
+        coverLetter:   resume.coverLetter   || "",
+        desiredSalary: resume.desiredSalary != null ? String(resume.desiredSalary) : "",
       })
       initializedRef.current = true
     }
   }, [resume, form])
 
-  // ── 파일 업로드 핸들러 ──
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) setSelectedFile(file)
@@ -158,7 +149,6 @@ export default function ResumeDetail() {
       const formData = new FormData()
       formData.append("file", selectedFile)
       if (uploadTitle.trim()) formData.append("title", uploadTitle.trim())
-
       const response = await fetch("/api/resumes/upload", {
         method: "POST", body: formData, credentials: "include",
       })
@@ -168,25 +158,33 @@ export default function ResumeDetail() {
       }
       const created = await response.json()
       toast.success("이력서가 업로드되었습니다. 내용을 확인하고 저장하세요.")
-      // 업로드 후 수정 화면으로 이동하여 분리 결과를 바로 확인
       setLocation(`/resumes/${created.id}`)
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "업로드에 실패했습니다"
-      toast.error(msg)
+      toast.error(err instanceof Error ? err.message : "업로드에 실패했습니다")
     } finally {
       setIsUploading(false)
     }
   }
 
-  // ── 저장 핸들러 ──
   const onSubmit = (values: z.infer<typeof resumeSchema>) => {
+    const desiredSalaryNum = values.desiredSalary && values.desiredSalary.trim()
+      ? parseInt(values.desiredSalary.replace(/[^0-9]/g, ""), 10) || null
+      : null
+
+    const payload = {
+      title:         values.title,
+      content:       values.content       || "",
+      coverLetter:   values.coverLetter   || "",
+      desiredSalary: desiredSalaryNum ?? undefined,
+    }
+
     if (isNew) {
-      createResume.mutate({ data: values }, {
+      createResume.mutate({ data: payload }, {
         onSuccess: () => { toast.success("이력서가 등록되었습니다"); setLocation("/resumes") },
         onError:   () => toast.error("이력서 등록에 실패했습니다"),
       })
     } else {
-      updateResume.mutate({ id: resumeId, data: values }, {
+      updateResume.mutate({ id: resumeId, data: payload }, {
         onSuccess: (updated) => {
           toast.success("이력서가 수정되었습니다")
           queryClient.setQueryData(getGetResumeQueryKey(resumeId), updated)
@@ -208,12 +206,22 @@ export default function ResumeDetail() {
     )
   }
 
-  const isPending = createResume.isPending || updateResume.isPending
-  const contentValue     = form.watch("content")     ?? ""
-  const coverLetterValue = form.watch("coverLetter") ?? ""
+  const isPending        = createResume.isPending || updateResume.isPending
+  const contentValue     = useWatch({ control: form.control, name: "content"     }) ?? ""
+  const coverLetterValue = useWatch({ control: form.control, name: "coverLetter" }) ?? ""
   const hasTable = (t: string) => t.includes("|")
 
-  // ── 편집 폼 (직접 입력 & 기존 수정) ──
+  const ViewToggle = ({ view, setView }: { view: "edit"|"preview"; setView: (v:"edit"|"preview")=>void }) => (
+    <div className="flex rounded-md border overflow-hidden text-xs">
+      {(["edit","preview"] as const).map(v => (
+        <button key={v} type="button" onClick={() => setView(v)}
+          className={`px-3 py-1 flex items-center gap-1 transition-colors ${view === v ? "bg-primary text-primary-foreground" : "bg-white hover:bg-slate-50 text-slate-600"}`}>
+          {v === "edit" ? <><Pencil className="w-3 h-3" />편집</> : <><Eye className="w-3 h-3" />미리보기</>}
+        </button>
+      ))}
+    </div>
+  )
+
   const EditForm = (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -221,9 +229,34 @@ export default function ResumeDetail() {
         <FormField control={form.control} name="title" render={({ field }) => (
           <FormItem>
             <FormLabel>제목 / 이름</FormLabel>
+            <FormControl><Input placeholder="예: 프론트엔드 개발자 이력서" {...field} /></FormControl>
+            <FormMessage />
+          </FormItem>
+        )} />
+
+        {/* 희망 연봉 */}
+        <FormField control={form.control} name="desiredSalary" render={({ field }) => (
+          <FormItem>
+            <FormLabel className="flex items-center gap-1.5">
+              <Banknote className="w-4 h-4 text-emerald-600" />
+              희망 연봉 (만원)
+            </FormLabel>
             <FormControl>
-              <Input placeholder="예: 프론트엔드 개발자 이력서" {...field} />
+              <div className="relative">
+                <Input
+                  type="number"
+                  min={0}
+                  step={100}
+                  placeholder="예: 4500  (미기재 시 비워두세요)"
+                  className="pr-14"
+                  {...field}
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 pointer-events-none">
+                  만원
+                </span>
+              </div>
             </FormControl>
+            <p className="text-xs text-slate-400">AI 서류 심사 시 예상 연봉과 비교·분석됩니다.</p>
             <FormMessage />
           </FormItem>
         )} />
@@ -233,20 +266,7 @@ export default function ResumeDetail() {
           <FormItem>
             <div className="flex items-center justify-between mb-1.5">
               <FormLabel className="mb-0">이력서 내용</FormLabel>
-              {hasTable(contentValue) && (
-                <div className="flex rounded-md border overflow-hidden text-xs">
-                  <button type="button"
-                    onClick={() => setContentView("edit")}
-                    className={`px-3 py-1 flex items-center gap-1 transition-colors ${contentView === "edit" ? "bg-primary text-primary-foreground" : "bg-white hover:bg-slate-50 text-slate-600"}`}>
-                    <Pencil className="w-3 h-3" />편집
-                  </button>
-                  <button type="button"
-                    onClick={() => setContentView("preview")}
-                    className={`px-3 py-1 flex items-center gap-1 transition-colors ${contentView === "preview" ? "bg-primary text-primary-foreground" : "bg-white hover:bg-slate-50 text-slate-600"}`}>
-                    <Eye className="w-3 h-3" />미리보기
-                  </button>
-                </div>
-              )}
+              {hasTable(contentValue) && <ViewToggle view={contentView} setView={setContentView} />}
             </div>
             <FormControl>
               {contentView === "edit" || !hasTable(contentValue) ? (
@@ -258,7 +278,7 @@ export default function ResumeDetail() {
               )}
             </FormControl>
             {hasTable(contentValue) && contentView === "edit" && (
-              <p className="text-xs text-slate-400 mt-1">표 데이터가 감지되었습니다. 미리보기 탭에서 렌더링된 표를 확인하세요.</p>
+              <p className="text-xs text-slate-400 mt-1">표 데이터가 감지되었습니다. 미리보기에서 렌더링된 표를 확인하세요.</p>
             )}
             <FormMessage />
           </FormItem>
@@ -269,20 +289,7 @@ export default function ResumeDetail() {
           <FormItem>
             <div className="flex items-center justify-between mb-1.5">
               <FormLabel className="mb-0">자기소개서</FormLabel>
-              {coverLetterValue.trim() && (
-                <div className="flex rounded-md border overflow-hidden text-xs">
-                  <button type="button"
-                    onClick={() => setCoverLetterView("edit")}
-                    className={`px-3 py-1 flex items-center gap-1 transition-colors ${coverLetterView === "edit" ? "bg-primary text-primary-foreground" : "bg-white hover:bg-slate-50 text-slate-600"}`}>
-                    <Pencil className="w-3 h-3" />편집
-                  </button>
-                  <button type="button"
-                    onClick={() => setCoverLetterView("preview")}
-                    className={`px-3 py-1 flex items-center gap-1 transition-colors ${coverLetterView === "preview" ? "bg-primary text-primary-foreground" : "bg-white hover:bg-slate-50 text-slate-600"}`}>
-                    <Eye className="w-3 h-3" />미리보기
-                  </button>
-                </div>
-              )}
+              {coverLetterValue.trim() && <ViewToggle view={coverLetterView} setView={setCoverLetterView} />}
             </div>
             <FormControl>
               {coverLetterView === "edit" ? (
@@ -310,7 +317,6 @@ export default function ResumeDetail() {
 
   return (
     <div className="max-w-4xl space-y-8 animate-in fade-in duration-500">
-      {/* 헤더 */}
       <div className="flex items-center gap-4 border-b pb-4">
         <Button variant="ghost" size="icon" onClick={() => setLocation("/resumes")}>
           <ChevronLeft className="w-5 h-5" />
@@ -327,7 +333,6 @@ export default function ResumeDetail() {
             <TabsTrigger value="manual">직접 입력</TabsTrigger>
           </TabsList>
 
-          {/* 파일 업로드 탭 */}
           <TabsContent value="upload" className="space-y-5">
             <div
               className="border-2 border-dashed border-slate-200 rounded-2xl p-12 text-center cursor-pointer hover:border-primary hover:bg-blue-50/30 transition-all"
@@ -362,21 +367,16 @@ export default function ResumeDetail() {
             <div className="flex justify-end gap-3">
               <Button type="button" variant="outline" onClick={() => setLocation("/resumes")}>취소</Button>
               <Button onClick={handleUpload} disabled={isUploading || !selectedFile}>
-                {isUploading ? (
-                  <><Loader2 className="w-4 h-4 mr-2 animate-spin" />분석 중…</>
-                ) : (
-                  <><Upload className="w-4 h-4 mr-2" />업로드 및 분석</>
-                )}
+                {isUploading
+                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />분석 중…</>
+                  : <><Upload className="w-4 h-4 mr-2" />업로드 및 분석</>}
               </Button>
             </div>
           </TabsContent>
 
-          {/* 직접 입력 탭 */}
           <TabsContent value="manual">{EditForm}</TabsContent>
         </Tabs>
-      ) : (
-        EditForm
-      )}
+      ) : EditForm}
     </div>
   )
 }

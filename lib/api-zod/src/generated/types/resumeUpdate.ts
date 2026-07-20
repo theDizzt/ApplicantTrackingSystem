@@ -10,6 +10,7 @@ export interface ResumeUpdate {
   title?: string;
   content?: string;
   coverLetter?: string;
+  desiredSalary?: number;
   photoUrl?: string;
   fileUrl?: string;
 }

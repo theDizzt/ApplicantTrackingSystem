@@ -15,6 +15,8 @@ export interface Resume {
   /** @nullable */
   coverLetter?: string | null;
   /** @nullable */
+  desiredSalary?: number | null;
+  /** @nullable */
   photoUrl?: string | null;
   /** @nullable */
   fileUrl?: string | null;

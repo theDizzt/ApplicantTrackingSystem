@@ -8,6 +8,7 @@ export const resumesTable = pgTable("resumes", {
   title: text("title").notNull(),
   content: text("content"),
   coverLetter: text("cover_letter"),
+  desiredSalary: integer("desired_salary"), // 희망 연봉 (만원 단위)
   photoUrl: text("photo_url"),
   fileUrl: text("file_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
