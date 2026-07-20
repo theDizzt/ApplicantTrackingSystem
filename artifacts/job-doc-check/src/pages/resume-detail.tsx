@@ -1,9 +1,11 @@
 import { useEffect, useRef, useState } from "react"
 import { useLocation, useParams } from "wouter"
-import { useForm, useWatch } from "react-hook-form"
+import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
-import { useCreateResume, useUpdateResume, useGetResume, getGetResumeQueryKey } from "@workspace/api-client-react"
+import {
+  useCreateResume, useUpdateResume, useGetResume, getGetResumeQueryKey,
+} from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 
@@ -12,83 +14,142 @@ import {
   Form, FormControl, FormField, FormItem, FormLabel, FormMessage,
 } from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ChevronLeft, Save, Upload, Eye, Pencil, Loader2, Banknote } from "lucide-react"
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog"
+import { Badge } from "@/components/ui/badge"
+import {
+  ChevronLeft, Save, Upload, Loader2, Banknote, FileDown,
+  CheckCircle2, AlertTriangle, SpellCheck,
+} from "lucide-react"
 
-// ── 마크다운 테이블 렌더러 ──────────────────────────────────────────────────
-function MarkdownContent({ text }: { text: string }) {
-  const blocks = splitToBlocks(text)
-  return (
-    <div className="text-sm leading-relaxed space-y-3 font-mono whitespace-pre-wrap break-words">
-      {blocks.map((block, i) =>
-        block.type === "table" ? (
-          <div key={i} className="overflow-x-auto my-2 not-prose">
-            <table className="w-full border-collapse text-sm">
-              {block.rows.map((row, ri) => (
-                <tr key={ri} className={ri === 0 ? "bg-slate-100 font-semibold" : "even:bg-slate-50"}>
-                  {row.map((cell, ci) => (
-                    <td key={ci} className="border border-slate-200 px-3 py-1.5 align-top whitespace-pre-wrap">
-                      {cell}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </table>
-          </div>
-        ) : (
-          <span key={i}>{block.text}</span>
-        )
-      )}
-    </div>
-  )
-}
-
-type TextBlock  = { type: "text";  text: string }
-type TableBlock = { type: "table"; rows: string[][] }
-type Block = TextBlock | TableBlock
-
-function splitToBlocks(text: string): Block[] {
-  const lines = text.split("\n")
-  const blocks: Block[] = []
-  let textBuf: string[]   = []
-  let tableBuf: string[][] = []
-  let inTable = false
-
-  const flushText  = () => { if (textBuf.length)  { blocks.push({ type: "text",  text: textBuf.join("\n") }); textBuf  = [] } }
-  const flushTable = () => {
-    if (tableBuf.length) {
-      const rows = tableBuf.filter(r => !r.every(c => /^[-: ]+$/.test(c)))
-      if (rows.length) blocks.push({ type: "table", rows })
-      tableBuf = []
-    }
-    inTable = false
-  }
-
-  for (const line of lines) {
-    const trimmed = line.trim()
-    const isTableRow = trimmed.startsWith("|") && trimmed.endsWith("|") && trimmed.includes("|", 1)
-    if (isTableRow) {
-      if (!inTable) { flushText(); inTable = true }
-      tableBuf.push(trimmed.slice(1, -1).split("|").map(c => c.trim()))
-    } else {
-      if (inTable) flushTable()
-      textBuf.push(line)
-    }
-  }
-  if (inTable) flushTable()
-  flushText()
-  return blocks
-}
+import { RichTextEditor } from "@/components/rich-text-editor"
 
 // ── 폼 스키마 ──────────────────────────────────────────────────────────────
 const resumeSchema = z.object({
   title:         z.string().min(1, "제목을 입력해주세요"),
   content:       z.string().optional(),
   coverLetter:   z.string().optional(),
-  desiredSalary: z.string().optional(), // 문자열로 받아 숫자로 변환
+  desiredSalary: z.string().optional(),
 })
+
+type ResumeFormValues = z.infer<typeof resumeSchema>
+
+interface SpellCorrection {
+  field: string
+  original: string
+  corrected: string
+  reason: string
+}
+
+interface SpellcheckResult {
+  corrections: SpellCorrection[]
+  contentCorrected: string
+  coverLetterCorrected: string
+}
+
+// ── HTML → plain text ──────────────────────────────────────────────────────
+function htmlToText(html: string): string {
+  return html
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/p>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .trim()
+}
+
+// ── 일반 텍스트 → 에디터용 HTML ───────────────────────────────────────────
+function textToHtml(text: string): string {
+  if (!text) return ""
+  // 이미 HTML이면 그대로 반환
+  if (text.startsWith("<")) return text
+  return text
+    .split("\n")
+    .map(line => `<p>${line || "<br/>"}</p>`)
+    .join("")
+}
+
+// ── PDF 다운로드 (print 방식, 한글 완벽 지원) ─────────────────────────────
+function downloadPdf(title: string, content: string, coverLetter: string) {
+  const fontUrl =
+    "https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap"
+
+  const html = `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <title>${title}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="${fontUrl}" rel="stylesheet" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.8;
+      color: #1a1a1a;
+      padding: 30mm 20mm 24mm;
+      word-break: keep-all;
+    }
+    h1.doc-title {
+      font-size: 18pt;
+      font-weight: 700;
+      text-align: center;
+      margin-bottom: 10mm;
+      padding-bottom: 4mm;
+      border-bottom: 2px solid #2563eb;
+      color: #1e3a8a;
+    }
+    h2 { font-size: 13pt; font-weight: 700; margin: 7mm 0 3mm; color: #1e3a8a;
+         border-bottom: 1px solid #bfdbfe; padding-bottom: 1.5mm; }
+    h3 { font-size: 11pt; font-weight: 600; margin: 5mm 0 2mm; color: #1d4ed8; }
+    p  { margin: 0 0 2mm; }
+    ul, ol { margin: 0 0 3mm 5mm; }
+    li { margin-bottom: 1mm; }
+    strong { font-weight: 700; }
+    em     { font-style: italic; }
+    u      { text-decoration: underline; }
+    hr     { border: none; border-top: 1px solid #e5e7eb; margin: 5mm 0; }
+    section + section { margin-top: 8mm; }
+    .section-title {
+      font-size: 14pt;
+      font-weight: 700;
+      color: #1e3a8a;
+      margin: 8mm 0 3mm;
+      border-bottom: 2px solid #2563eb;
+      padding-bottom: 1.5mm;
+    }
+    @media print {
+      @page { size: A4; margin: 0; }
+      body { padding: 20mm 18mm 18mm; }
+    }
+  </style>
+</head>
+<body>
+  <h1 class="doc-title">${title}</h1>
+  ${content ? `<div class="section-title">이력서</div><section>${content}</section>` : ""}
+  ${coverLetter ? `<div class="section-title">자기소개서</div><section>${coverLetter}</section>` : ""}
+  <script>
+    // 폰트 로드 후 인쇄
+    document.fonts.ready.then(() => { window.print(); });
+  </script>
+</body>
+</html>`
+
+  const win = window.open("", "_blank")
+  if (!win) {
+    toast.error("팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.")
+    return
+  }
+  win.document.write(html)
+  win.document.close()
+}
 
 // ── 메인 컴포넌트 ──────────────────────────────────────────────────────────
 export default function ResumeDetail() {
@@ -106,15 +167,17 @@ export default function ResumeDetail() {
   const createResume = useCreateResume()
   const updateResume = useUpdateResume()
 
-  const fileInputRef   = useRef<HTMLInputElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploadTitle,  setUploadTitle]  = useState("")
   const [isUploading,  setIsUploading]  = useState(false)
 
-  const [contentView,     setContentView]     = useState<"edit" | "preview">("edit")
-  const [coverLetterView, setCoverLetterView] = useState<"edit" | "preview">("edit")
+  // 맞춤법 검사 상태
+  const [isChecking,      setIsChecking]      = useState(false)
+  const [spellResult,     setSpellResult]     = useState<SpellcheckResult | null>(null)
+  const [showSpellDialog, setShowSpellDialog] = useState(false)
 
-  const form = useForm<z.infer<typeof resumeSchema>>({
+  const form = useForm<ResumeFormValues>({
     resolver: zodResolver(resumeSchema),
     defaultValues: { title: "", content: "", coverLetter: "", desiredSalary: "" },
   })
@@ -124,14 +187,15 @@ export default function ResumeDetail() {
     if (resume && !initializedRef.current) {
       form.reset({
         title:         resume.title         || "",
-        content:       resume.content       || "",
-        coverLetter:   resume.coverLetter   || "",
+        content:       textToHtml(resume.content       || ""),
+        coverLetter:   textToHtml(resume.coverLetter   || ""),
         desiredSalary: resume.desiredSalary != null ? String(resume.desiredSalary) : "",
       })
       initializedRef.current = true
     }
   }, [resume, form])
 
+  // ── 파일 업로드 핸들러 ──────────────────────────────────────────────────
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
     if (file) setSelectedFile(file)
@@ -141,7 +205,6 @@ export default function ResumeDetail() {
     const file = e.dataTransfer.files?.[0]
     if (file) setSelectedFile(file)
   }
-
   const handleUpload = async () => {
     if (!selectedFile) { toast.error("파일을 선택해주세요"); return }
     setIsUploading(true)
@@ -166,11 +229,43 @@ export default function ResumeDetail() {
     }
   }
 
-  const onSubmit = (values: z.infer<typeof resumeSchema>) => {
-    const desiredSalaryNum = values.desiredSalary && values.desiredSalary.trim()
+  // ── AI 맞춤법 검사 ────────────────────────────────────────────────────────
+  const runSpellcheck = async (values: ResumeFormValues): Promise<boolean> => {
+    if (isNew) return true // 신규 등록 시 스킵
+    setIsChecking(true)
+    try {
+      const res = await fetch(`/api/resumes/${resumeId}/spellcheck`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          content:     values.content     || "",
+          coverLetter: values.coverLetter || "",
+        }),
+      })
+      if (!res.ok) throw new Error("맞춤법 검사 실패")
+      const result: SpellcheckResult = await res.json()
+      setSpellResult(result)
+      if (result.corrections.length > 0) {
+        setShowSpellDialog(true)
+        return false // 저장 대기
+      }
+      return true
+    } catch {
+      // 오류 시 바로 저장 진행
+      return true
+    } finally {
+      setIsChecking(false)
+    }
+  }
+
+  // ── 저장 ─────────────────────────────────────────────────────────────────
+  const doSave = (values: ResumeFormValues) => {
+    const desiredSalaryNum = values.desiredSalary?.trim()
       ? parseInt(values.desiredSalary.replace(/[^0-9]/g, ""), 10) || null
       : null
 
+    // HTML로 저장 (에디터 출력 그대로)
     const payload = {
       title:         values.title,
       content:       values.content       || "",
@@ -186,21 +281,58 @@ export default function ResumeDetail() {
     } else {
       updateResume.mutate({ id: resumeId, data: payload }, {
         onSuccess: (updated) => {
-          toast.success("이력서가 수정되었습니다")
+          toast.success("이력서가 저장되었습니다")
           queryClient.setQueryData(getGetResumeQueryKey(resumeId), updated)
           setLocation("/resumes")
         },
-        onError: () => toast.error("이력서 수정에 실패했습니다"),
+        onError: () => toast.error("이력서 저장에 실패했습니다"),
       })
     }
   }
 
-  // ── Hooks는 early return 위에 선언해야 합니다 (Rules of Hooks) ──────────
-  const isPending        = createResume.isPending || updateResume.isPending
-  const contentValue     = useWatch({ control: form.control, name: "content"     }) ?? ""
-  const coverLetterValue = useWatch({ control: form.control, name: "coverLetter" }) ?? ""
-  const hasTable = (t: string) => t.includes("|")
+  const onSubmit = async (values: ResumeFormValues) => {
+    const proceed = await runSpellcheck(values)
+    if (proceed) doSave(values)
+  }
 
+  // 맞춤법 교정 후 수정 적용하고 저장
+  const applyCorrectionsAndSave = () => {
+    if (!spellResult) return
+    const values = form.getValues()
+    // 교정된 텍스트를 HTML로 변환해 에디터에 반영
+    const correctedContent = spellResult.contentCorrected
+      ? textToHtml(spellResult.contentCorrected)
+      : values.content
+    const correctedCoverLetter = spellResult.coverLetterCorrected
+      ? textToHtml(spellResult.coverLetterCorrected)
+      : values.coverLetter
+
+    const correctedValues = {
+      ...values,
+      content:     correctedContent     || "",
+      coverLetter: correctedCoverLetter || "",
+    }
+    form.reset(correctedValues)
+    setShowSpellDialog(false)
+    doSave(correctedValues)
+  }
+
+  // 교정 없이 원문 그대로 저장
+  const saveWithoutCorrection = () => {
+    setShowSpellDialog(false)
+    doSave(form.getValues())
+  }
+
+  // ── PDF 다운로드 ─────────────────────────────────────────────────────────
+  const handleDownloadPdf = () => {
+    const values = form.getValues()
+    const title  = values.title || resume?.title || "이력서"
+    downloadPdf(title, values.content || "", values.coverLetter || "")
+  }
+
+  const isPending = createResume.isPending || updateResume.isPending
+
+  // ── 로딩 스켈레톤 ─────────────────────────────────────────────────────────
   if (!isNew && isLoading) {
     return (
       <div className="space-y-6 max-w-4xl">
@@ -212,25 +344,18 @@ export default function ResumeDetail() {
     )
   }
 
-  const ViewToggle = ({ view, setView }: { view: "edit"|"preview"; setView: (v:"edit"|"preview")=>void }) => (
-    <div className="flex rounded-md border overflow-hidden text-xs">
-      {(["edit","preview"] as const).map(v => (
-        <button key={v} type="button" onClick={() => setView(v)}
-          className={`px-3 py-1 flex items-center gap-1 transition-colors ${view === v ? "bg-primary text-primary-foreground" : "bg-white hover:bg-slate-50 text-slate-600"}`}>
-          {v === "edit" ? <><Pencil className="w-3 h-3" />편집</> : <><Eye className="w-3 h-3" />미리보기</>}
-        </button>
-      ))}
-    </div>
-  )
-
+  // ── 편집 폼 ──────────────────────────────────────────────────────────────
   const EditForm = (
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+
         {/* 제목 */}
         <FormField control={form.control} name="title" render={({ field }) => (
           <FormItem>
             <FormLabel>제목 / 이름</FormLabel>
-            <FormControl><Input placeholder="예: 프론트엔드 개발자 이력서" {...field} /></FormControl>
+            <FormControl>
+              <Input placeholder="예: 프론트엔드 개발자 이력서" {...field} />
+            </FormControl>
             <FormMessage />
           </FormItem>
         )} />
@@ -245,9 +370,7 @@ export default function ResumeDetail() {
             <FormControl>
               <div className="relative">
                 <Input
-                  type="number"
-                  min={0}
-                  step={100}
+                  type="number" min={0} step={100}
                   placeholder="예: 4500  (미기재 시 비워두세요)"
                   className="pr-14"
                   {...field}
@@ -262,122 +385,202 @@ export default function ResumeDetail() {
           </FormItem>
         )} />
 
-        {/* 이력서 내용 */}
-        <FormField control={form.control} name="content" render={({ field }) => (
-          <FormItem>
-            <div className="flex items-center justify-between mb-1.5">
-              <FormLabel className="mb-0">이력서 내용</FormLabel>
-              {hasTable(contentValue) && <ViewToggle view={contentView} setView={setContentView} />}
-            </div>
-            <FormControl>
-              {contentView === "edit" || !hasTable(contentValue) ? (
-                <Textarea className="h-72 resize-y font-mono text-sm" placeholder="경력, 학력, 기술 스택..." {...field} />
-              ) : (
-                <div className="min-h-72 max-h-[32rem] overflow-y-auto rounded-md border border-input bg-white px-3 py-2">
-                  <MarkdownContent text={contentValue} />
-                </div>
-              )}
-            </FormControl>
-            {hasTable(contentValue) && contentView === "edit" && (
-              <p className="text-xs text-slate-400 mt-1">표 데이터가 감지되었습니다. 미리보기에서 렌더링된 표를 확인하세요.</p>
+        {/* 이력서 내용 — 리치 텍스트 에디터 */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+            이력서 내용
+          </label>
+          <Controller
+            control={form.control}
+            name="content"
+            render={({ field }) => (
+              <RichTextEditor
+                value={field.value ?? ""}
+                onChange={field.onChange}
+                placeholder="경력, 학력, 기술 스택 등을 입력하세요. 제목(H2/H3), 목록, 굵게 등 서식을 자유롭게 사용하세요."
+                minHeight="18rem"
+              />
             )}
-            <FormMessage />
-          </FormItem>
-        )} />
+          />
+        </div>
 
-        {/* 자기소개서 */}
-        <FormField control={form.control} name="coverLetter" render={({ field }) => (
-          <FormItem>
-            <div className="flex items-center justify-between mb-1.5">
-              <FormLabel className="mb-0">자기소개서</FormLabel>
-              {coverLetterValue.trim() && <ViewToggle view={coverLetterView} setView={setCoverLetterView} />}
-            </div>
-            <FormControl>
-              {coverLetterView === "edit" ? (
-                <Textarea className="h-64 resize-y font-mono text-sm" placeholder="자기소개서 내용을 입력하세요..." {...field} />
+        {/* 자기소개서 — 리치 텍스트 에디터 */}
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+            자기소개서
+          </label>
+          <Controller
+            control={form.control}
+            name="coverLetter"
+            render={({ field }) => (
+              <RichTextEditor
+                value={field.value ?? ""}
+                onChange={field.onChange}
+                placeholder="자기소개서 내용을 입력하세요. 지원동기, 성장과정, 장단점 등을 서식과 함께 작성해보세요."
+                minHeight="14rem"
+              />
+            )}
+          />
+        </div>
+
+        {/* 액션 버튼 */}
+        <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t">
+          {/* PDF 다운로드 버튼 */}
+          {!isNew && (
+            <Button
+              type="button"
+              variant="outline"
+              onClick={handleDownloadPdf}
+              className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
+            >
+              <FileDown className="w-4 h-4" />
+              PDF 다운로드
+            </Button>
+          )}
+
+          <div className="flex gap-3 ml-auto">
+            <Button type="button" variant="outline" onClick={() => setLocation("/resumes")}>
+              취소
+            </Button>
+            <Button type="submit" disabled={isPending || isChecking}>
+              {isChecking ? (
+                <><SpellCheck className="w-4 h-4 mr-2 animate-pulse" />오탈자 검사 중…</>
+              ) : isPending ? (
+                <><Loader2 className="w-4 h-4 mr-2 animate-spin" />저장 중…</>
               ) : (
-                <div className="min-h-64 max-h-[40rem] overflow-y-auto rounded-md border border-input bg-white px-3 py-2">
-                  <MarkdownContent text={coverLetterValue} />
-                </div>
+                <><Save className="w-4 h-4 mr-2" />저장</>
               )}
-            </FormControl>
-            <FormMessage />
-          </FormItem>
-        )} />
-
-        <div className="flex justify-end gap-3 pt-4">
-          <Button type="button" variant="outline" onClick={() => setLocation("/resumes")}>취소</Button>
-          <Button type="submit" disabled={isPending}>
-            <Save className="w-4 h-4 mr-2" />
-            {isPending ? "저장 중..." : "저장"}
-          </Button>
+            </Button>
+          </div>
         </div>
       </form>
     </Form>
   )
 
   return (
-    <div className="max-w-4xl space-y-8 animate-in fade-in duration-500">
-      <div className="flex items-center gap-4 border-b pb-4">
-        <Button variant="ghost" size="icon" onClick={() => setLocation("/resumes")}>
-          <ChevronLeft className="w-5 h-5" />
-        </Button>
-        <h1 className="text-2xl font-extrabold tracking-tight">
-          {isNew ? "새 이력서 등록" : "이력서 수정"}
-        </h1>
+    <>
+      <div className="max-w-4xl space-y-8 animate-in fade-in duration-500">
+        <div className="flex items-center gap-4 border-b pb-4">
+          <Button variant="ghost" size="icon" onClick={() => setLocation("/resumes")}>
+            <ChevronLeft className="w-5 h-5" />
+          </Button>
+          <h1 className="text-2xl font-extrabold tracking-tight">
+            {isNew ? "새 이력서 등록" : "이력서 수정"}
+          </h1>
+        </div>
+
+        {isNew ? (
+          <Tabs defaultValue="upload">
+            <TabsList className="mb-6">
+              <TabsTrigger value="upload">파일 업로드</TabsTrigger>
+              <TabsTrigger value="manual">직접 입력</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="upload" className="space-y-5">
+              <div
+                className="border-2 border-dashed border-slate-200 rounded-2xl p-12 text-center cursor-pointer hover:border-primary hover:bg-blue-50/30 transition-all"
+                onClick={() => fileInputRef.current?.click()}
+                onDragOver={(e) => e.preventDefault()}
+                onDrop={handleDrop}
+              >
+                <Upload className="w-12 h-12 text-slate-400 mx-auto mb-4" />
+                <p className="text-base font-semibold text-slate-700">PDF 또는 DOCX 파일을 업로드하세요</p>
+                <p className="text-sm text-slate-400 mt-1">클릭하거나 여기에 드래그하세요</p>
+                <p className="text-xs text-slate-300 mt-1">최대 10MB · PDF, DOC, DOCX 지원</p>
+                {selectedFile && (
+                  <p className="mt-4 text-sm font-semibold text-primary">{selectedFile.name}</p>
+                )}
+              </div>
+              <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx"
+                className="hidden" onChange={handleFileSelect} />
+
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-slate-700">제목 (선택)</label>
+                <Input
+                  placeholder="비워두면 파일명이 자동 사용됩니다"
+                  value={uploadTitle}
+                  onChange={(e) => setUploadTitle(e.target.value)}
+                />
+              </div>
+
+              {isUploading && (
+                <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 flex items-center gap-3 text-sm text-blue-700">
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                  <span>파일을 분석하는 중입니다. 자기소개서를 자동으로 분리하고 표를 변환합니다…</span>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-3">
+                <Button type="button" variant="outline" onClick={() => setLocation("/resumes")}>취소</Button>
+                <Button onClick={handleUpload} disabled={isUploading || !selectedFile}>
+                  {isUploading
+                    ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />분석 중…</>
+                    : <><Upload className="w-4 h-4 mr-2" />업로드 및 분석</>}
+                </Button>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="manual">{EditForm}</TabsContent>
+          </Tabs>
+        ) : EditForm}
       </div>
 
-      {isNew ? (
-        <Tabs defaultValue="upload">
-          <TabsList className="mb-6">
-            <TabsTrigger value="upload">파일 업로드</TabsTrigger>
-            <TabsTrigger value="manual">직접 입력</TabsTrigger>
-          </TabsList>
+      {/* ── 맞춤법 검사 결과 다이얼로그 ────────────────────────────────── */}
+      <Dialog open={showSpellDialog} onOpenChange={setShowSpellDialog}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <SpellCheck className="w-5 h-5 text-amber-500" />
+              AI 오탈자·맞춤법 검사 결과
+            </DialogTitle>
+            <DialogDescription>
+              저장 전 AI가 {spellResult?.corrections.length}개의 수정 사항을 발견했습니다.
+              교정 내용을 적용하거나 원문 그대로 저장할 수 있습니다.
+            </DialogDescription>
+          </DialogHeader>
 
-          <TabsContent value="upload" className="space-y-5">
-            <div
-              className="border-2 border-dashed border-slate-200 rounded-2xl p-12 text-center cursor-pointer hover:border-primary hover:bg-blue-50/30 transition-all"
-              onClick={() => fileInputRef.current?.click()}
-              onDragOver={(e) => e.preventDefault()}
-              onDrop={handleDrop}
-            >
-              <Upload className="w-12 h-12 text-slate-400 mx-auto mb-4" />
-              <p className="text-base font-semibold text-slate-700">PDF 또는 DOCX 파일을 업로드하세요</p>
-              <p className="text-sm text-slate-400 mt-1">클릭하거나 여기에 드래그하세요</p>
-              <p className="text-xs text-slate-300 mt-1">최대 10MB · PDF, DOC, DOCX 지원</p>
-              {selectedFile && (
-                <p className="mt-4 text-sm font-semibold text-primary">{selectedFile.name}</p>
-              )}
-            </div>
-            <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx"
-              className="hidden" onChange={handleFileSelect} />
-
-            <div className="space-y-1.5">
-              <label className="text-sm font-medium text-slate-700">제목 (선택)</label>
-              <Input placeholder="비워두면 파일명이 자동 사용됩니다"
-                value={uploadTitle} onChange={(e) => setUploadTitle(e.target.value)} />
-            </div>
-
-            {isUploading && (
-              <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 flex items-center gap-3 text-sm text-blue-700">
-                <Loader2 className="w-4 h-4 animate-spin shrink-0" />
-                <span>파일을 분석하는 중입니다. 자기소개서를 자동으로 분리하고 표를 변환합니다…</span>
+          <div className="space-y-3 py-2">
+            {spellResult?.corrections.map((c, i) => (
+              <div
+                key={i}
+                className="rounded-lg border border-amber-100 bg-amber-50/60 p-3 space-y-1.5"
+              >
+                <div className="flex items-center gap-2">
+                  <Badge variant="outline" className="text-[10px] shrink-0">
+                    {c.field === "content" ? "이력서" : "자기소개서"}
+                  </Badge>
+                  <span className="text-xs text-slate-500">{c.reason}</span>
+                </div>
+                <div className="flex items-start gap-2 text-sm">
+                  <div className="flex-1 min-w-0">
+                    <div className="text-red-600 line-through break-words">
+                      <AlertTriangle className="w-3 h-3 inline mr-1 opacity-70" />
+                      {c.original}
+                    </div>
+                    <div className="text-emerald-700 break-words mt-0.5">
+                      <CheckCircle2 className="w-3 h-3 inline mr-1 opacity-70" />
+                      {c.corrected}
+                    </div>
+                  </div>
+                </div>
               </div>
-            )}
+            ))}
+          </div>
 
-            <div className="flex justify-end gap-3">
-              <Button type="button" variant="outline" onClick={() => setLocation("/resumes")}>취소</Button>
-              <Button onClick={handleUpload} disabled={isUploading || !selectedFile}>
-                {isUploading
-                  ? <><Loader2 className="w-4 h-4 mr-2 animate-spin" />분석 중…</>
-                  : <><Upload className="w-4 h-4 mr-2" />업로드 및 분석</>}
-              </Button>
-            </div>
-          </TabsContent>
-
-          <TabsContent value="manual">{EditForm}</TabsContent>
-        </Tabs>
-      ) : EditForm}
-    </div>
+          <DialogFooter className="gap-2 flex-col sm:flex-row">
+            <Button variant="outline" onClick={saveWithoutCorrection} className="sm:mr-auto">
+              원문 그대로 저장
+            </Button>
+            <Button
+              onClick={applyCorrectionsAndSave}
+              className="bg-emerald-600 hover:bg-emerald-700 gap-2"
+            >
+              <CheckCircle2 className="w-4 h-4" />
+              교정 적용 후 저장
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+    </>
   )
 }

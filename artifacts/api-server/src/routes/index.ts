@@ -8,6 +8,7 @@ import analysesRouter from "./analyses";
 import resumeUploadRouter from "./resume-upload";
 import interviewsRouter from "./interviews";
 import dashboardRouter from "./dashboard";
+import spellcheckRouter from "./spellcheck";
 
 const router: IRouter = Router();
 
@@ -20,5 +21,6 @@ router.use(resumeUploadRouter);
 router.use(analysesRouter);
 router.use(interviewsRouter);
 router.use(dashboardRouter);
+router.use(spellcheckRouter);
 
 export default router;

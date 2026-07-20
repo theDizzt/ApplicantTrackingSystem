@@ -39,6 +39,8 @@ import type {
   Resume,
   ResumeInput,
   ResumeUpdate,
+  SpellcheckInput,
+  SpellcheckResult,
   SubscribeInput,
   SubscriptionPlan,
   UserSubscription
@@ -1319,6 +1321,78 @@ export const useCreateResume = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCreateResumeMutationOptions(options));
+    }
+
+export const getSpellcheckResumeUrl = (id: number,) => {
+
+
+
+
+  return `/api/resumes/${id}/spellcheck`
+}
+
+/**
+ * @summary AI 오탈자·맞춤법 검사
+ */
+export const spellcheckResume = async (id: number,
+    spellcheckInput: SpellcheckInput, options?: RequestInit): Promise<SpellcheckResult> => {
+
+  return customFetch<SpellcheckResult>(getSpellcheckResumeUrl(id),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(spellcheckInput)
+  }
+);}
+
+
+
+
+
+export const getSpellcheckResumeMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof spellcheckResume>>, TError,{id: number;data: BodyType<SpellcheckInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof spellcheckResume>>, TError,{id: number;data: BodyType<SpellcheckInput>}, TContext> => {
+
+const mutationKey = ['spellcheckResume'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof spellcheckResume>>, {id: number;data: BodyType<SpellcheckInput>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  spellcheckResume(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type SpellcheckResumeMutationResult = NonNullable<Awaited<ReturnType<typeof spellcheckResume>>>
+    export type SpellcheckResumeMutationBody = BodyType<SpellcheckInput>
+    export type SpellcheckResumeMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary AI 오탈자·맞춤법 검사
+ */
+export const useSpellcheckResume = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof spellcheckResume>>, TError,{id: number;data: BodyType<SpellcheckInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof spellcheckResume>>,
+        TError,
+        {id: number;data: BodyType<SpellcheckInput>},
+        TContext
+      > => {
+      return useMutation(getSpellcheckResumeMutationOptions(options));
     }
 
 export const getGetResumeUrl = (id: number,) => {

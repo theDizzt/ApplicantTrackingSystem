@@ -260,6 +260,24 @@ export interface InterviewSession {
   evaluatedAt?: string | null;
 }
 
+export interface SpellcheckInput {
+  content?: string;
+  coverLetter?: string;
+}
+
+export interface SpellcheckCorrection {
+  field: string;
+  original: string;
+  corrected: string;
+  reason: string;
+}
+
+export interface SpellcheckResult {
+  corrections: SpellcheckCorrection[];
+  contentCorrected: string;
+  coverLetterCorrected: string;
+}
+
 export interface InterviewInput {
   resumeId: number;
   companyId: number;

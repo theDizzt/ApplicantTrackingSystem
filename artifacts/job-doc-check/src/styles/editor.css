@@ -1,0 +1,105 @@
+/* ── Tiptap 에디터 스타일 (한글 최적화) ───────────────────────────────── */
+
+.ProseMirror {
+  outline: none;
+  word-break: keep-all;
+  overflow-wrap: break-word;
+  line-height: 1.75;
+}
+
+.ProseMirror p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #a1a1aa;
+  pointer-events: none;
+  height: 0;
+}
+
+/* 제목 */
+.ProseMirror h2 {
+  font-size: 1.2rem;
+  font-weight: 700;
+  margin-top: 1.4em;
+  margin-bottom: 0.4em;
+  border-bottom: 2px solid #e2e8f0;
+  padding-bottom: 0.2em;
+  color: #1e293b;
+}
+
+.ProseMirror h3 {
+  font-size: 1.05rem;
+  font-weight: 600;
+  margin-top: 1em;
+  margin-bottom: 0.3em;
+  color: #334155;
+}
+
+/* 단락 */
+.ProseMirror p {
+  margin: 0.35em 0;
+}
+
+/* 목록 */
+.ProseMirror ul,
+.ProseMirror ol {
+  margin: 0.5em 0 0.5em 1.25em;
+  padding-left: 0.5em;
+}
+
+.ProseMirror ul li {
+  list-style-type: disc;
+}
+
+.ProseMirror ol li {
+  list-style-type: decimal;
+}
+
+.ProseMirror li + li {
+  margin-top: 0.2em;
+}
+
+/* 구분선 */
+.ProseMirror hr {
+  border: none;
+  border-top: 1px solid #e2e8f0;
+  margin: 1em 0;
+}
+
+/* 강조 */
+.ProseMirror strong {
+  font-weight: 700;
+}
+
+.ProseMirror em {
+  font-style: italic;
+}
+
+.ProseMirror u {
+  text-decoration: underline;
+}
+
+/* ── PDF 프린트 스타일 ─────────────────────────────────────────────────── */
+@media print {
+  @page {
+    size: A4;
+    margin: 20mm 18mm;
+  }
+
+  body * {
+    visibility: hidden;
+  }
+
+  #resume-print-area,
+  #resume-print-area * {
+    visibility: visible;
+  }
+
+  #resume-print-area {
+    position: fixed;
+    inset: 0;
+    font-family: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+    font-size: 10pt;
+    line-height: 1.7;
+    color: #000;
+  }
+}

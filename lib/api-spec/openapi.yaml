@@ -373,6 +373,37 @@ paths:
               schema:
                 $ref: "#/components/schemas/Resume"
 
+  /resumes/{id}/spellcheck:
+    post:
+      operationId: spellcheckResume
+      tags: [resumes]
+      summary: AI 오탈자·맞춤법 검사
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SpellcheckInput"
+      responses:
+        "200":
+          description: Spellcheck result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SpellcheckResult"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /resumes/{id}:
     get:
       operationId: getResume
@@ -957,6 +988,40 @@ components:
           type: string
         evaluatedAt:
           type: ["string", "null"]
+
+    SpellcheckInput:
+      type: object
+      properties:
+        content:
+          type: string
+        coverLetter:
+          type: string
+
+    SpellcheckCorrection:
+      type: object
+      required: [field, original, corrected, reason]
+      properties:
+        field:
+          type: string
+        original:
+          type: string
+        corrected:
+          type: string
+        reason:
+          type: string
+
+    SpellcheckResult:
+      type: object
+      required: [corrections, contentCorrected, coverLetterCorrected]
+      properties:
+        corrections:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpellcheckCorrection"
+        contentCorrected:
+          type: string
+        coverLetterCorrected:
+          type: string
 
     InterviewInput:
       type: object

@@ -296,6 +296,30 @@ export const CreateResumeResponse = zod.object({
 
 
 /**
+ * @summary AI 오탈자·맞춤법 검사
+ */
+export const SpellcheckResumeParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const SpellcheckResumeBody = zod.object({
+  "content": zod.string().optional(),
+  "coverLetter": zod.string().optional()
+})
+
+export const SpellcheckResumeResponse = zod.object({
+  "corrections": zod.array(zod.object({
+  "field": zod.string(),
+  "original": zod.string(),
+  "corrected": zod.string(),
+  "reason": zod.string()
+})),
+  "contentCorrected": zod.string(),
+  "coverLetterCorrected": zod.string()
+})
+
+
+/**
  * @summary Get a resume
  */
 export const GetResumeParams = zod.object({
