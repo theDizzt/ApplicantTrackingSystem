@@ -202,6 +202,39 @@ paths:
                 $ref: "#/components/schemas/MessageResponse"
 
   # Companies
+  /companies/recommend:
+    post:
+      operationId: recommendCompanies
+      tags: [companies]
+      summary: 이력서 기반으로 회사 추천 (isRecommended 갱신)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecommendInput"
+      responses:
+        "200":
+          description: 추천 완료된 전체 회사 목록
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Company"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Resume not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /companies:
     get:
       operationId: listCompanies
@@ -696,7 +729,7 @@ components:
     # Companies
     Company:
       type: object
-      required: [id, userId, name, createdAt]
+      required: [id, userId, name, isRecommended, syncedAt, createdAt]
       properties:
         id:
           type: integer
@@ -714,6 +747,10 @@ components:
           type: ["string", "null"]
         notes:
           type: ["string", "null"]
+        isRecommended:
+          type: boolean
+        syncedAt:
+          type: string
         createdAt:
           type: string
 
@@ -749,6 +786,13 @@ components:
           type: string
         notes:
           type: string
+
+    RecommendInput:
+      type: object
+      required: [resumeId]
+      properties:
+        resumeId:
+          type: integer
 
     # Resumes
     Resume:

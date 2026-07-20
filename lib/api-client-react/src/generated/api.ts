@@ -34,6 +34,7 @@ import type {
   InterviewSession,
   LoginInput,
   MessageResponse,
+  RecommendInput,
   RegisterInput,
   Resume,
   ResumeInput,
@@ -731,6 +732,77 @@ export const useCancelSubscription = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getCancelSubscriptionMutationOptions(options));
+    }
+
+export const getRecommendCompaniesUrl = () => {
+
+
+
+
+  return `/api/companies/recommend`
+}
+
+/**
+ * @summary 이력서 기반으로 회사 추천 (isRecommended 갱신)
+ */
+export const recommendCompanies = async (recommendInput: RecommendInput, options?: RequestInit): Promise<Company[]> => {
+
+  return customFetch<Company[]>(getRecommendCompaniesUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(recommendInput)
+  }
+);}
+
+
+
+
+
+export const getRecommendCompaniesMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recommendCompanies>>, TError,{data: BodyType<RecommendInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof recommendCompanies>>, TError,{data: BodyType<RecommendInput>}, TContext> => {
+
+const mutationKey = ['recommendCompanies'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof recommendCompanies>>, {data: BodyType<RecommendInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  recommendCompanies(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RecommendCompaniesMutationResult = NonNullable<Awaited<ReturnType<typeof recommendCompanies>>>
+    export type RecommendCompaniesMutationBody = BodyType<RecommendInput>
+    export type RecommendCompaniesMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary 이력서 기반으로 회사 추천 (isRecommended 갱신)
+ */
+export const useRecommendCompanies = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof recommendCompanies>>, TError,{data: BodyType<RecommendInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof recommendCompanies>>,
+        TError,
+        {data: BodyType<RecommendInput>},
+        TContext
+      > => {
+      return useMutation(getRecommendCompaniesMutationOptions(options));
     }
 
 export const getListCompaniesUrl = () => {

@@ -122,6 +122,29 @@ export const CancelSubscriptionResponse = zod.object({
 
 
 /**
+ * @summary 이력서 기반으로 회사 추천 (isRecommended 갱신)
+ */
+export const RecommendCompaniesBody = zod.object({
+  "resumeId": zod.number()
+})
+
+export const RecommendCompaniesResponseItem = zod.object({
+  "id": zod.number(),
+  "userId": zod.number(),
+  "name": zod.string(),
+  "siteUrl": zod.string().nullish(),
+  "jobPostingUrl": zod.string().nullish(),
+  "talentProfile": zod.string().nullish(),
+  "jobDescription": zod.string().nullish(),
+  "notes": zod.string().nullish(),
+  "isRecommended": zod.boolean(),
+  "syncedAt": zod.string(),
+  "createdAt": zod.string()
+})
+export const RecommendCompaniesResponse = zod.array(RecommendCompaniesResponseItem)
+
+
+/**
  * @summary List all companies the user has added
  */
 export const ListCompaniesResponseItem = zod.object({
@@ -133,6 +156,8 @@ export const ListCompaniesResponseItem = zod.object({
   "talentProfile": zod.string().nullish(),
   "jobDescription": zod.string().nullish(),
   "notes": zod.string().nullish(),
+  "isRecommended": zod.boolean(),
+  "syncedAt": zod.string(),
   "createdAt": zod.string()
 })
 export const ListCompaniesResponse = zod.array(ListCompaniesResponseItem)
@@ -159,6 +184,8 @@ export const CreateCompanyResponse = zod.object({
   "talentProfile": zod.string().nullish(),
   "jobDescription": zod.string().nullish(),
   "notes": zod.string().nullish(),
+  "isRecommended": zod.boolean(),
+  "syncedAt": zod.string(),
   "createdAt": zod.string()
 })
 
@@ -179,6 +206,8 @@ export const GetCompanyResponse = zod.object({
   "talentProfile": zod.string().nullish(),
   "jobDescription": zod.string().nullish(),
   "notes": zod.string().nullish(),
+  "isRecommended": zod.boolean(),
+  "syncedAt": zod.string(),
   "createdAt": zod.string()
 })
 
@@ -208,6 +237,8 @@ export const UpdateCompanyResponse = zod.object({
   "talentProfile": zod.string().nullish(),
   "jobDescription": zod.string().nullish(),
   "notes": zod.string().nullish(),
+  "isRecommended": zod.boolean(),
+  "syncedAt": zod.string(),
   "createdAt": zod.string()
 })
 

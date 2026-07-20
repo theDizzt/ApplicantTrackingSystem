@@ -20,5 +20,7 @@ export interface Company {
   jobDescription?: string | null;
   /** @nullable */
   notes?: string | null;
+  isRecommended: boolean;
+  syncedAt: string;
   createdAt: string;
 }

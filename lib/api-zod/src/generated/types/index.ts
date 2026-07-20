@@ -26,6 +26,7 @@ export * from './interviewSessionStatus';
 export * from './loginInput';
 export * from './messageResponse';
 export * from './questionAnswer';
+export * from './recommendInput';
 export * from './registerInput';
 export * from './resume';
 export * from './resumeInput';
