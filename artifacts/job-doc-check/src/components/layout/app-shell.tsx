@@ -37,10 +37,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <aside className="md:w-64 border-r bg-card flex flex-col md:fixed md:h-screen z-10 w-full shrink-0">
         {/* Logo */}
         <Link href="/" className="p-4 border-b flex items-center gap-3 hover:bg-slate-50 transition-colors">
-          <img src="/logo.png" alt="AI ATENAN" className="h-8 w-auto" />
+          <img src="/logo.png" alt="My ATS" className="h-8 w-auto" />
           <div className="leading-none">
-            <div className="text-[10px] font-bold text-slate-400 tracking-widest uppercase">AI ATENAN</div>
-            <div className="text-sm font-bold text-slate-800 tracking-tight">AI 서류 심사관</div>
+            <div className="text-[10px] font-bold text-slate-400 tracking-widest uppercase">My ATS</div>
+            <div className="text-sm font-bold text-slate-800 tracking-tight">Applicant Tracking System</div>
           </div>
         </Link>
 

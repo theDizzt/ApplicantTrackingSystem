@@ -9,10 +9,10 @@ export default function LandingPage() {
       <header className="sticky top-0 z-50 border-b border-slate-100 bg-white/90 backdrop-blur-md">
         <div className="max-w-6xl mx-auto px-6 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="AI ATENAN" className="h-9 w-auto" />
+            <img src="/logo.png" alt="My ATS" className="h-9 w-auto" />
             <div className="leading-none">
-              <div className="text-[9px] font-bold text-slate-400 tracking-widest uppercase">AI ATENAN</div>
-              <div className="text-sm font-bold text-slate-800 tracking-tight">AI 서류 심사관</div>
+              <div className="text-[9px] font-bold text-slate-400 tracking-widest uppercase">My ATS</div>
+              <div className="text-sm font-bold text-slate-800 tracking-tight">Applicant Tracking System</div>
             </div>
           </div>
           <nav className="flex items-center gap-6">
@@ -39,14 +39,14 @@ export default function LandingPage() {
             {/* pill badge */}
             <div className="inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-4 py-1.5 text-xs font-semibold text-blue-300 mb-8 backdrop-blur-sm">
               <span className="w-1.5 h-1.5 rounded-full bg-blue-400 animate-pulse" />
-              AI ATENAN 공식 서비스
+              My ATS 공식 서비스
             </div>
 
             <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold tracking-tight mb-6 leading-[1.08]">
               합격을 만드는
               <br />
               <span className="bg-gradient-to-r from-blue-400 via-blue-300 to-cyan-300 bg-clip-text text-transparent">
-                AI 서류 심사관
+                My ATS
               </span>
             </h1>
 
@@ -297,14 +297,14 @@ export default function LandingPage() {
       <footer className="border-t border-slate-100 bg-white py-10">
         <div className="max-w-6xl mx-auto px-6 flex flex-col md:flex-row items-center justify-between gap-4">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="AI ATENAN" className="h-7 w-auto opacity-70" />
+            <img src="/logo.png" alt="My ATS" className="h-7 w-auto opacity-70" />
             <div className="leading-none">
-              <div className="text-[9px] font-bold text-slate-400 tracking-widest uppercase">AI ATENAN</div>
-              <div className="text-xs font-semibold text-slate-500">AI 서류 심사관</div>
+              <div className="text-[9px] font-bold text-slate-400 tracking-widest uppercase">My ATS</div>
+              <div className="text-xs font-semibold text-slate-500">Applicant Tracking System</div>
             </div>
           </div>
           <p className="text-xs text-slate-400">
-            © {new Date().getFullYear()} AI ATENAN. All rights reserved.
+            © {new Date().getFullYear()} My ATS. All rights reserved.
           </p>
           <div className="flex gap-5 text-xs text-slate-400">
             <span className="hover:text-slate-600 cursor-pointer">이용약관</span>
