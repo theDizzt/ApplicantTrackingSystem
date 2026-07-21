@@ -306,11 +306,6 @@ export default function LandingPage() {
           <p className="text-xs text-slate-400">
             © {new Date().getFullYear()} My ATS. All rights reserved.
           </p>
-          <div className="flex gap-5 text-xs text-slate-400">
-            <span className="hover:text-slate-600 cursor-pointer">이용약관</span>
-            <span className="hover:text-slate-600 cursor-pointer">개인정보처리방침</span>
-            <span className="hover:text-slate-600 cursor-pointer">고객센터</span>
-          </div>
         </div>
       </footer>
     </div>
