@@ -3,15 +3,20 @@ import {
   useListCompanies,
   useDeleteCompany,
   useRecommendCompanies,
+  useCreateCompany,
+  useFetchPostings,
   useListResumes,
   getListCompaniesQueryKey,
 } from "@workspace/api-client-react"
+import type { JobPosting } from "@workspace/api-client-react"
 import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import {
-  Building2, Globe, Trash2, Plus, FileText, Star, RefreshCw, ChevronDown, Filter, X,
+  Building2, Globe, Trash2, Plus, FileText, Star, RefreshCw,
+  ChevronDown, Filter, X, CloudDownload, Check, ExternalLink,
+  Loader2, Sparkles,
 } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useQueryClient } from "@tanstack/react-query"
@@ -21,16 +26,20 @@ import {
   AlertDialogTitle, AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import {
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from "@/components/ui/dialog"
+import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
+import { useToast } from "@/hooks/use-toast"
 
 // ── 필터 옵션 ────────────────────────────────────────────────────────────────
 const CAREER_LEVELS      = ["신입", "1년이내", "3년이내"] as const
 const EDUCATION_LEVELS   = ["전문대", "대학교", "석사"] as const
 const RECRUITMENT_FIELDS = ["개발", "기획", "디자인", "영업", "품질관리", "테스터", "기타"] as const
 
-// 필드별 색상 (모집분야 배지)
+// 필드별 색상
 const FIELD_COLORS: Record<string, string> = {
   개발: "bg-blue-100 text-blue-700",
   기획: "bg-violet-100 text-violet-700",
@@ -46,7 +55,7 @@ const CAREER_COLORS: Record<string, string> = {
   "3년이내": "bg-amber-100 text-amber-700",
 }
 
-// ── 토글 버튼 ────────────────────────────────────────────────────────────────
+// ── 토글 필터 칩 ──────────────────────────────────────────────────────────────
 function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
     <button
@@ -64,12 +73,151 @@ function FilterChip({ label, active, onClick }: { label: string; active: boolean
   )
 }
 
+// ── 분류 배지 묶음 ────────────────────────────────────────────────────────────
+function ClassificationBadges({
+  careerLevel, educationLevel, recruitmentField,
+}: { careerLevel?: string[] | null; educationLevel?: string | null; recruitmentField?: string[] | null }) {
+  const hasBadges =
+    (careerLevel?.length ?? 0) > 0 || educationLevel || (recruitmentField?.length ?? 0) > 0
+  if (!hasBadges) return null
+  return (
+    <div className="flex flex-wrap gap-1.5">
+      {(careerLevel ?? []).map(cl => (
+        <span key={cl} className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", CAREER_COLORS[cl] ?? "bg-slate-100 text-slate-600")}>{cl}</span>
+      ))}
+      {educationLevel && (
+        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">{educationLevel} 이상</span>
+      )}
+      {(recruitmentField ?? []).map(rf => (
+        <span key={rf} className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", FIELD_COLORS[rf] ?? "bg-slate-100 text-slate-600")}>{rf}</span>
+      ))}
+    </div>
+  )
+}
+
+// ── 채용공고 결과 다이얼로그 ──────────────────────────────────────────────────
+function FetchedPostingsDialog({
+  open,
+  onClose,
+  postings,
+  onAdd,
+  addingIds,
+  addedIds,
+}: {
+  open: boolean
+  onClose: () => void
+  postings: JobPosting[]
+  onAdd: (posting: JobPosting, index: number) => void
+  addingIds: Set<number>
+  addedIds: Set<number>
+}) {
+  return (
+    <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
+      <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle className="flex items-center gap-2">
+            <Sparkles className="w-5 h-5 text-primary" />
+            AI 채용공고 검색 결과
+          </DialogTitle>
+          <DialogDescription>
+            선택한 필터 조건에 맞는 채용공고입니다. 추가할 공고를 선택하세요.
+          </DialogDescription>
+        </DialogHeader>
+
+        {postings.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-8">검색 결과가 없습니다.</p>
+        ) : (
+          <div className="space-y-3 mt-2">
+            {postings.map((p, i) => (
+              <div
+                key={i}
+                className={cn(
+                  "rounded-lg border p-4 space-y-2 transition-colors",
+                  addedIds.has(i) ? "bg-green-50 border-green-200" : "bg-background"
+                )}
+              >
+                {/* 헤더 */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="font-semibold text-sm leading-snug">{p.name}</p>
+                    {p.siteUrl && (
+                      <a
+                        href={p.siteUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-xs text-primary hover:underline flex items-center gap-1 mt-0.5"
+                      >
+                        <Globe className="w-3 h-3" />{p.siteUrl}
+                      </a>
+                    )}
+                  </div>
+                  <Button
+                    size="sm"
+                    variant={addedIds.has(i) ? "outline" : "default"}
+                    disabled={addingIds.has(i) || addedIds.has(i)}
+                    onClick={() => onAdd(p, i)}
+                    className={cn(
+                      "shrink-0 gap-1.5 text-xs h-8",
+                      addedIds.has(i) && "border-green-400 text-green-700 bg-green-50 hover:bg-green-50"
+                    )}
+                  >
+                    {addingIds.has(i) ? (
+                      <><Loader2 className="w-3 h-3 animate-spin" />추가 중</>
+                    ) : addedIds.has(i) ? (
+                      <><Check className="w-3 h-3" />추가됨</>
+                    ) : (
+                      <><Plus className="w-3 h-3" />추가</>
+                    )}
+                  </Button>
+                </div>
+
+                {/* 분류 배지 */}
+                <ClassificationBadges
+                  careerLevel={p.careerLevel}
+                  educationLevel={p.educationLevel}
+                  recruitmentField={p.recruitmentField}
+                />
+
+                {/* 인재상 */}
+                {p.talentProfile && (
+                  <p className="text-xs text-muted-foreground italic line-clamp-2">{p.talentProfile}</p>
+                )}
+
+                {/* 직무설명 */}
+                {p.jobDescription && (
+                  <p className="text-xs text-slate-600 line-clamp-3 whitespace-pre-line">{p.jobDescription}</p>
+                )}
+
+                {/* 채용공고 링크 */}
+                {p.jobPostingUrl && (
+                  <a
+                    href={p.jobPostingUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-xs text-primary hover:underline"
+                  >
+                    <ExternalLink className="w-3 h-3" />채용공고 바로가기
+                  </a>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+// ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
 export default function CompaniesPage() {
   const { data: companies, isLoading } = useListCompanies()
   const { data: resumes } = useListResumes()
-  const deleteCompany = useDeleteCompany()
-  const recommend     = useRecommendCompanies()
-  const queryClient   = useQueryClient()
+  const deleteCompany  = useDeleteCompany()
+  const recommend      = useRecommendCompanies()
+  const createCompany  = useCreateCompany()
+  const fetchPostings  = useFetchPostings()
+  const queryClient    = useQueryClient()
+  const { toast }      = useToast()
 
   const [selectedResumeId, setSelectedResumeId] = useState<number | null>(null)
 
@@ -84,13 +232,74 @@ export default function CompaniesPage() {
   const hasActiveFilter = filterCareer.length > 0 || filterEducation.length > 0 || filterField.length > 0
   const clearFilters = () => { setFilterCareer([]); setFilterEducation([]); setFilterField([]) }
 
+  // ── 채용공고 다이얼로그 상태 ────────────────────────────────────────────────
+  const [dialogOpen,  setDialogOpen]  = useState(false)
+  const [postings,    setPostings]    = useState<JobPosting[]>([])
+  const [addingIds,   setAddingIds]   = useState<Set<number>>(new Set())
+  const [addedIds,    setAddedIds]    = useState<Set<number>>(new Set())
+
+  // ── 채용공고 가져오기 ───────────────────────────────────────────────────────
+  const handleFetchPostings = () => {
+    setAddingIds(new Set())
+    setAddedIds(new Set())
+    fetchPostings.mutate(
+      {
+        data: {
+          careerLevel:     filterCareer.length     ? filterCareer     : undefined,
+          educationLevel:  filterEducation.length  ? filterEducation[0] : undefined,
+          recruitmentField: filterField.length     ? filterField      : undefined,
+        },
+      },
+      {
+        onSuccess: (data) => {
+          setPostings(data)
+          setDialogOpen(true)
+        },
+        onError: () => {
+          toast({ title: "오류", description: "채용공고를 가져오지 못했습니다.", variant: "destructive" })
+        },
+      }
+    )
+  }
+
+  // ── 공고 → 회사 추가 ────────────────────────────────────────────────────────
+  const handleAddPosting = (posting: JobPosting, index: number) => {
+    setAddingIds(prev => new Set(prev).add(index))
+    createCompany.mutate(
+      {
+        data: {
+          name:             posting.name,
+          siteUrl:          posting.siteUrl ?? undefined,
+          jobPostingUrl:    posting.jobPostingUrl ?? undefined,
+          talentProfile:    posting.talentProfile ?? undefined,
+          jobDescription:   posting.jobDescription ?? undefined,
+          careerLevel:      posting.careerLevel ?? undefined,
+          educationLevel:   posting.educationLevel ?? undefined,
+          recruitmentField: posting.recruitmentField ?? undefined,
+        },
+      },
+      {
+        onSuccess: () => {
+          setAddingIds(prev => { const s = new Set(prev); s.delete(index); return s })
+          setAddedIds(prev => new Set(prev).add(index))
+          queryClient.invalidateQueries({ queryKey: getListCompaniesQueryKey() })
+          toast({ title: "추가 완료", description: `${posting.name}이(가) 회사 목록에 추가됐습니다.` })
+        },
+        onError: () => {
+          setAddingIds(prev => { const s = new Set(prev); s.delete(index); return s })
+          toast({ title: "오류", description: "회사 추가에 실패했습니다.", variant: "destructive" })
+        },
+      }
+    )
+  }
+
   // ── 필터 적용 ──────────────────────────────────────────────────────────────
   const filteredCompanies = useMemo(() => {
     if (!companies) return []
     return companies.filter(c => {
-      if (filterCareer.length > 0 && !filterCareer.some(f => (c.careerLevel ?? []).includes(f))) return false
-      if (filterEducation.length > 0 && !filterEducation.includes(c.educationLevel ?? "")) return false
-      if (filterField.length > 0 && !filterField.some(f => (c.recruitmentField ?? []).includes(f))) return false
+      if (filterCareer.length    > 0 && !filterCareer.some(f => (c.careerLevel ?? []).includes(f))) return false
+      if (filterEducation.length > 0 && !filterEducation.includes(c.educationLevel ?? ""))         return false
+      if (filterField.length     > 0 && !filterField.some(f => (c.recruitmentField ?? []).includes(f))) return false
       return true
     })
   }, [companies, filterCareer, filterEducation, filterField])
@@ -116,8 +325,7 @@ export default function CompaniesPage() {
     : null
 
   const nextMonday = (() => {
-    const d = new Date()
-    const day = d.getDay()
+    const d = new Date(); const day = d.getDay()
     const diff = day === 1 ? 7 : (8 - day) % 7
     d.setDate(d.getDate() + diff)
     return d.toLocaleDateString("ko-KR", { month: "long", day: "numeric" })
@@ -126,7 +334,6 @@ export default function CompaniesPage() {
   const recommendedCount = companies?.filter(c => c.isRecommended).length ?? 0
   const selectedResume   = resumes?.find(r => r.id === selectedResumeId) ?? resumes?.[0]
 
-  // 추천 먼저, 그 다음 등록순
   const sortedFiltered = [
     ...filteredCompanies.filter(c => c.isRecommended),
     ...filteredCompanies.filter(c => !c.isRecommended),
@@ -219,27 +426,43 @@ export default function CompaniesPage() {
             <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
               <Filter className="w-3.5 h-3.5" /> 필터
             </span>
-            {hasActiveFilter && (
+            <div className="flex items-center gap-2">
+              {/* ── 채용공고 가져오기 아이콘 버튼 ── */}
               <button
                 type="button"
-                onClick={clearFilters}
-                className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                onClick={handleFetchPostings}
+                disabled={!hasActiveFilter || fetchPostings.isPending}
+                title={hasActiveFilter ? "필터 조건으로 채용공고 가져오기" : "필터를 먼저 선택하세요"}
+                className={cn(
+                  "flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-all",
+                  hasActiveFilter
+                    ? "bg-primary text-primary-foreground border-primary hover:bg-primary/90 shadow-sm"
+                    : "bg-background text-muted-foreground/50 border-input cursor-not-allowed"
+                )}
               >
-                <X className="w-3 h-3" /> 초기화
+                {fetchPostings.isPending ? (
+                  <><Loader2 className="w-3.5 h-3.5 animate-spin" />검색 중…</>
+                ) : (
+                  <><CloudDownload className="w-3.5 h-3.5" />채용공고 가져오기</>
+                )}
               </button>
-            )}
+              {hasActiveFilter && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  <X className="w-3 h-3" /> 초기화
+                </button>
+              )}
+            </div>
           </div>
 
           {/* 경력구분 */}
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-slate-500 w-14 shrink-0">경력구분</span>
             {CAREER_LEVELS.map(opt => (
-              <FilterChip
-                key={opt}
-                label={opt}
-                active={filterCareer.includes(opt)}
-                onClick={() => toggleFilter(setFilterCareer, opt)}
-              />
+              <FilterChip key={opt} label={opt} active={filterCareer.includes(opt)} onClick={() => toggleFilter(setFilterCareer, opt)} />
             ))}
           </div>
 
@@ -247,12 +470,7 @@ export default function CompaniesPage() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-slate-500 w-14 shrink-0">학력</span>
             {EDUCATION_LEVELS.map(opt => (
-              <FilterChip
-                key={opt}
-                label={opt}
-                active={filterEducation.includes(opt)}
-                onClick={() => toggleFilter(setFilterEducation, opt)}
-              />
+              <FilterChip key={opt} label={opt} active={filterEducation.includes(opt)} onClick={() => toggleFilter(setFilterEducation, opt)} />
             ))}
           </div>
 
@@ -260,21 +478,57 @@ export default function CompaniesPage() {
           <div className="flex flex-wrap items-center gap-2">
             <span className="text-xs text-slate-500 w-14 shrink-0">모집분야</span>
             {RECRUITMENT_FIELDS.map(opt => (
-              <FilterChip
-                key={opt}
-                label={opt}
-                active={filterField.includes(opt)}
-                onClick={() => toggleFilter(setFilterField, opt)}
-              />
+              <FilterChip key={opt} label={opt} active={filterField.includes(opt)} onClick={() => toggleFilter(setFilterField, opt)} />
             ))}
           </div>
 
-          {/* 필터 결과 수 */}
-          {hasActiveFilter && (
-            <p className="text-xs text-muted-foreground pt-0.5">
-              전체 {companies?.length ?? 0}개 중 <strong className="text-foreground">{filteredCompanies.length}개</strong> 표시
-            </p>
-          )}
+          {/* 안내 문구 */}
+          <p className="text-[11px] text-muted-foreground pt-0.5">
+            {hasActiveFilter
+              ? <>전체 {companies?.length ?? 0}개 중 <strong className="text-foreground">{filteredCompanies.length}개</strong> 표시 · 필터 조건으로 채용공고를 가져와 목록에 추가할 수 있습니다.</>
+              : "필터를 선택하면 해당 조건의 채용공고를 AI로 검색할 수 있습니다."}
+          </p>
+        </div>
+      )}
+
+      {/* 필터가 활성이지만 회사가 없을 때도 필터 패널 표시 */}
+      {!isLoading && (companies?.length ?? 0) === 0 && (
+        <div className="rounded-xl border bg-slate-50/60 px-4 py-3 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="flex items-center gap-1.5 text-sm font-semibold text-slate-700">
+              <Filter className="w-3.5 h-3.5" /> 필터로 채용공고 찾기
+            </span>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-500 w-14 shrink-0">경력구분</span>
+            {CAREER_LEVELS.map(opt => (
+              <FilterChip key={opt} label={opt} active={filterCareer.includes(opt)} onClick={() => toggleFilter(setFilterCareer, opt)} />
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-500 w-14 shrink-0">학력</span>
+            {EDUCATION_LEVELS.map(opt => (
+              <FilterChip key={opt} label={opt} active={filterEducation.includes(opt)} onClick={() => toggleFilter(setFilterEducation, opt)} />
+            ))}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-500 w-14 shrink-0">모집분야</span>
+            {RECRUITMENT_FIELDS.map(opt => (
+              <FilterChip key={opt} label={opt} active={filterField.includes(opt)} onClick={() => toggleFilter(setFilterField, opt)} />
+            ))}
+          </div>
+          <Button
+            size="sm"
+            onClick={handleFetchPostings}
+            disabled={!hasActiveFilter || fetchPostings.isPending}
+            className="gap-1.5 mt-1"
+          >
+            {fetchPostings.isPending ? (
+              <><Loader2 className="w-4 h-4 animate-spin" />검색 중…</>
+            ) : (
+              <><CloudDownload className="w-4 h-4" />채용공고 가져오기</>
+            )}
+          </Button>
         </div>
       )}
 
@@ -289,13 +543,13 @@ export default function CompaniesPage() {
             <Building2 className="w-12 h-12 text-muted-foreground/50 mb-4" />
             <h3 className="text-lg font-semibold">등록된 회사가 없습니다</h3>
             <p className="text-sm text-muted-foreground max-w-sm mt-2 mb-6">
-              AI 심사를 진행할 회사를 먼저 등록해주세요.
+              직접 추가하거나, 위 필터로 AI 채용공고를 검색해 가져올 수 있습니다.
             </p>
             <Link
               href="/companies/new"
               className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90"
             >
-              첫 회사 등록하기
+              직접 회사 등록
             </Link>
           </CardContent>
         </Card>
@@ -304,7 +558,9 @@ export default function CompaniesPage() {
           <CardContent className="flex flex-col items-center justify-center py-12 text-center">
             <Filter className="w-10 h-10 text-muted-foreground/40 mb-3" />
             <h3 className="text-base font-semibold">조건에 맞는 회사가 없습니다</h3>
-            <p className="text-sm text-muted-foreground mt-1">필터를 조정하거나 초기화해 보세요.</p>
+            <p className="text-sm text-muted-foreground mt-1">
+              위 <strong>채용공고 가져오기</strong> 버튼으로 AI가 조건에 맞는 공고를 찾아드립니다.
+            </p>
             <Button variant="outline" size="sm" className="mt-4" onClick={clearFilters}>
               필터 초기화
             </Button>
@@ -336,42 +592,17 @@ export default function CompaniesPage() {
               </CardHeader>
 
               <CardContent className="flex-1 pt-0 space-y-2.5">
-                {/* 분류 배지 */}
-                {((company.careerLevel?.length ?? 0) > 0 ||
-                  company.educationLevel ||
-                  (company.recruitmentField?.length ?? 0) > 0) && (
-                  <div className="flex flex-wrap gap-1.5">
-                    {/* 경력 */}
-                    {(company.careerLevel ?? []).map(cl => (
-                      <span key={cl} className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", CAREER_COLORS[cl] ?? "bg-slate-100 text-slate-600")}>
-                        {cl}
-                      </span>
-                    ))}
-                    {/* 학력 */}
-                    {company.educationLevel && (
-                      <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">
-                        {company.educationLevel} 이상
-                      </span>
-                    )}
-                    {/* 모집분야 */}
-                    {(company.recruitmentField ?? []).map(rf => (
-                      <span key={rf} className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", FIELD_COLORS[rf] ?? "bg-slate-100 text-slate-600")}>
-                        {rf}
-                      </span>
-                    ))}
-                  </div>
-                )}
-
+                <ClassificationBadges
+                  careerLevel={company.careerLevel}
+                  educationLevel={company.educationLevel}
+                  recruitmentField={company.recruitmentField}
+                />
                 <div className="space-y-2 text-sm">
                   {company.jobPostingUrl && (
                     <div className="flex items-start gap-2 text-muted-foreground">
                       <Globe className="w-4 h-4 shrink-0 mt-0.5" />
-                      <a
-                        href={company.jobPostingUrl}
-                        target="_blank"
-                        rel="noreferrer"
-                        className="hover:underline text-primary line-clamp-1"
-                      >
+                      <a href={company.jobPostingUrl} target="_blank" rel="noreferrer"
+                        className="hover:underline text-primary line-clamp-1">
                         채용공고 바로가기
                       </a>
                     </div>
@@ -421,6 +652,16 @@ export default function CompaniesPage() {
           ))}
         </div>
       )}
+
+      {/* ── 채용공고 결과 다이얼로그 ── */}
+      <FetchedPostingsDialog
+        open={dialogOpen}
+        onClose={() => setDialogOpen(false)}
+        postings={postings}
+        onAdd={handleAddPosting}
+        addingIds={addingIds}
+        addedIds={addedIds}
+      />
     </div>
   )
 }

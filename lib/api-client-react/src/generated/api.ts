@@ -29,9 +29,11 @@ import type {
   CompanyUpdate,
   DashboardSummary,
   ErrorResponse,
+  FetchPostingsInput,
   HealthStatus,
   InterviewInput,
   InterviewSession,
+  JobPosting,
   LoginInput,
   MessageResponse,
   RecommendInput,
@@ -735,6 +737,86 @@ export const useCancelSubscription = <TError = ErrorType<unknown>,
       > => {
       return useMutation(getCancelSubscriptionMutationOptions(options));
     }
+
+// ─── 필터 기반 채용공고 가져오기 ──────────────────────────────────────────────
+export const getFetchPostingsUrl = () => `/api/companies/fetch-postings`;
+
+/**
+ * @summary 필터 조건 기반으로 AI가 채용공고를 생성해 반환
+ */
+export const fetchPostings = async (
+  fetchPostingsInput: FetchPostingsInput,
+  options?: RequestInit,
+): Promise<JobPosting[]> => {
+  return customFetch<JobPosting[]>(getFetchPostingsUrl(), {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(fetchPostingsInput),
+  });
+};
+
+export const getFetchPostingsMutationOptions = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof fetchPostings>>,
+    TError,
+    { data: BodyType<FetchPostingsInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationOptions<
+  Awaited<ReturnType<typeof fetchPostings>>,
+  TError,
+  { data: BodyType<FetchPostingsInput> },
+  TContext
+> => {
+  const mutationKey = ['fetchPostings'];
+  const { mutation: mutationOptions, request: requestOptions } = options
+    ? options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey
+      ? options
+      : { ...options, mutation: { ...options.mutation, mutationKey } }
+    : { mutation: { mutationKey }, request: undefined };
+
+  const mutationFn: MutationFunction<
+    Awaited<ReturnType<typeof fetchPostings>>,
+    { data: BodyType<FetchPostingsInput> }
+  > = (props) => {
+    const { data } = props ?? {};
+    return fetchPostings(data, requestOptions);
+  };
+
+  return { mutationFn, ...mutationOptions };
+};
+
+export type FetchPostingsMutationResult = NonNullable<Awaited<ReturnType<typeof fetchPostings>>>;
+export type FetchPostingsMutationBody = BodyType<FetchPostingsInput>;
+export type FetchPostingsMutationError = ErrorType<ErrorResponse>;
+
+/**
+ * @summary 필터 조건 기반으로 AI가 채용공고를 생성해 반환
+ */
+export const useFetchPostings = <
+  TError = ErrorType<ErrorResponse>,
+  TContext = unknown,
+>(options?: {
+  mutation?: UseMutationOptions<
+    Awaited<ReturnType<typeof fetchPostings>>,
+    TError,
+    { data: BodyType<FetchPostingsInput> },
+    TContext
+  >;
+  request?: SecondParameter<typeof customFetch>;
+}): UseMutationResult<
+  Awaited<ReturnType<typeof fetchPostings>>,
+  TError,
+  { data: BodyType<FetchPostingsInput> },
+  TContext
+> => {
+  return useMutation(getFetchPostingsMutationOptions(options));
+};
 
 export const getRecommendCompaniesUrl = () => {
 

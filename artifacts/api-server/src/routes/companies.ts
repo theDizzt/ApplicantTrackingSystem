@@ -56,6 +56,73 @@ router.post("/companies", requireAuth, async (req, res): Promise<void> => {
   res.status(201).json(serializeCompany(company));
 });
 
+// ─── 필터 기반 채용공고 가져오기 ──────────────────────────────────────────────
+router.post("/companies/fetch-postings", requireAuth, async (req, res): Promise<void> => {
+  const { careerLevel, educationLevel, recruitmentField } = req.body as {
+    careerLevel?: string[];
+    educationLevel?: string;
+    recruitmentField?: string[];
+  };
+
+  if (
+    (!careerLevel || careerLevel.length === 0) &&
+    !educationLevel &&
+    (!recruitmentField || recruitmentField.length === 0)
+  ) {
+    res.status(400).json({ error: "필터 조건을 하나 이상 선택해주세요." });
+    return;
+  }
+
+  const conditions: string[] = [];
+  if (careerLevel?.length) conditions.push(`경력구분: ${careerLevel.join(", ")}`);
+  if (educationLevel)       conditions.push(`최소 학력: ${educationLevel} 이상`);
+  if (recruitmentField?.length) conditions.push(`모집분야: ${recruitmentField.join(", ")}`);
+
+  const systemPrompt = `당신은 한국 채용 시장 전문가입니다. 주어진 조건에 맞는 실제 한국 기업의 채용 공고를 6개 생성하세요.
+각 공고는 실제로 존재하거나 존재할 법한 기업이어야 합니다.
+반드시 아래 JSON 배열 형식으로만 응답하세요:
+[
+  {
+    "name": "회사명",
+    "siteUrl": "https://회사홈페이지.com",
+    "jobPostingUrl": "https://채용공고URL.com",
+    "talentProfile": "인재상 2~3문장",
+    "jobDescription": "담당업무 및 자격요건 (300자 내외)",
+    "careerLevel": ["신입"] // 조건에 맞는 항목만,
+    "educationLevel": "대학교",
+    "recruitmentField": ["개발"]
+  }
+]`;
+
+  const userPrompt = `다음 조건에 맞는 한국 기업 채용공고 6개를 생성해주세요:\n${conditions.join("\n")}`;
+
+  try {
+    const completion = await openai.chat.completions.create({
+      model: "gpt-5.6-luna",
+      messages: [
+        { role: "system", content: systemPrompt },
+        { role: "user",   content: userPrompt },
+      ],
+      temperature: 0.7,
+      max_tokens: 2000,
+    });
+
+    const raw = completion.choices[0]?.message?.content ?? "[]";
+    const jsonMatch = raw.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) { res.json([]); return; }
+
+    const postings = JSON.parse(jsonMatch[0]) as Array<{
+      name: string; siteUrl?: string; jobPostingUrl?: string;
+      talentProfile?: string; jobDescription?: string;
+      careerLevel?: string[]; educationLevel?: string; recruitmentField?: string[];
+    }>;
+
+    res.json(postings);
+  } catch (err) {
+    res.status(500).json({ error: "채용공고를 가져오는 중 오류가 발생했습니다." });
+  }
+});
+
 // ─── 이력서 기반 추천 ─────────────────────────────────────────────────────────
 router.post("/companies/recommend", requireAuth, async (req, res): Promise<void> => {
   const { resumeId } = req.body;

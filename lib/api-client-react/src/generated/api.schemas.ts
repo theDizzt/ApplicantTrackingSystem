@@ -131,6 +131,23 @@ export interface RecommendInput {
   resumeId: number;
 }
 
+export interface FetchPostingsInput {
+  careerLevel?: string[];
+  educationLevel?: string;
+  recruitmentField?: string[];
+}
+
+export interface JobPosting {
+  name: string;
+  siteUrl?: string | null;
+  jobPostingUrl?: string | null;
+  talentProfile?: string | null;
+  jobDescription?: string | null;
+  careerLevel?: string[] | null;
+  educationLevel?: string | null;
+  recruitmentField?: string[] | null;
+}
+
 export interface Resume {
   id: number;
   userId: number;
