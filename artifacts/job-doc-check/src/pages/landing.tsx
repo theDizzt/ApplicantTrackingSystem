@@ -12,7 +12,7 @@ export default function LandingPage() {
             <img src="/logo.png" alt="My ATS" className="h-9 w-auto" />
             <div className="leading-none">
               <div className="text-[9px] font-bold text-slate-400 tracking-widest uppercase">My ATS</div>
-              <div className="text-sm font-bold text-slate-800 tracking-tight">Applicant Tracking System</div>
+              <div className="text-sm font-bold text-slate-800 tracking-tight hidden sm:block">Applicant Tracking System</div>
             </div>
           </div>
           <nav className="flex items-center gap-6">
