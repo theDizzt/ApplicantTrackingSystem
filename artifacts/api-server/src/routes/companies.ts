@@ -2,14 +2,11 @@ import { Router, type IRouter } from "express";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { db, companiesTable, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
-import OpenAI from "openai";
+import { openai } from "../lib/openai";
+import { logger } from "../lib/logger";
+import { scrapeJobkorea, scrapeSaramin, buildKeyword, type ScrapedPosting } from "../lib/job-scrapers";
 
 const router: IRouter = Router();
-
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
 
 function serializeCompany(c: typeof companiesTable.$inferSelect) {
   return {
@@ -56,7 +53,7 @@ router.post("/companies", requireAuth, async (req, res): Promise<void> => {
   res.status(201).json(serializeCompany(company));
 });
 
-// ─── 필터 기반 채용공고 가져오기 ──────────────────────────────────────────────
+// ─── 필터 기반 채용공고 가져오기 (잡코리아 + 사람인 + AI 보강) ───────────────
 router.post("/companies/fetch-postings", requireAuth, async (req, res): Promise<void> => {
   const { careerLevel, educationLevel, recruitmentField } = req.body as {
     careerLevel?: string[];
@@ -74,51 +71,91 @@ router.post("/companies/fetch-postings", requireAuth, async (req, res): Promise<
   }
 
   const conditions: string[] = [];
-  if (careerLevel?.length) conditions.push(`경력구분: ${careerLevel.join(", ")}`);
-  if (educationLevel)       conditions.push(`최소 학력: ${educationLevel} 이상`);
+  if (careerLevel?.length)      conditions.push(`경력구분: ${careerLevel.join(", ")}`);
+  if (educationLevel)           conditions.push(`최소 학력: ${educationLevel} 이상`);
   if (recruitmentField?.length) conditions.push(`모집분야: ${recruitmentField.join(", ")}`);
 
-  const systemPrompt = `당신은 한국 채용 시장 전문가입니다. 주어진 조건에 맞는 실제 한국 기업의 채용 공고를 6개 생성하세요.
-각 공고는 실제로 존재하거나 존재할 법한 기업이어야 합니다.
-반드시 아래 JSON 배열 형식으로만 응답하세요:
+  try {
+    // ── 1단계: 잡코리아 · 사람인 병렬 스크래핑 ──────────────────────────────
+    const keyword = buildKeyword({ careerLevel, recruitmentField });
+    logger.info({ keyword, conditions }, "채용공고 스크래핑 시작");
+
+    const [jobkoreaResults, saraminResults] = await Promise.all([
+      scrapeJobkorea(keyword, 5),
+      scrapeSaramin(keyword, 5),
+    ]);
+
+    const scraped: ScrapedPosting[] = [...jobkoreaResults, ...saraminResults];
+    logger.info(
+      { jobkorea: jobkoreaResults.length, saramin: saraminResults.length },
+      "스크래핑 완료"
+    );
+
+    // ── 2단계: AI로 구조화·보강 (스크래핑 성공 여부와 무관하게 항상 실행) ──
+    const scrapedSummary = scraped.length > 0
+      ? scraped.map(p =>
+          `[${p.source === "jobkorea" ? "잡코리아" : "사람인"}] ` +
+          `회사: ${p.name} / 공고: ${p.title} / URL: ${p.jobPostingUrl}` +
+          (p.location      ? ` / 근무지: ${p.location}` : "") +
+          (p.careerText    ? ` / 경력: ${p.careerText}` : "") +
+          (p.educationText ? ` / 학력: ${p.educationText}` : "")
+        ).join("\n")
+      : "스크래핑된 공고 없음 (AI가 조건에 맞는 공고를 직접 생성하세요)";
+
+    const systemPrompt = `당신은 한국 채용 공고 데이터 분석 전문가입니다.
+잡코리아와 사람인에서 수집한 채용공고 원본 데이터와 필터 조건을 바탕으로, 조건에 맞는 공고를 정리하고 누락된 정보를 보완하여 정확한 JSON 배열로 반환하세요.
+
+반환 형식 (JSON 배열, 주석 없이):
 [
   {
     "name": "회사명",
-    "siteUrl": "https://회사홈페이지.com",
-    "jobPostingUrl": "https://채용공고URL.com",
-    "talentProfile": "인재상 2~3문장",
-    "jobDescription": "담당업무 및 자격요건 (300자 내외)",
-    "careerLevel": ["신입"] // 조건에 맞는 항목만,
+    "siteUrl": "https://회사공식홈페이지.com",
+    "jobPostingUrl": "공고 원본 URL (스크래핑된 URL 그대로 사용)",
+    "talentProfile": "인재상 1~2문장",
+    "jobDescription": "담당업무 및 자격요건 (200자 내외)",
+    "careerLevel": ["신입"],
     "educationLevel": "대학교",
     "recruitmentField": ["개발"]
   }
-]`;
+]
 
-  const userPrompt = `다음 조건에 맞는 한국 기업 채용공고 6개를 생성해주세요:\n${conditions.join("\n")}`;
+규칙:
+- 스크래핑된 공고가 있으면 해당 데이터를 기반으로 작성하고 jobPostingUrl은 원본 URL을 유지
+- 스크래핑 데이터가 없으면 조건에 맞는 실제 한국 기업 공고를 6개 생성
+- careerLevel 값은 ["신입","1년이내","3년이내"] 중 조건에 맞는 것만 사용
+- educationLevel 값은 "전문대","대학교","석사" 중 하나만 사용
+- recruitmentField 값은 ["개발","기획","디자인","영업","품질관리","테스터","기타"] 중 맞는 것 사용
+- 6개를 초과하지 않도록 반환`;
 
-  try {
+    const userPrompt =
+      `필터 조건:\n${conditions.join("\n")}\n\n수집된 채용공고:\n${scrapedSummary}`;
+
     const completion = await openai.chat.completions.create({
       model: "gpt-5.6-luna",
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user",   content: userPrompt },
       ],
-      temperature: 0.7,
-      max_tokens: 2000,
+      temperature: 0.3,
+      max_tokens: 2500,
     });
 
     const raw = completion.choices[0]?.message?.content ?? "[]";
-    const jsonMatch = raw.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) { res.json([]); return; }
 
-    const postings = JSON.parse(jsonMatch[0]) as Array<{
-      name: string; siteUrl?: string; jobPostingUrl?: string;
-      talentProfile?: string; jobDescription?: string;
-      careerLevel?: string[]; educationLevel?: string; recruitmentField?: string[];
-    }>;
+    // JSON 배열만 추출 (마크다운 코드블록 제거)
+    const cleaned = raw.replace(/```json?\s*/gi, "").replace(/```\s*/g, "").trim();
+    const jsonMatch = cleaned.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) {
+      logger.warn({ raw }, "AI 응답에서 JSON 배열을 찾지 못함");
+      res.json([]);
+      return;
+    }
 
+    const postings = JSON.parse(jsonMatch[0]);
     res.json(postings);
+
   } catch (err) {
+    logger.error({ err }, "fetch-postings 오류");
     res.status(500).json({ error: "채용공고를 가져오는 중 오류가 발생했습니다." });
   }
 });
