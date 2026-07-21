@@ -21,6 +21,9 @@ function serializeCompany(c: typeof companiesTable.$inferSelect) {
     talentProfile: c.talentProfile ?? null,
     jobDescription: c.jobDescription ?? null,
     notes: c.notes ?? null,
+    careerLevel: c.careerLevel ?? null,
+    educationLevel: c.educationLevel ?? null,
+    recruitmentField: c.recruitmentField ?? null,
     isRecommended: c.isRecommended,
     syncedAt: c.syncedAt.toISOString(),
     createdAt: c.createdAt.toISOString(),
@@ -39,14 +42,16 @@ router.get("/companies", requireAuth, async (req, res): Promise<void> => {
 
 // ─── 회사 생성 ────────────────────────────────────────────────────────────────
 router.post("/companies", requireAuth, async (req, res): Promise<void> => {
-  const { name, siteUrl, jobPostingUrl, talentProfile, jobDescription, notes } = req.body;
+  const { name, siteUrl, jobPostingUrl, talentProfile, jobDescription, notes,
+          careerLevel, educationLevel, recruitmentField } = req.body;
   if (!name) {
     res.status(400).json({ error: "회사명을 입력해주세요." });
     return;
   }
   const [company] = await db
     .insert(companiesTable)
-    .values({ userId: req.session.userId!, name, siteUrl, jobPostingUrl, talentProfile, jobDescription, notes })
+    .values({ userId: req.session.userId!, name, siteUrl, jobPostingUrl, talentProfile, jobDescription, notes,
+              careerLevel: careerLevel ?? null, educationLevel: educationLevel ?? null, recruitmentField: recruitmentField ?? null })
     .returning();
   res.status(201).json(serializeCompany(company));
 });
@@ -174,7 +179,8 @@ router.patch("/companies/:id", requireAuth, async (req, res): Promise<void> => {
   const id = parseInt(rawId, 10);
   if (isNaN(id)) { res.status(400).json({ error: "유효하지 않은 ID입니다." }); return; }
 
-  const { name, siteUrl, jobPostingUrl, talentProfile, jobDescription, notes } = req.body;
+  const { name, siteUrl, jobPostingUrl, talentProfile, jobDescription, notes,
+          careerLevel, educationLevel, recruitmentField } = req.body;
   const updateData: Record<string, unknown> = {};
   if (name !== undefined) updateData.name = name;
   if (siteUrl !== undefined) updateData.siteUrl = siteUrl;
@@ -182,6 +188,9 @@ router.patch("/companies/:id", requireAuth, async (req, res): Promise<void> => {
   if (talentProfile !== undefined) updateData.talentProfile = talentProfile;
   if (jobDescription !== undefined) updateData.jobDescription = jobDescription;
   if (notes !== undefined) updateData.notes = notes;
+  if (careerLevel !== undefined) updateData.careerLevel = careerLevel;
+  if (educationLevel !== undefined) updateData.educationLevel = educationLevel;
+  if (recruitmentField !== undefined) updateData.recruitmentField = recruitmentField;
 
   const [company] = await db.update(companiesTable).set(updateData)
     .where(and(eq(companiesTable.id, id), eq(companiesTable.userId, req.session.userId!)))

@@ -778,6 +778,21 @@ components:
           type: ["string", "null"]
         notes:
           type: ["string", "null"]
+        careerLevel:
+          type: array
+          items:
+            type: string
+          nullable: true
+          description: "경력구분 (신입·1년이내·3년이내)"
+        educationLevel:
+          type: ["string", "null"]
+          description: "학력 (전문대·대학교·석사)"
+        recruitmentField:
+          type: array
+          items:
+            type: string
+          nullable: true
+          description: "모집분야 (개발·기획·디자인·영업·품질관리·테스터·기타)"
         isRecommended:
           type: boolean
         syncedAt:
@@ -801,6 +816,16 @@ components:
           type: string
         notes:
           type: string
+        careerLevel:
+          type: array
+          items:
+            type: string
+        educationLevel:
+          type: string
+        recruitmentField:
+          type: array
+          items:
+            type: string
 
     CompanyUpdate:
       type: object
@@ -817,6 +842,16 @@ components:
           type: string
         notes:
           type: string
+        careerLevel:
+          type: array
+          items:
+            type: string
+        educationLevel:
+          type: string
+        recruitmentField:
+          type: array
+          items:
+            type: string
 
     RecommendInput:
       type: object

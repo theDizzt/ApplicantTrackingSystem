@@ -92,6 +92,12 @@ export interface Company {
   jobDescription?: string | null;
   /** @nullable */
   notes?: string | null;
+  /** 경력구분 (신입·1년이내·3년이내) @nullable */
+  careerLevel?: string[] | null;
+  /** 학력 (전문대·대학교·석사) @nullable */
+  educationLevel?: string | null;
+  /** 모집분야 (개발·기획·디자인·영업·품질관리·테스터·기타) @nullable */
+  recruitmentField?: string[] | null;
   isRecommended: boolean;
   syncedAt: string;
   createdAt: string;
@@ -104,6 +110,9 @@ export interface CompanyInput {
   talentProfile?: string;
   jobDescription?: string;
   notes?: string;
+  careerLevel?: string[];
+  educationLevel?: string;
+  recruitmentField?: string[];
 }
 
 export interface CompanyUpdate {
@@ -113,6 +122,9 @@ export interface CompanyUpdate {
   talentProfile?: string;
   jobDescription?: string;
   notes?: string;
+  careerLevel?: string[];
+  educationLevel?: string;
+  recruitmentField?: string[];
 }
 
 export interface RecommendInput {
