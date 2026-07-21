@@ -1,0 +1,1 @@
+- [OpenAI gpt-5.6-luna 파라미터 제약](openai-model-constraints.md) — `temperature`(비기본값)·`max_tokens` 미지원, `max_completion_tokens`만 사용할 것
