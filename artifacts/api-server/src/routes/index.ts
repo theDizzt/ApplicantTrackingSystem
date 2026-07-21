@@ -9,6 +9,7 @@ import resumeUploadRouter from "./resume-upload";
 import interviewsRouter from "./interviews";
 import dashboardRouter from "./dashboard";
 import spellcheckRouter from "./spellcheck";
+import tempAdminCleanupRouter from "./_temp-admin-cleanup"; // TODO: 사용 후 제거
 
 const router: IRouter = Router();
 
@@ -22,5 +23,6 @@ router.use(analysesRouter);
 router.use(interviewsRouter);
 router.use(dashboardRouter);
 router.use(spellcheckRouter);
+router.use(tempAdminCleanupRouter); // TODO: 사용 후 제거
 
 export default router;
