@@ -26,12 +26,14 @@ const registerSchema = z.object({
 
 export default function RegisterPage() {
   const [, setLocation] = useLocation()
-  const { data: user } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } })
+  const { data: user, isSuccess } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } })
   const register = useRegister()
 
+  // isSuccess 가드: 서버에서 실제로 인증이 확인된 경우에만 이동
+  // (stale 캐시만 있을 때 user가 truthy가 되어 redirect 되는 것을 방지)
   useEffect(() => {
-    if (user) setLocation("/dashboard")
-  }, [user, setLocation])
+    if (isSuccess && user) setLocation("/dashboard")
+  }, [isSuccess, user, setLocation])
 
   const form = useForm<z.infer<typeof registerSchema>>({
     resolver: zodResolver(registerSchema),

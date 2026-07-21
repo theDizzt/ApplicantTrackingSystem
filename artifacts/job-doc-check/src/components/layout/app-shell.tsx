@@ -1,6 +1,7 @@
 import { Link, useLocation } from "wouter"
 import { FileText, Building2, Users, CreditCard, LogOut, LayoutDashboard, BrainCircuit } from "lucide-react"
-import { useGetMe, useLogout } from "@workspace/api-client-react"
+import { useGetMe, useLogout, getGetMeQueryKey } from "@workspace/api-client-react"
+import { useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -11,10 +12,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const { data: user, isLoading } = useGetMe()
   const logout = useLogout()
   const [, setLocation] = useLocation()
+  const queryClient = useQueryClient()
 
   const handleLogout = () => {
     logout.mutate(undefined, {
       onSuccess: () => {
+        // 캐시를 즉시 제거 — 남아 있으면 /register 진입 시 stale user 데이터로 /dashboard redirect 발생
+        queryClient.removeQueries({ queryKey: getGetMeQueryKey() })
         setLocation("/")
       },
       onError: () => {
