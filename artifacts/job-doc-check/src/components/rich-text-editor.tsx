@@ -53,18 +53,27 @@ export function RichTextEditor({
   className,
   minHeight = "16rem",
 }: RichTextEditorProps) {
+  // ── refs는 반드시 useEditor보다 먼저 선언 (hook 순서 안정화) ──────────────
+  // onUpdate 콜백은 useEditor 생성 시점에 클로저로 고정되므로,
+  // ref를 통해 항상 최신 onChange를 참조한다.
+  const onChangeRef = useRef(onChange)
+  useEffect(() => { onChangeRef.current = onChange })
+
+  // 비동기로 로드된 초기값을 에디터에 딱 한 번만 세팅하기 위한 플래그
+  const initializedRef = useRef(false)
+
   const editor = useEditor({
     extensions: [
-      StarterKit.configure({
-        heading: { levels: [2, 3] },
-      }),
+      StarterKit.configure({ heading: { levels: [2, 3] } }),
       Underline,
       TextAlign.configure({ types: ["heading", "paragraph"] }),
       Placeholder.configure({ placeholder }),
     ],
-    content: value,
+    // 항상 빈 콘텐츠로 시작 — 초기값은 아래 useEffect에서 1회 세팅
+    content: "",
     onUpdate: ({ editor }) => {
-      onChange(editor.getHTML())
+      // ref를 통해 최신 onChange를 호출 → stale closure 완전 방지
+      onChangeRef.current(editor.getHTML())
     },
     editorProps: {
       attributes: {
@@ -74,21 +83,15 @@ export function RichTextEditor({
     },
   })
 
-  // 외부 value가 바뀔 때 (초기 로드 등) 에디터 내용 동기화
-  // emitUpdate: false 로 setContent 호출 → onChange 재트리거 방지 (무한루프 차단)
-  const isUpdatingRef = useRef(false)
+  // 서버에서 값이 비동기로 로드됐을 때 초기 콘텐츠를 1회만 세팅
   useEffect(() => {
-    if (!editor || isUpdatingRef.current) return
-    const current = editor.getHTML()
-    // 에디터가 비어 있고 value에 실제 내용이 있을 때만 초기 세팅
-    const isEmpty = !current || current === "<p></p>"
-    const hasValue = value && value !== "<p></p>"
-    if (isEmpty && hasValue) {
-      isUpdatingRef.current = true
-      editor.commands.setContent(value, false) // false = emitUpdate off
-      isUpdatingRef.current = false
+    if (!editor || initializedRef.current) return
+    if (value && value !== "<p></p>") {
+      // emitUpdate: false → onUpdate 트리거 없음 → onChange 호출 없음 → 루프 없음
+      editor.commands.setContent(value, false)
+      initializedRef.current = true
     }
-  }, [value, editor])
+  }, [editor, value])
 
   if (!editor) return null
 

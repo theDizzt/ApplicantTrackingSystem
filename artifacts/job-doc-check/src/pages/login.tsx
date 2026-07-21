@@ -20,13 +20,14 @@ const loginSchema = z.object({
 
 export default function LoginPage() {
   const [, navigate] = useLocation()
-  const { data: user } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } })
+  const { data: user, isSuccess } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } })
   const login = useLogin()
 
-  // 이미 로그인 상태면 대시보드로 — 렌더 중 navigate 금지, useEffect 안에서만
+  // 서버에서 실제로 인증이 확인된 경우에만 대시보드로 이동
+  // (isSuccess 없이 user만 보면 stale 캐시로도 redirect → AuthGuard와 무한루프 발생)
   useEffect(() => {
-    if (user) navigate("/dashboard")
-  }, [user]) // navigate 는 wouter stable ref → 의존성 불필요
+    if (isSuccess && user) navigate("/dashboard")
+  }, [isSuccess, user]) // navigate 는 wouter stable ref → 의존성 불필요
 
   const form = useForm<z.infer<typeof loginSchema>>({
     resolver: zodResolver(loginSchema),

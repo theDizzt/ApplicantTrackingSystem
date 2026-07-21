@@ -1,5 +1,6 @@
 import * as React from "react"
 import { useLocation } from "wouter"
+import { useQueryClient } from "@tanstack/react-query"
 import { useGetMe, getGetMeQueryKey } from "@workspace/api-client-react"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -8,6 +9,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     query: { queryKey: getGetMeQueryKey(), retry: false },
   })
   const [, navigate] = useLocation()
+  const queryClient = useQueryClient()
 
   // 단 한 번만 /login으로 이동하도록 ref로 guard
   const redirectedRef = React.useRef(false)
@@ -15,9 +17,11 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   React.useEffect(() => {
     if (isError && !redirectedRef.current) {
       redirectedRef.current = true
+      // 캐시된 user 데이터를 제거 → LoginPage에서 stale 캐시로 인한 재리다이렉트 방지
+      queryClient.removeQueries({ queryKey: getGetMeQueryKey() })
       navigate("/login")
     }
-  }, [isError, navigate])
+  }, [isError, navigate, queryClient])
 
   // isError가 해소되면 다시 이동 가능하도록 reset
   React.useEffect(() => {
