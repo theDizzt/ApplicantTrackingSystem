@@ -1,3 +1,4 @@
+import { useEffect } from "react"
 import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
@@ -28,9 +29,9 @@ export default function RegisterPage() {
   const { data: user } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } })
   const register = useRegister()
 
-  if (user) {
-    setLocation("/dashboard")
-  }
+  useEffect(() => {
+    if (user) setLocation("/dashboard")
+  }, [user, setLocation])
 
   const form = useForm<z.infer<typeof registerSchema>>({
     resolver: zodResolver(registerSchema),
