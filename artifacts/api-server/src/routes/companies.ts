@@ -131,7 +131,6 @@ router.post("/companies/fetch-postings", requireAuth, async (req, res): Promise<
         { role: "system", content: systemPrompt },
         { role: "user",   content: userPrompt },
       ],
-      temperature: 0.3,
       max_completion_tokens: 2500,
     });
 
@@ -212,7 +211,6 @@ router.post("/companies/recommend", requireAuth, async (req, res): Promise<void>
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.3,
       max_completion_tokens: 800,
     });
 

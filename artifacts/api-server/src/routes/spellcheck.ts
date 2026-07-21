@@ -67,8 +67,7 @@ HTML 태그는 결과에 포함하지 마세요. 순수 텍스트로만 반환�
         { role: "system", content: systemPrompt },
         { role: "user",   content: userPrompt },
       ],
-      temperature: 0.1,
-      max_tokens: 3000,
+      max_completion_tokens: 3000,
     });
 
     const raw = completion.choices[0]?.message?.content ?? "{}";
