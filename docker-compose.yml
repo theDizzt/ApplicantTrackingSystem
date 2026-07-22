@@ -1,0 +1,166 @@
+# =============================================================================
+# AI 서류 심사관 (ATS) — docker-compose.yml
+# 단일 서버 통합 구성 (개발/테스트/소규모 운영)
+#
+# 사용법:
+#   cp .env.example .env              # 환경변수 설정
+#   docker compose build              # 이미지 빌드
+#   docker compose run --rm migrate   # 최초 1회 DB 마이그레이션
+#   docker compose up -d              # 서비스 시작
+#
+# 별도 VM 운영 시:
+#   DB VM  → docker compose -f docker-compose.db.yml up -d
+#   Web VM → docker compose -f docker-compose.web.yml up -d
+# =============================================================================
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 공통 앱 환경변수 블록 (YAML 앵커)
+# ──────────────────────────────────────────────────────────────────────────────
+x-app-env: &app-env
+  DATABASE_URL:                    ${DATABASE_URL}
+  SESSION_SECRET:                  ${SESSION_SECRET}
+  NODE_ENV:                        production
+  AI_INTEGRATIONS_OPENAI_API_KEY:  ${AI_INTEGRATIONS_OPENAI_API_KEY}
+  AI_INTEGRATIONS_OPENAI_BASE_URL: ${AI_INTEGRATIONS_OPENAI_BASE_URL:-https://api.openai.com/v1}
+  # Node.js 성능 — 4 vCore / 8 GB 기준: heap=8GB×75%=6144MB, threadpool=vCore×2=8
+  NODE_OPTIONS:        "--max-old-space-size=6144"
+  UV_THREADPOOL_SIZE:  "8"
+
+services:
+
+  # ── PostgreSQL DB ──────────────────────────────────────────────────────────
+  db:
+    image: postgres:15-alpine
+    container_name: ats-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:              ${POSTGRES_DB:-atsdb}
+      POSTGRES_USER:            ${POSTGRES_USER:-ats_user}
+      POSTGRES_PASSWORD:        ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS:     "--encoding=UTF8 --locale=C"
+    # ── PostgreSQL 성능 튜닝 (4 vCore / 8 GB 전용 DB 서버) ──────────────────
+    # 설치 스크립트 동일 계산식:
+    #   shared_buffers  = RAM×25%  = 2 GB
+    #   effective_cache = RAM×75%  = 6 GB
+    #   maintenance_wm  = RAM×5%   = 410 MB
+    #   work_mem        = (RAM-SB)×50%/max_conn ≈ 15 MB
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=2GB"
+      - "-c"
+      - "effective_cache_size=6GB"
+      - "-c"
+      - "maintenance_work_mem=410MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=64MB"
+      - "-c"
+      - "default_statistics_target=200"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=15360kB"
+      - "-c"
+      - "huge_pages=try"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
+      - "-c"
+      - "max_worker_processes=4"
+      - "-c"
+      - "max_parallel_workers_per_gather=2"
+      - "-c"
+      - "max_parallel_workers=4"
+      - "-c"
+      - "max_parallel_maintenance_workers=1"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "idle_in_transaction_session_timeout=60000"
+      - "-c"
+      - "statement_timeout=300000"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "${DB_HOST:-127.0.0.1}:${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ats_user} -d ${POSTGRES_DB:-atsdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus:   '4.0'
+          memory: 7G
+        reservations:
+          cpus:   '2.0'
+          memory: 4G
+
+  # ── DB 마이그레이션 (최초 1회 / 스키마 변경 시) ───────────────────────────
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder          # builder 스테이지: drizzle-kit 포함
+    container_name: ats-migrate
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    command:
+      - "sh"
+      - "-c"
+      - |
+        cd /workspace &&
+        pnpm --filter @workspace/db run push &&
+        echo '=== 마이그레이션 완료 ==='
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: "no"
+
+  # ── 애플리케이션 (Node.js API + Nginx 프론트엔드) ─────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: ats-app
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+    ports:
+      - "${APP_HOST:-0.0.0.0}:${APP_PORT:-80}:80"
+    volumes:
+      - uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:80/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          cpus:   '4.0'
+          memory: 7G
+        reservations:
+          cpus:   '2.0'
+          memory: 4G
+
+# ── 볼륨 ──────────────────────────────────────────────────────────────────────
+volumes:
+  postgres_data:
+    driver: local
+  uploads:
+    driver: local

@@ -1,0 +1,79 @@
+# =============================================================================
+# AI 서류 심사관 (ATS) — Web 전용 서버 구성
+# 대상: Web VM (4 vCore / 8 GB RAM), 외부 DB 연결
+#
+# 사용법 (Web VM에서):
+#   cp .env.example .env
+#   # .env의 DATABASE_URL을 DB VM 주소로 설정
+#   docker compose -f docker-compose.web.yml build
+#   docker compose -f docker-compose.web.yml run --rm migrate
+#   docker compose -f docker-compose.web.yml up -d
+# =============================================================================
+
+# ──────────────────────────────────────────────────────────────────────────────
+# 공통 앱 환경변수
+# ──────────────────────────────────────────────────────────────────────────────
+x-app-env: &app-env
+  DATABASE_URL:               ${DATABASE_URL}
+  SESSION_SECRET:             ${SESSION_SECRET}
+  NODE_ENV:                   production
+  AI_INTEGRATIONS_OPENAI_API_KEY:  ${AI_INTEGRATIONS_OPENAI_API_KEY}
+  AI_INTEGRATIONS_OPENAI_BASE_URL: ${AI_INTEGRATIONS_OPENAI_BASE_URL:-https://api.openai.com/v1}
+  # Node.js 성능 — Web VM 4 vCore / 8 GB 전용
+  # heap = 8GB × 75% = 6144 MB, threadpool = vCores × 2 = 8
+  NODE_OPTIONS:               "--max-old-space-size=6144"
+  UV_THREADPOOL_SIZE:         "8"
+
+services:
+
+  # ── DB 마이그레이션 (최초 1회 / 스키마 변경 시) ──────────────────────────
+  migrate:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: builder
+    container_name: ats-migrate
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    command: >
+      sh -c "
+        cd /workspace &&
+        pnpm --filter @workspace/db run push &&
+        echo '=== 마이그레이션 완료 ==='
+      "
+    restart: "no"
+
+  # ── 애플리케이션 ─────────────────────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: production
+    container_name: ats-app
+    restart: unless-stopped
+    environment:
+      <<: *app-env
+    ports:
+      - "${APP_HOST:-0.0.0.0}:${APP_PORT:-80}:80"
+    volumes:
+      - uploads:/app/uploads
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://127.0.0.1:80/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    # Web VM 4 vCore / 8 GB 전용
+    # Nginx (~256 MB) + Node.js (heap 6 GB) = 약 6.5 GB 사용
+    deploy:
+      resources:
+        limits:
+          cpus:   '4.0'
+          memory: 7.5G
+        reservations:
+          cpus:   '2.0'
+          memory: 4G
+
+volumes:
+  uploads:
+    driver: local

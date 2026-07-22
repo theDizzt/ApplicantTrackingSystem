@@ -1,0 +1,91 @@
+# =============================================================================
+# AI 서류 심사관 (ATS) — DB 전용 서버 구성
+# 대상: DB VM (4 vCore / 8 GB RAM)
+#
+# 사용법 (DB VM에서):
+#   cp .env.example .env
+#   docker compose -f docker-compose.db.yml up -d
+# =============================================================================
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: ats-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       ${POSTGRES_DB:-atsdb}
+      POSTGRES_USER:     ${POSTGRES_USER:-ats_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8 --locale=C"
+    # PostgreSQL 성능 튜닝 — 4 vCore / 8 GB 전용 DB 서버
+    # 설치 스크립트 동일 계산식 적용:
+    #   shared_buffers     = RAM × 25%  = 2 GB
+    #   effective_cache    = RAM × 75%  = 6 GB
+    #   maintenance_wm     = RAM × 5%   = 410 MB
+    #   work_mem           = (RAM - shared_buffers) × 50% / max_conn = ~15 MB
+    command:
+      - "postgres"
+      - "-c"
+      - "max_connections=200"
+      - "-c"
+      - "shared_buffers=2GB"
+      - "-c"
+      - "effective_cache_size=6GB"
+      - "-c"
+      - "maintenance_work_mem=410MB"
+      - "-c"
+      - "checkpoint_completion_target=0.9"
+      - "-c"
+      - "wal_buffers=64MB"
+      - "-c"
+      - "default_statistics_target=200"
+      - "-c"
+      - "random_page_cost=1.1"
+      - "-c"
+      - "effective_io_concurrency=200"
+      - "-c"
+      - "work_mem=15360kB"
+      - "-c"
+      - "huge_pages=try"
+      - "-c"
+      - "min_wal_size=1GB"
+      - "-c"
+      - "max_wal_size=4GB"
+      - "-c"
+      - "max_worker_processes=4"
+      - "-c"
+      - "max_parallel_workers_per_gather=2"
+      - "-c"
+      - "max_parallel_workers=4"
+      - "-c"
+      - "max_parallel_maintenance_workers=1"
+      - "-c"
+      - "log_min_duration_statement=1000"
+      - "-c"
+      - "idle_in_transaction_session_timeout=60000"
+      - "-c"
+      - "statement_timeout=300000"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      # 외부 접근 허용 (Web VM → DB VM 내부망 연결용)
+      # 방화벽에서 Web VM IP만 허용할 것
+      - "0.0.0.0:${DB_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ats_user} -d ${POSTGRES_DB:-atsdb}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus:   '4.0'
+          memory: 7.5G
+        reservations:
+          cpus:   '2.0'
+          memory: 4G
+
+volumes:
+  postgres_data:
+    driver: local

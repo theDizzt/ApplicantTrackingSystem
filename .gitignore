@@ -47,3 +47,6 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Docker 환경변수 (시크릿 포함 — 절대 커밋 금지)
+.env
