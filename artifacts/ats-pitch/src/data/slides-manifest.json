@@ -1,0 +1,20 @@
+[
+  {"id":"a1b2c3d4-0001-0001-0001-a1b2c3d40001","position":1,"filepath":"src/pages/slides/Slide01Cover.tsx","title":"AI 서류 심사관","description":"제품 소개 표지","speakerNotes":""},
+  {"id":"a1b2c3d4-0002-0002-0002-a1b2c3d40002","position":2,"filepath":"src/pages/slides/Slide02ToC.tsx","title":"목차","description":"발표 순서 안내","speakerNotes":""},
+  {"id":"a1b2c3d4-0003-0003-0003-a1b2c3d40003","position":3,"filepath":"src/pages/slides/Slide03Problem.tsx","title":"서류 합격, 왜 이렇게 어려울까?","description":"문제 정의","speakerNotes":""},
+  {"id":"a1b2c3d4-0004-0004-0004-a1b2c3d40004","position":4,"filepath":"src/pages/slides/Slide04Solution.tsx","title":"AI 서류 심사관이란?","description":"솔루션 개요","speakerNotes":""},
+  {"id":"a1b2c3d4-0005-0005-0005-a1b2c3d40005","position":5,"filepath":"src/pages/slides/Slide05Feature1.tsx","title":"핵심 기능 1 — AI 서류 심사","description":"4개 영역 정량 평가","speakerNotes":""},
+  {"id":"a1b2c3d4-0006-0006-0006-a1b2c3d40006","position":6,"filepath":"src/pages/slides/Slide06Feature2.tsx","title":"핵심 기능 2 — 이력서 관리","description":"작성·편집·버전 관리","speakerNotes":""},
+  {"id":"a1b2c3d4-0007-0007-0007-a1b2c3d40007","position":7,"filepath":"src/pages/slides/Slide07Feature3.tsx","title":"핵심 기능 3 — 채용 공고 자동 수집","description":"사람인 연동 + AI 정규화","speakerNotes":""},
+  {"id":"a1b2c3d4-0008-0008-0008-a1b2c3d40008","position":8,"filepath":"src/pages/slides/Slide08Feature4.tsx","title":"핵심 기능 4 — GitHub 기술 역량 평가","description":"실제 기여 이력 분석","speakerNotes":""},
+  {"id":"a1b2c3d4-0009-0009-0009-a1b2c3d40009","position":9,"filepath":"src/pages/slides/Slide09Feature5.tsx","title":"핵심 기능 5 — AI 맞춤 면접 연습","description":"약점 기반 면접 질문 생성","speakerNotes":""},
+  {"id":"a1b2c3d4-0010-0010-0010-a1b2c3d40010","position":10,"filepath":"src/pages/slides/Slide10AITech.tsx","title":"AI 기술 — 어떻게 분석하나요?","description":"AI 분석 기술 소개","speakerNotes":""},
+  {"id":"a1b2c3d4-0011-0011-0011-a1b2c3d40011","position":11,"filepath":"src/pages/slides/Slide11Flow.tsx","title":"서비스 이용 플로우","description":"취업 준비 사이클 5단계","speakerNotes":""},
+  {"id":"a1b2c3d4-0012-0012-0012-a1b2c3d40012","position":12,"filepath":"src/pages/slides/Slide12Dashboard.tsx","title":"대시보드 — 한눈에 보는 현황","description":"활동 현황 요약","speakerNotes":""},
+  {"id":"a1b2c3d4-0013-0013-0013-a1b2c3d40013","position":13,"filepath":"src/pages/slides/Slide13Pricing.tsx","title":"구독 플랜","description":"Free / 베이직 / 프리미엄","speakerNotes":""},
+  {"id":"a1b2c3d4-0014-0014-0014-a1b2c3d40014","position":14,"filepath":"src/pages/slides/Slide14Effects.tsx","title":"기대 효과","description":"지원자와 채용 담당자 모두에게 가치","speakerNotes":""},
+  {"id":"a1b2c3d4-0015-0015-0015-a1b2c3d40015","position":15,"filepath":"src/pages/slides/Slide15Support.tsx","title":"지원 환경","description":"브라우저·모바일·파일 형식","speakerNotes":""},
+  {"id":"a1b2c3d4-0016-0016-0016-a1b2c3d40016","position":16,"filepath":"src/pages/slides/Slide16TechStack.tsx","title":"기술 스택","description":"프론트엔드·백엔드·DB·AI·인프라","speakerNotes":""},
+  {"id":"a1b2c3d4-0017-0017-0017-a1b2c3d40017","position":17,"filepath":"src/pages/slides/Slide17Deploy.tsx","title":"배포 구성 — 클라우드 운영","description":"Web VM + DB VM 분리 구성","speakerNotes":""},
+  {"id":"a1b2c3d4-0018-0018-0018-a1b2c3d40018","position":18,"filepath":"src/pages/slides/Slide18CTA.tsx","title":"지금 시작하세요","description":"마무리 CTA","speakerNotes":""}
+]
