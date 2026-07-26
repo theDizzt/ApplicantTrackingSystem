@@ -8,6 +8,8 @@ import { Route, Switch, Router as WouterRouter } from 'wouter';
 import LandingPage from '@/pages/landing';
 import LoginPage from '@/pages/login';
 import RegisterPage from '@/pages/register';
+import AdminLoginPage from '@/pages/admin/login';
+import AdminPage from '@/pages/admin/index';
 
 import { AppShell } from '@/components/layout/app-shell';
 import { AuthGuard } from '@/components/auth-guard';
@@ -47,6 +49,8 @@ function Router() {
       <Route path="/" component={LandingPage} />
       <Route path="/login" component={LoginPage} />
       <Route path="/register" component={RegisterPage} />
+      <Route path="/admin/login" component={AdminLoginPage} />
+      <Route path="/admin" component={AdminPage} />
 
       {/* Protected Routes */}
       <ProtectedRoute path="/dashboard" component={Dashboard} />

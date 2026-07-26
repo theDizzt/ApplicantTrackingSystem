@@ -103,14 +103,26 @@ router.get("/analyses/:id", requireAuth, async (req, res): Promise<void> => {
 
 // ─── 3-parallel AI analysis ───────────────────────────────────────────────
 
-async function callAI(messages: ChatCompletionMessageParam[]): Promise<Record<string, unknown>> {
+interface AIResult {
+  data: Record<string, unknown>;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+async function callAI(messages: ChatCompletionMessageParam[]): Promise<AIResult> {
   const response = await openai.chat.completions.create({
     model: "gpt-5.6-luna",
     messages,
     response_format: { type: "json_object" },
   });
   const raw = response.choices[0]?.message?.content ?? "{}";
-  try { return JSON.parse(raw); } catch { return {}; }
+  let data: Record<string, unknown> = {};
+  try { data = JSON.parse(raw); } catch { /* ignore */ }
+  return {
+    data,
+    inputTokens:  response.usage?.prompt_tokens     ?? 0,
+    outputTokens: response.usage?.completion_tokens ?? 0,
+  };
 }
 
 async function runAnalysis(
@@ -231,11 +243,17 @@ technicalSkills는 이력서에서 명시적으로 언급된 기술만 포함하
 }`;
 
   // 3개 AI 모델 병렬 실행
-  const [r1, r2, r3] = await Promise.all([
+  const [res1, res2, res3] = await Promise.all([
     callAI([{ role: "system", content: prompt1System }, { role: "user", content: userContent }]),
     callAI([{ role: "system", content: prompt2System }, { role: "user", content: userContent }]),
     callAI([{ role: "system", content: prompt3System }, { role: "user", content: userContent }]),
   ]);
+
+  const r1 = res1.data;
+  const r2 = res2.data;
+  const r3 = res3.data;
+  const totalInputTokens  = res1.inputTokens  + res2.inputTokens  + res3.inputTokens;
+  const totalOutputTokens = res1.outputTokens + res2.outputTokens + res3.outputTokens;
 
   const orgFit = r3.organizationalFit as Record<string, unknown> | undefined;
   const salaryRaw = r3.salaryAnalysis as Record<string, unknown> | undefined;
@@ -301,6 +319,8 @@ technicalSkills는 이력서에서 명시적으로 언급된 기술만 포함하
     improvementSuggestions: typeof r3.improvementSuggestions === "string" ? r3.improvementSuggestions : null,
     urlAnalysisResult,
     richAnalysisResult,
+    inputTokens:  totalInputTokens,
+    outputTokens: totalOutputTokens,
     completedAt: new Date(),
   }).where(eq(analysesTable.id, analysisId));
 
