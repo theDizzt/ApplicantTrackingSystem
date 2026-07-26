@@ -43,3 +43,62 @@ body {
   user-select: none;
   -webkit-user-select: none;
 }
+
+/* Allow pinch-zoom on mobile */
+@media (max-width: 767px) {
+  .slide-viewer {
+    touch-action: pinch-zoom;
+  }
+}
+
+/* Mobile navigation bar */
+.slide-mobile-nav {
+  display: none;
+  height: 56px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  background: #111;
+  border-top: 1px solid #222;
+}
+
+@media (max-width: 767px) {
+  .slide-mobile-nav {
+    display: flex;
+  }
+}
+
+.slide-mobile-nav-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 14px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.7);
+  padding: 8px 12px;
+  border-radius: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.slide-mobile-nav-btn:hover {
+  color: #fff;
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.slide-mobile-nav-btn:disabled {
+  color: rgba(255, 255, 255, 0.2);
+  cursor: default;
+  background: transparent;
+}
+
+.slide-mobile-nav-counter {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.45);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}

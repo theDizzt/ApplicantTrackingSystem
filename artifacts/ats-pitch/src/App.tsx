@@ -12,7 +12,7 @@
  * check" if this file has been hand-edited and needs repair.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { slides } from '@/slideLoader';
 import { useLocation } from 'wouter';
 
@@ -209,30 +209,82 @@ function AllSlides() {
   );
 }
 
+// Logical slide dimensions — slides are designed at this resolution.
+// The iframe renders at this size; CSS transform scales it to fit the viewport.
+const SLIDE_W = 1280;
+const SLIDE_H = 720;
+
+function computeScale(vw: number, vh: number, navBarH: number) {
+  return Math.min(vw / SLIDE_W, (vh - navBarH) / SLIDE_H);
+}
+
 // This component is used for the deployed view at `/`
 function SlideViewer() {
   const iframeRef = useRef<HTMLIFrameElement>(null);
-  const [dims, setDims] = useState(() => ({
-    width: Math.min(window.innerWidth, window.innerHeight * (16 / 9)),
-    height: Math.min(window.innerHeight, window.innerWidth * (9 / 16)),
-  }));
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isMobile, setIsMobile] = useState(() => window.innerWidth < 768);
+  const [scale, setScale] = useState(() => {
+    const mobile = window.innerWidth < 768;
+    return computeScale(window.innerWidth, window.innerHeight, mobile ? 56 : 0);
+  });
 
   useEffect(() => {
     const update = () => {
-      setDims({
-        width: Math.min(window.innerWidth, window.innerHeight * (16 / 9)),
-        height: Math.min(window.innerHeight, window.innerWidth * (9 / 16)),
-      });
+      const mobile = window.innerWidth < 768;
+      setIsMobile(mobile);
+      setScale(computeScale(window.innerWidth, window.innerHeight, mobile ? 56 : 0));
     };
     window.addEventListener('resize', update);
     return () => window.removeEventListener('resize', update);
   }, []);
 
+  // Navigate to a slide by index — updates local state and tells the iframe
+  const goTo = useCallback((idx: number) => {
+    const clamped = Math.max(0, Math.min(idx, slides.length - 1));
+    setCurrentIndex(clamped);
+    iframeRef.current?.contentWindow?.postMessage(
+      { type: 'navigateToSlide', position: slides[clamped].position },
+      '*',
+    );
+  }, []);
+
+  // Listen for advanceSlide / retreatSlide messages from the iframe
+  // (sent when replitNav=parent is active)
+  useEffect(() => {
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === 'advanceSlide') {
+        setCurrentIndex((prev) => {
+          const next = Math.min(prev + 1, slides.length - 1);
+          iframeRef.current?.contentWindow?.postMessage(
+            { type: 'navigateToSlide', position: slides[next].position },
+            '*',
+          );
+          return next;
+        });
+      }
+      if (event.data?.type === 'retreatSlide') {
+        setCurrentIndex((prev) => {
+          const next = Math.max(prev - 1, 0);
+          iframeRef.current?.contentWindow?.postMessage(
+            { type: 'navigateToSlide', position: slides[next].position },
+            '*',
+          );
+          return next;
+        });
+      }
+    };
+    window.addEventListener('message', onMessage);
+    return () => window.removeEventListener('message', onMessage);
+  }, []);
+
+  // Forward keyboard events into the iframe
   useEffect(() => {
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (
         event.key !== 'ArrowLeft' &&
         event.key !== 'ArrowRight' &&
+        event.key !== 'ArrowUp' &&
+        event.key !== 'ArrowDown' &&
         event.key !== ' '
       )
         return;
@@ -249,21 +301,86 @@ function SlideViewer() {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, []);
 
+  // Swipe-to-navigate on the outer container
+  const touchRef = useRef({ x: 0, y: 0, time: 0 });
+  const onTouchStart = useCallback((e: React.TouchEvent) => {
+    touchRef.current = {
+      x: e.touches[0].clientX,
+      y: e.touches[0].clientY,
+      time: Date.now(),
+    };
+  }, []);
+  const onTouchEnd = useCallback(
+    (e: React.TouchEvent) => {
+      const dx = e.changedTouches[0].clientX - touchRef.current.x;
+      const dy = e.changedTouches[0].clientY - touchRef.current.y;
+      const dt = Date.now() - touchRef.current.time;
+      // Only count clear horizontal swipes within 500 ms
+      if (Math.abs(dx) < 40 || Math.abs(dy) > Math.abs(dx) * 0.7 || dt > 500)
+        return;
+      goTo(dx < 0 ? currentIndex + 1 : currentIndex - 1);
+    },
+    [currentIndex, goTo],
+  );
+
   const base = import.meta.env.BASE_URL.replace(/\/$/, '');
   const firstPosition = slides.length > 0 ? slides[0].position : 1;
 
   return (
     <div
-      className="slide-viewer h-screen w-screen overflow-hidden bg-black flex items-center justify-center"
-      onClick={() => iframeRef.current?.focus()}
+      className="slide-viewer h-screen w-screen overflow-hidden bg-black flex flex-col"
+      onTouchStart={onTouchStart}
+      onTouchEnd={onTouchEnd}
     >
-      <iframe
-        ref={iframeRef}
-        src={`${base}/slide${firstPosition}`}
-        style={{ width: dims.width, height: dims.height, border: 'none' }}
-        onLoad={() => iframeRef.current?.focus()}
-        title="Slide viewer"
-      />
+      {/* Slide area — iframe rendered at SLIDE_W×SLIDE_H, scaled to fit */}
+      <div
+        className="flex-1 flex items-center justify-center min-h-0"
+        onClick={() => iframeRef.current?.focus()}
+      >
+        <div
+          style={{
+            width: SLIDE_W,
+            height: SLIDE_H,
+            transform: `scale(${scale})`,
+            transformOrigin: 'center center',
+            flexShrink: 0,
+          }}
+        >
+          <iframe
+            ref={iframeRef}
+            src={`${base}/slide${firstPosition}?replitNav=parent`}
+            style={{ width: SLIDE_W, height: SLIDE_H, border: 'none' }}
+            onLoad={() => iframeRef.current?.focus()}
+            title="Slide viewer"
+          />
+        </div>
+      </div>
+
+      {/* Mobile navigation bar — hidden on desktop via CSS */}
+      <nav
+        className="slide-mobile-nav"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          className="slide-mobile-nav-btn"
+          onClick={() => goTo(currentIndex - 1)}
+          disabled={currentIndex === 0}
+          aria-label="이전 슬라이드"
+        >
+          ‹ 이전
+        </button>
+        <span className="slide-mobile-nav-counter">
+          {currentIndex + 1} / {slides.length}
+        </span>
+        <button
+          className="slide-mobile-nav-btn"
+          onClick={() => goTo(currentIndex + 1)}
+          disabled={currentIndex === slides.length - 1}
+          aria-label="다음 슬라이드"
+        >
+          다음 ›
+        </button>
+      </nav>
     </div>
   );
 }

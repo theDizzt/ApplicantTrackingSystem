@@ -1,0 +1,8 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "sBpJzNJxQ8VyI3WHv95PS"
+uri = "file://.local/outputs/Resume-Reviewer.pptx"
+type = "slides"
+title = "Resume Reviewer.pptx"
