@@ -10,6 +10,7 @@ export const usersTable = pgTable("users", {
   subscriptionStatus: text("subscription_status").notNull().default("free"),
   subscriptionPlanId: text("subscription_plan_id"),
   subscriptionExpiresAt: timestamp("subscription_expires_at", { withTimezone: true }),
+  organizationId: integer("organization_id"),
   analysesUsedThisMonth: integer("analyses_used_this_month").notNull().default(0),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow().$onUpdate(() => new Date()),

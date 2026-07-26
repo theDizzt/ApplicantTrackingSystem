@@ -9,6 +9,7 @@ export const organizationsTable = pgTable("organizations", {
   contactEmail: text("contact_email"),
   contactPhone: text("contact_phone"),
   description: text("description"),
+  plan: text("plan").notNull().default("free"), // free | basic | premium
   memberCount: integer("member_count").notNull().default(0),
   status: text("status").notNull().default("active"), // active | inactive
   registeredAt: timestamp("registered_at", { withTimezone: true }).notNull().defaultNow(),

@@ -110,7 +110,7 @@ function OrgDialog({
 }) {
   const [form, setForm] = useState({
     name: "", contactPerson: "", contactEmail: "", contactPhone: "",
-    description: "", memberCount: "0", status: "active",
+    description: "", memberCount: "0", plan: "free", status: "active",
   })
   const [saving, setSaving] = useState(false)
 
@@ -123,10 +123,11 @@ function OrgDialog({
         contactPhone: initial.contactPhone ?? "",
         description: initial.description ?? "",
         memberCount: String(initial.memberCount),
+        plan: (initial as any).plan ?? "free",
         status: initial.status,
       })
     } else {
-      setForm({ name: "", contactPerson: "", contactEmail: "", contactPhone: "", description: "", memberCount: "0", status: "active" })
+      setForm({ name: "", contactPerson: "", contactEmail: "", contactPhone: "", description: "", memberCount: "0", plan: "free", status: "active" })
     }
   }, [initial, open])
 
@@ -140,7 +141,7 @@ function OrgDialog({
     if (!form.name.trim()) { toast.error("협회명을 입력해주세요."); return }
     setSaving(true)
     try {
-      const body = { ...form, memberCount: parseInt(form.memberCount, 10) || 0 }
+      const body = { ...form, memberCount: parseInt(form.memberCount, 10) || 0, plan: form.plan }
       if (initial) {
         await api(`/admin/organizations/${initial.id}`, { method: "PATCH", body: JSON.stringify(body) })
         toast.success("협회 정보가 수정되었습니다.")
@@ -188,6 +189,20 @@ function OrgDialog({
             <div className="col-span-2 space-y-1">
               <Label className="text-slate-300 text-xs">설명</Label>
               <Input {...field("description")} placeholder="협회 설명 (선택)" className="bg-slate-800 border-slate-700 text-white" />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-slate-300 text-xs">소속 플랜 (회원 등급)</Label>
+              <Select value={form.plan} onValueChange={(v) => setForm((p) => ({ ...p, plan: v }))}>
+                <SelectTrigger className="bg-slate-800 border-slate-700 text-white">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="bg-slate-800 border-slate-700 text-white">
+                  <SelectItem value="free">무료 (Free)</SelectItem>
+                  <SelectItem value="basic">베이직 (Basic)</SelectItem>
+                  <SelectItem value="premium">프리미엄 (Premium)</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-[11px] text-slate-500 mt-0.5">이 기관으로 가입한 사용자에게 자동 적용됩니다</p>
             </div>
             <div className="space-y-1">
               <Label className="text-slate-300 text-xs">상태</Label>
