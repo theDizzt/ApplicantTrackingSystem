@@ -1,0 +1,376 @@
+#!/bin/bash
+
+# =====================================================
+#  AI 서류 심사관 (ATS) 설치 스크립트
+#  대상 OS: Ubuntu 20.04+ / Debian, Rocky Linux 8+ / RHEL 계열
+#  로컬 또는 서버 환경에 직접 설치합니다. (Docker 불필요)
+#
+#  구성 요소:
+#    - Node.js 20 + pnpm (모노레포 빌드)
+#    - PostgreSQL 15+ (데이터베이스)
+#    - API 서버 (Express, systemd 서비스로 등록)
+#    - 웹 프론트엔드 (정적 빌드, Nginx로 서빙)
+#    - OpenAI API 연동 (API 키 필요)
+# =====================================================
+
+set -e
+
+# 색상 정의
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+APP_NAME="ats-checker"
+API_PORT="${API_PORT:-8080}"
+WEB_PORT="${WEB_PORT:-80}"
+DB_NAME="${DB_NAME:-ats_checker}"
+DB_USER="${DB_USER:-ats_user}"
+
+echo -e "${BLUE}==============================================${NC}"
+echo -e "${BLUE}   AI 서류 심사관 (ATS) 설치 스크립트${NC}"
+echo -e "${BLUE}==============================================${NC}"
+echo -e "  설치 경로: ${GREEN}${INSTALL_DIR}${NC}"
+echo ""
+
+# =====================================
+# 1. OS 감지
+# =====================================
+detect_os() {
+    echo -e "${CYAN}[1/8] OS 정보 확인${NC}"
+    OS_FAMILY="unknown"
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        case "$ID" in
+            rocky|rhel|centos|almalinux|ol) OS_FAMILY="rhel" ;;
+            ubuntu|debian)                  OS_FAMILY="debian" ;;
+        esac
+        echo -e "  OS: ${GREEN}${NAME} ${VERSION_ID}${NC} (계열: ${OS_FAMILY})"
+    fi
+    if [ "$OS_FAMILY" = "unknown" ]; then
+        echo -e "${RED}[오류] 지원하지 않는 OS입니다. Ubuntu/Debian 또는 Rocky/RHEL 계열이 필요합니다.${NC}"
+        exit 1
+    fi
+
+    if [ "$OS_FAMILY" = "rhel" ]; then
+        PKG="dnf"
+        command -v dnf &>/dev/null || PKG="yum"
+    else
+        PKG="apt-get"
+    fi
+
+    # root 또는 sudo 확인
+    SUDO=""
+    if [ "$(id -u)" -ne 0 ]; then
+        if command -v sudo &>/dev/null; then
+            SUDO="sudo"
+        else
+            echo -e "${RED}[오류] root 권한 또는 sudo가 필요합니다.${NC}"
+            exit 1
+        fi
+    fi
+    echo ""
+}
+
+# =====================================
+# 2. 기본 패키지 설치
+# =====================================
+install_base_packages() {
+    echo -e "${CYAN}[2/8] 기본 패키지 설치${NC}"
+    if [ "$OS_FAMILY" = "debian" ]; then
+        $SUDO apt-get update -y
+        $SUDO apt-get install -y curl ca-certificates gnupg git build-essential openssl
+    else
+        $SUDO $PKG install -y curl ca-certificates git gcc-c++ make openssl
+    fi
+    echo -e "  ${GREEN}완료${NC}"
+    echo ""
+}
+
+# =====================================
+# 3. Node.js 20 + pnpm 설치
+# =====================================
+install_nodejs() {
+    echo -e "${CYAN}[3/8] Node.js 20 + pnpm 설치${NC}"
+    NEED_NODE=true
+    if command -v node &>/dev/null; then
+        NODE_MAJOR=$(node -v | sed 's/v\([0-9]*\).*/\1/')
+        if [ "$NODE_MAJOR" -ge 20 ]; then
+            echo -e "  Node.js $(node -v) 이미 설치됨"
+            NEED_NODE=false
+        fi
+    fi
+
+    if [ "$NEED_NODE" = true ]; then
+        if [ "$OS_FAMILY" = "debian" ]; then
+            curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO bash -
+            $SUDO apt-get install -y nodejs
+        else
+            curl -fsSL https://rpm.nodesource.com/setup_20.x | $SUDO bash -
+            $SUDO $PKG install -y nodejs
+        fi
+    fi
+
+    if ! command -v pnpm &>/dev/null; then
+        $SUDO npm install -g pnpm@10
+    fi
+    echo -e "  Node: ${GREEN}$(node -v)${NC} / pnpm: ${GREEN}$(pnpm -v)${NC}"
+    echo ""
+}
+
+# =====================================
+# 4. PostgreSQL 설치 및 DB 생성
+# =====================================
+install_postgres() {
+    echo -e "${CYAN}[4/8] PostgreSQL 설치 및 데이터베이스 생성${NC}"
+
+    read -p "  기존 PostgreSQL 서버를 사용하시겠습니까? (y=기존 사용 / n=새로 설치): " USE_EXISTING_DB
+    if [ "$USE_EXISTING_DB" = "y" ] || [ "$USE_EXISTING_DB" = "Y" ]; then
+        read -p "  DATABASE_URL을 입력하세요 (예: postgres://user:pass@host:5432/dbname): " DATABASE_URL
+        if [ -z "$DATABASE_URL" ]; then
+            echo -e "${RED}[오류] DATABASE_URL이 비어 있습니다.${NC}"; exit 1
+        fi
+        echo ""
+        return
+    fi
+
+    if ! command -v psql &>/dev/null; then
+        if [ "$OS_FAMILY" = "debian" ]; then
+            $SUDO apt-get install -y postgresql postgresql-contrib
+        else
+            $SUDO $PKG install -y postgresql-server postgresql-contrib
+            # Rocky/RHEL: 초기화 필요
+            if [ ! -f /var/lib/pgsql/data/PG_VERSION ]; then
+                $SUDO postgresql-setup --initdb
+            fi
+            # 로컬 접속을 md5 인증으로 변경 (기본 ident는 패스워드 접속 불가)
+            PG_HBA=$($SUDO find /var/lib/pgsql -name pg_hba.conf | head -1)
+            if [ -n "$PG_HBA" ]; then
+                $SUDO sed -i 's/^\(host.*127.0.0.1\/32.*\)ident/\1md5/' "$PG_HBA"
+                $SUDO sed -i 's/^\(host.*::1\/128.*\)ident/\1md5/' "$PG_HBA"
+            fi
+        fi
+    fi
+    $SUDO systemctl enable --now postgresql
+
+    # DB 및 사용자 생성 (이미 있으면 무시)
+    DB_PASS=$(openssl rand -hex 16)
+    $SUDO -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'" | grep -q 1 || \
+        $SUDO -u postgres psql -c "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASS}';"
+    $SUDO -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1 || \
+        $SUDO -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
+    # 기존 사용자여도 비밀번호 갱신 (스크립트 재실행 대비)
+    $SUDO -u postgres psql -c "ALTER USER ${DB_USER} WITH PASSWORD '${DB_PASS}';"
+
+    DATABASE_URL="postgres://${DB_USER}:${DB_PASS}@localhost:5432/${DB_NAME}"
+    echo -e "  데이터베이스: ${GREEN}${DB_NAME}${NC} (사용자: ${DB_USER})"
+    echo ""
+}
+
+# =====================================
+# 5. 환경변수 설정 (.env)
+# =====================================
+setup_env() {
+    echo -e "${CYAN}[5/8] 환경변수 설정${NC}"
+
+    ENV_FILE="${INSTALL_DIR}/.env.production"
+    if [ -f "$ENV_FILE" ]; then
+        echo -e "  ${YELLOW}기존 ${ENV_FILE} 발견 — 재사용합니다.${NC}"
+        # 기존 파일에서 DATABASE_URL이 없으면 추가
+        grep -q "^DATABASE_URL=" "$ENV_FILE" || echo "DATABASE_URL=${DATABASE_URL}" >> "$ENV_FILE"
+        echo ""
+        return
+    fi
+
+    echo -e "  OpenAI API 키가 필요합니다. (https://platform.openai.com/api-keys)"
+    read -p "  OPENAI API KEY 입력: " OPENAI_KEY
+    if [ -z "$OPENAI_KEY" ]; then
+        echo -e "${YELLOW}  [경고] API 키 없이 설치를 계속합니다. AI 분석 기능이 작동하지 않습니다.${NC}"
+        echo -e "${YELLOW}  나중에 ${ENV_FILE} 파일에 직접 추가하세요.${NC}"
+    fi
+
+    SESSION_SECRET=$(openssl rand -hex 32)
+
+    cat > "$ENV_FILE" <<EOF
+NODE_ENV=production
+PORT=${API_PORT}
+DATABASE_URL=${DATABASE_URL}
+SESSION_SECRET=${SESSION_SECRET}
+AI_INTEGRATIONS_OPENAI_API_KEY=${OPENAI_KEY}
+AI_INTEGRATIONS_OPENAI_BASE_URL=https://api.openai.com/v1
+EOF
+    chmod 600 "$ENV_FILE"
+    echo -e "  ${GREEN}${ENV_FILE} 생성 완료${NC}"
+    echo ""
+}
+
+# =====================================
+# 6. 빌드
+# =====================================
+build_app() {
+    echo -e "${CYAN}[6/8] 애플리케이션 빌드${NC}"
+    cd "$INSTALL_DIR"
+
+    pnpm install
+
+    # DB 스키마 반영
+    echo -e "  DB 스키마 적용 중..."
+    DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/db run push
+
+    # API 서버 빌드
+    echo -e "  API 서버 빌드 중..."
+    NODE_ENV=production pnpm --filter @workspace/api-server run build
+
+    # 프론트엔드 빌드
+    echo -e "  웹 프론트엔드 빌드 중..."
+    pnpm --filter @workspace/job-doc-check run build
+
+    echo -e "  ${GREEN}빌드 완료${NC}"
+    echo ""
+}
+
+# =====================================
+# 7. systemd 서비스 등록 (API 서버)
+# =====================================
+setup_systemd() {
+    echo -e "${CYAN}[7/8] systemd 서비스 등록${NC}"
+
+    RUN_USER="${SUDO_USER:-$(whoami)}"
+    $SUDO tee /etc/systemd/system/${APP_NAME}-api.service > /dev/null <<EOF
+[Unit]
+Description=AI 서류 심사관 API 서버
+After=network.target postgresql.service
+
+[Service]
+Type=simple
+User=${RUN_USER}
+WorkingDirectory=${INSTALL_DIR}
+EnvironmentFile=${INSTALL_DIR}/.env.production
+ExecStart=$(command -v node) --enable-source-maps ${INSTALL_DIR}/artifacts/api-server/dist/index.mjs
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    $SUDO systemctl daemon-reload
+    $SUDO systemctl enable --now ${APP_NAME}-api.service
+    sleep 2
+    if $SUDO systemctl is-active --quiet ${APP_NAME}-api.service; then
+        echo -e "  ${GREEN}API 서버 실행 중 (포트 ${API_PORT})${NC}"
+    else
+        echo -e "  ${RED}API 서버 시작 실패. 로그 확인: journalctl -u ${APP_NAME}-api -n 50${NC}"
+    fi
+    echo ""
+}
+
+# =====================================
+# 8. Nginx 설치 및 설정 (프론트엔드 + API 프록시)
+# =====================================
+setup_nginx() {
+    echo -e "${CYAN}[8/8] Nginx 설치 및 설정${NC}"
+
+    if ! command -v nginx &>/dev/null; then
+        if [ "$OS_FAMILY" = "debian" ]; then
+            $SUDO apt-get install -y nginx
+        else
+            $SUDO $PKG install -y nginx
+        fi
+    fi
+
+    STATIC_DIR="${INSTALL_DIR}/artifacts/job-doc-check/dist/public"
+    # vite outDir이 dist인 경우 대비
+    [ -d "$STATIC_DIR" ] || STATIC_DIR="${INSTALL_DIR}/artifacts/job-doc-check/dist"
+
+    NGINX_CONF="/etc/nginx/conf.d/${APP_NAME}.conf"
+    $SUDO tee "$NGINX_CONF" > /dev/null <<EOF
+server {
+    listen ${WEB_PORT};
+    server_name _;
+
+    client_max_body_size 20M;
+
+    # API 프록시
+    location /api/ {
+        proxy_pass http://127.0.0.1:${API_PORT};
+        proxy_http_version 1.1;
+        proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
+        proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_read_timeout 300s;
+    }
+
+    # 정적 프론트엔드 (SPA)
+    location / {
+        root ${STATIC_DIR};
+        try_files \$uri \$uri/ /index.html;
+    }
+}
+EOF
+
+    # Ubuntu 기본 사이트 비활성화 (포트 충돌 방지)
+    [ -f /etc/nginx/sites-enabled/default ] && $SUDO rm -f /etc/nginx/sites-enabled/default
+
+    # Rocky/RHEL: SELinux에서 nginx가 앱 디렉토리 및 프록시 접근 허용
+    if [ "$OS_FAMILY" = "rhel" ] && command -v setsebool &>/dev/null; then
+        $SUDO setsebool -P httpd_can_network_connect 1 || true
+        command -v chcon &>/dev/null && $SUDO chcon -Rt httpd_sys_content_t "$STATIC_DIR" 2>/dev/null || true
+    fi
+
+    $SUDO nginx -t && $SUDO systemctl enable --now nginx && $SUDO systemctl reload nginx
+
+    # 방화벽 개방 (설치되어 있는 경우만)
+    if command -v firewall-cmd &>/dev/null && $SUDO firewall-cmd --state &>/dev/null; then
+        $SUDO firewall-cmd --permanent --add-port=${WEB_PORT}/tcp || true
+        $SUDO firewall-cmd --reload || true
+    elif command -v ufw &>/dev/null && $SUDO ufw status | grep -q active; then
+        $SUDO ufw allow ${WEB_PORT}/tcp || true
+    fi
+
+    echo -e "  ${GREEN}Nginx 설정 완료${NC}"
+    echo ""
+}
+
+# =====================================
+# 실행
+# =====================================
+detect_os
+install_base_packages
+install_nodejs
+install_postgres
+setup_env
+build_app
+setup_systemd
+setup_nginx
+
+HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
+[ -z "$HOST_IP" ] && HOST_IP="localhost"
+
+echo -e "${GREEN}==============================================${NC}"
+echo -e "${GREEN}   설치 완료!${NC}"
+echo -e "${GREEN}==============================================${NC}"
+echo ""
+echo -e "${BLUE}[접속 정보]${NC}"
+echo "  웹 접속:     http://${HOST_IP}:${WEB_PORT}"
+echo "  관리자 포털: http://${HOST_IP}:${WEB_PORT}/admin/login"
+echo "  API 상태:    curl http://localhost:${API_PORT}/api/healthz"
+echo ""
+echo -e "${BLUE}[서비스 관리]${NC}"
+echo "  API 상태 확인: systemctl status ${APP_NAME}-api"
+echo "  API 재시작:    sudo systemctl restart ${APP_NAME}-api"
+echo "  API 로그:      journalctl -u ${APP_NAME}-api -f"
+echo "  Nginx 재시작:  sudo systemctl restart nginx"
+echo ""
+echo -e "${BLUE}[환경변수]${NC}"
+echo "  설정 파일: ${INSTALL_DIR}/.env.production"
+echo "  변경 후:   sudo systemctl restart ${APP_NAME}-api"
+echo ""
+echo -e "${BLUE}[업데이트 방법]${NC}"
+echo "  1. 코드 갱신 (git pull 또는 파일 복사)"
+echo "  2. bash ${INSTALL_DIR}/install.sh 재실행 (기존 설정 유지됨)"
+echo ""
