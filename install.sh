@@ -156,13 +156,27 @@ install_postgres() {
     fi
     $SUDO systemctl enable --now postgresql
 
+    # 재실행 시: 기존 .env.production의 DATABASE_URL을 그대로 사용 (비밀번호 불일치 방지)
+    ENV_FILE="${INSTALL_DIR}/.env.production"
+    if [ -f "$ENV_FILE" ] && grep -q "^DATABASE_URL=" "$ENV_FILE"; then
+        DATABASE_URL=$(grep "^DATABASE_URL=" "$ENV_FILE" | head -1 | cut -d= -f2-)
+        # .env의 비밀번호를 DB에 다시 적용해 항상 일치하도록 보장
+        ENV_DB_PASS=$(echo "$DATABASE_URL" | sed -n 's|.*://[^:]*:\([^@]*\)@.*|\1|p')
+        if [ -n "$ENV_DB_PASS" ]; then
+            $SUDO -u postgres psql -c "ALTER USER ${DB_USER} WITH PASSWORD '${ENV_DB_PASS}';" 2>/dev/null || true
+        fi
+        echo -e "  기존 .env.production의 DATABASE_URL 재사용 (비밀번호 동기화 완료)"
+        echo ""
+        return
+    fi
+
     # DB 및 사용자 생성 (이미 있으면 무시)
     DB_PASS=$(openssl rand -hex 16)
     $SUDO -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'" | grep -q 1 || \
         $SUDO -u postgres psql -c "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASS}';"
     $SUDO -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1 || \
         $SUDO -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
-    # 기존 사용자여도 비밀번호 갱신 (스크립트 재실행 대비)
+    # 최초 생성 시에도 비밀번호를 확실히 적용
     $SUDO -u postgres psql -c "ALTER USER ${DB_USER} WITH PASSWORD '${DB_PASS}';"
 
     DATABASE_URL="postgres://${DB_USER}:${DB_PASS}@localhost:5432/${DB_NAME}"

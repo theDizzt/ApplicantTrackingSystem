@@ -1,0 +1,41 @@
+park1058@DESKTOP-6MBF2O6:~/Resume-Reviewer$ systemctl status ats-checker-api
+● ats-checker-api.service - AI 서류 심사관 API 서버
+     Loaded: loaded (/etc/systemd/system/ats-checker-api.service; enabled; pres>
+     Active: activating (auto-restart) (Result: exit-code) since Thu 2026-08-06>
+    Process: 913 ExecStart=/usr/bin/node --enable-source-maps /home/park1058/Re>
+   Main PID: 913 (code=exited, status=1/FAILURE)
+        CPU: 437ms
+lines 1-6/6 (END)
+[1]+  Stopped                 systemctl status ats-checker-api
+ ESC[200~systemctl status nginx ~
+[200~systemctl: command not found
+park1058@DESKTOP-6MBF2O6:~/Resume-Reviewer$ systemctl status nginx
+● nginx.service - A high performance web server and a reverse proxy server
+     Loaded: loaded (/usr/lib/systemd/system/nginx.service; enabled; preset: en>
+     Active: active (running) since Thu 2026-08-06 16:29:38 KST; 44s ago
+       Docs: man:nginx(8)
+    Process: 187 ExecStartPre=/usr/sbin/nginx -t -q -g daemon on; master_proces>
+    Process: 198 ExecStart=/usr/sbin/nginx -g daemon on; master_process on; (co>
+   Main PID: 204 (nginx)
+      Tasks: 13 (limit: 38284)
+     Memory: 10.3M (peak: 11.7M)
+        CPU: 47ms
+     CGroup: /system.slice/nginx.service
+             ├─204 "nginx: master process /usr/sbin/nginx -g daemon on; master_>
+             ├─205 "nginx: worker process"
+             ├─206 "nginx: worker process"
+             ├─207 "nginx: worker process"
+             ├─208 "nginx: worker process"
+             ├─209 "nginx: worker process"
+             ├─210 "nginx: worker process"
+             ├─211 "nginx: worker process"
+             ├─212 "nginx: worker process"
+             ├─213 "nginx: worker process"
+             ├─214 "nginx: worker process"
+             ├─216 "nginx: worker process"
+             └─220 "nginx: worker process"
+
+Aug 06 16:29:38 DESKTOP-6MBF2O6 systemd[1]: Starting nginx.service - A high per>
+Aug 06 16:29:38 DESKTOP-6MBF2O6 systemd[1]: Started nginx.service - A high perf>
+lines 1-27/27 (END)
+[2]+  Stopped                 systemctl status nginx
