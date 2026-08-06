@@ -284,9 +284,16 @@ setup_nginx() {
         fi
     fi
 
-    STATIC_DIR="${INSTALL_DIR}/artifacts/job-doc-check/dist/public"
+    BUILD_DIR="${INSTALL_DIR}/artifacts/job-doc-check/dist/public"
     # vite outDir이 dist인 경우 대비
-    [ -d "$STATIC_DIR" ] || STATIC_DIR="${INSTALL_DIR}/artifacts/job-doc-check/dist"
+    [ -d "$BUILD_DIR" ] || BUILD_DIR="${INSTALL_DIR}/artifacts/job-doc-check/dist"
+
+    # 홈 디렉토리는 nginx(www-data)가 접근할 수 없으므로 /var/www로 복사해 서빙
+    STATIC_DIR="/var/www/${APP_NAME}"
+    $SUDO mkdir -p "$STATIC_DIR"
+    $SUDO rm -rf "${STATIC_DIR:?}"/*
+    $SUDO cp -r "$BUILD_DIR"/. "$STATIC_DIR"/
+    $SUDO chmod -R a+rX "$STATIC_DIR"
 
     NGINX_CONF="/etc/nginx/conf.d/${APP_NAME}.conf"
     $SUDO tee "$NGINX_CONF" > /dev/null <<EOF
