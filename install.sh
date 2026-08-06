@@ -224,9 +224,11 @@ build_app() {
     echo -e "  API 서버 빌드 중..."
     NODE_ENV=production pnpm --filter @workspace/api-server run build
 
-    # 프론트엔드 빌드
+    # 프론트엔드 빌드 (vite.config.ts가 PORT/BASE_PATH를 요구함.
+    #  빌드 결과물은 Nginx가 루트(/)에서 서빙하므로 BASE_PATH=/,
+    #  PORT는 dev 서버용 값이라 빌드에는 영향 없음)
     echo -e "  웹 프론트엔드 빌드 중..."
-    pnpm --filter @workspace/job-doc-check run build
+    PORT=3000 BASE_PATH=/ NODE_ENV=production pnpm --filter @workspace/job-doc-check run build
 
     echo -e "  ${GREEN}빌드 완료${NC}"
     echo ""
