@@ -133,6 +133,15 @@ install_postgres() {
         if [ -z "$DATABASE_URL" ]; then
             echo -e "${RED}[오류] DATABASE_URL이 비어 있습니다.${NC}"; exit 1
         fi
+        # 재실행 시 기존 .env.production의 DATABASE_URL을 새 값으로 갱신 (빌드/서비스 불일치 방지)
+        ENV_FILE="${INSTALL_DIR}/.env.production"
+        if [ -f "$ENV_FILE" ] && grep -q "^DATABASE_URL=" "$ENV_FILE"; then
+            TMP_ENV=$(mktemp)
+            awk -v url="$DATABASE_URL" 'BEGIN{FS=OFS="="} /^DATABASE_URL=/{print "DATABASE_URL" OFS url; next} {print}' "$ENV_FILE" > "$TMP_ENV"
+            cat "$TMP_ENV" > "$ENV_FILE"
+            rm -f "$TMP_ENV"
+            echo -e "  기존 .env.production의 DATABASE_URL을 새 값으로 갱신했습니다."
+        fi
         echo ""
         return
     fi
@@ -161,8 +170,10 @@ install_postgres() {
     if [ -f "$ENV_FILE" ] && grep -q "^DATABASE_URL=" "$ENV_FILE"; then
         DATABASE_URL=$(grep "^DATABASE_URL=" "$ENV_FILE" | head -1 | cut -d= -f2-)
         # .env의 비밀번호를 DB에 다시 적용해 항상 일치하도록 보장
+        # (로컬 DB를 가리키는 경우에만 — 외부 DB URL이면 로컬 사용자 비밀번호를 건드리지 않음)
         ENV_DB_PASS=$(echo "$DATABASE_URL" | sed -n 's|.*://[^:]*:\([^@]*\)@.*|\1|p')
-        if [ -n "$ENV_DB_PASS" ]; then
+        ENV_DB_HOST=$(echo "$DATABASE_URL" | sed -n 's|.*@\([^:/]*\).*|\1|p')
+        if [ -n "$ENV_DB_PASS" ] && { [ "$ENV_DB_HOST" = "localhost" ] || [ "$ENV_DB_HOST" = "127.0.0.1" ]; }; then
             $SUDO -u postgres psql -c "ALTER USER ${DB_USER} WITH PASSWORD '${ENV_DB_PASS}';" 2>/dev/null || true
         fi
         echo -e "  기존 .env.production의 DATABASE_URL 재사용 (비밀번호 동기화 완료)"
@@ -269,7 +280,9 @@ WantedBy=multi-user.target
 EOF
 
     $SUDO systemctl daemon-reload
-    $SUDO systemctl enable --now ${APP_NAME}-api.service
+    $SUDO systemctl enable ${APP_NAME}-api.service
+    # 재실행 시에도 새 빌드가 반영되도록 restart 사용 (enable --now는 이미 실행 중이면 아무것도 안 함)
+    $SUDO systemctl restart ${APP_NAME}-api.service
     sleep 2
     if $SUDO systemctl is-active --quiet ${APP_NAME}-api.service; then
         echo -e "  ${GREEN}API 서버 실행 중 (포트 ${API_PORT})${NC}"
