@@ -1,10 +1,13 @@
 import { useParams, Link } from "wouter"
-import { useGetAnalysis, getGetAnalysisQueryKey } from "@workspace/api-client-react"
+import { useGetAnalysis, getGetAnalysisQueryKey, useRetryAnalysis } from "@workspace/api-client-react"
+import { useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   ChevronLeft, CheckCircle2, XCircle, AlertTriangle,
-  Link2, ExternalLink, TrendingUp, Banknote, Award, GraduationCap, Heart,
+  Link2, ExternalLink, TrendingUp, Banknote, Award, GraduationCap, Heart, RotateCcw,
 } from "lucide-react"
 
 // ── 타입 ──────────────────────────────────────────────────────────────────
@@ -102,6 +105,8 @@ function wan(n: number) { return `${n.toLocaleString()}만원` }
 export default function AnalysisDetail() {
   const params = useParams()
   const analysisId = parseInt(params.id!, 10)
+  const queryClient = useQueryClient()
+  const retryAnalysis = useRetryAnalysis()
   const { data: analysis, isLoading } = useGetAnalysis(analysisId, {
     query: {
       queryKey: getGetAnalysisQueryKey(analysisId),
@@ -211,8 +216,30 @@ export default function AnalysisDetail() {
               {analysis.errorMessage || "AI 서버에 연결할 수 없어 심사가 중단되었습니다. 관리자에게 문의해주세요."}
             </p>
             <p className="text-slate-400 max-w-md mt-3 text-xs">
-              문제가 해결된 후 새 심사를 다시 시작해주세요.
+              문제가 해결되었다면 아래 버튼으로 같은 이력서·회사 조건으로 즉시 재심사할 수 있습니다.
             </p>
+            <Button
+              className="mt-6"
+              disabled={retryAnalysis.isPending}
+              onClick={() => {
+                retryAnalysis.mutate(
+                  { id: analysisId },
+                  {
+                    onSuccess: () => {
+                      toast.success("심사를 다시 시작했습니다")
+                      queryClient.invalidateQueries({ queryKey: getGetAnalysisQueryKey(analysisId) })
+                    },
+                    onError: (err) => {
+                      const data = (err as { data?: { error?: string } | null })?.data
+                      toast.error(data?.error || "재시도에 실패했습니다")
+                    },
+                  }
+                )
+              }}
+            >
+              <RotateCcw className={`w-4 h-4 mr-2 ${retryAnalysis.isPending ? "animate-spin" : ""}`} />
+              {retryAnalysis.isPending ? "재시도 중..." : "다시 시도"}
+            </Button>
           </CardContent>
         </Card>
       )}

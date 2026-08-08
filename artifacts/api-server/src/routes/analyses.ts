@@ -105,6 +105,70 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
   });
 });
 
+router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> => {
+  const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(rawId, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "유효하지 않은 ID입니다." }); return; }
+
+  const [analysis] = await db.select().from(analysesTable)
+    .where(and(eq(analysesTable.id, id), eq(analysesTable.userId, req.session.userId!)));
+  if (!analysis) { res.status(404).json({ error: "분석을 찾을 수 없습니다." }); return; }
+
+  if (analysis.status !== "failed") {
+    res.status(400).json({ error: "실패한 심사만 다시 시도할 수 있습니다." });
+    return;
+  }
+
+  const [resume] = await db.select().from(resumesTable)
+    .where(and(eq(resumesTable.id, analysis.resumeId), eq(resumesTable.userId, req.session.userId!)));
+  if (!resume) { res.status(400).json({ error: "이력서를 찾을 수 없습니다." }); return; }
+
+  const [company] = await db.select().from(companiesTable)
+    .where(and(eq(companiesTable.id, analysis.companyId), eq(companiesTable.userId, req.session.userId!)));
+  if (!company) { res.status(400).json({ error: "회사를 찾을 수 없습니다." }); return; }
+
+  // AI 연결 사전 점검 — 로컬 LLM이 죽어 있으면 심사를 시작하지 않고 즉시 안내
+  const health = await checkAIHealth();
+  if (!health.ok) {
+    logger.error({ reason: health.error }, "AI health check failed before analysis retry");
+    res.status(503).json({ error: health.error });
+    return;
+  }
+
+  // 원자적 상태 전이(compare-and-set): failed 상태일 때만 processing으로 전환
+  // — 동시 요청이 들어와도 단 한 건만 재심사를 시작하도록 보장
+  const [updated] = await db.update(analysesTable).set({
+    status: "processing",
+    errorMessage: null,
+    completedAt: null,
+  }).where(and(
+    eq(analysesTable.id, analysis.id),
+    eq(analysesTable.userId, req.session.userId!),
+    eq(analysesTable.status, "failed"),
+  )).returning();
+
+  if (!updated) {
+    res.status(409).json({ error: "이미 재시도가 진행 중이거나 재시도할 수 없는 상태입니다." });
+    return;
+  }
+
+  res.json(serializeAnalysis(updated, resume.title, company.name));
+
+  runAnalysis(analysis.id, resume, company).catch(async (err) => {
+    logger.error({ err, analysisId: analysis.id }, "Analysis retry failed");
+    const detail = err instanceof Error ? err.message : String(err);
+    try {
+      await db.update(analysesTable).set({
+        status: "failed",
+        errorMessage: `AI 심사 중 오류가 발생했습니다. 관리자에게 문의해주세요. (원인: ${detail})`,
+        completedAt: new Date(),
+      }).where(eq(analysesTable.id, analysis.id));
+    } catch (updateErr) {
+      logger.error({ err: updateErr, analysisId: analysis.id }, "Failed to record analysis retry failure");
+    }
+  });
+});
+
 router.get("/analyses/:id", requireAuth, async (req, res): Promise<void> => {
   const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(rawId, 10);

@@ -516,6 +516,38 @@ export const GetAnalysisResponse = zod.object({
 
 
 /**
+ * @summary Retry a failed analysis with the same resume and company
+ */
+export const RetryAnalysisParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const RetryAnalysisResponse = zod.object({
+  "id": zod.number(),
+  "userId": zod.number(),
+  "resumeId": zod.number(),
+  "companyId": zod.number(),
+  "status": zod.enum(['pending', 'processing', 'completed', 'failed']),
+  "overallResult": zod.enum(['pass', 'fail', 'null']).nullish(),
+  "errorMessage": zod.string().nullish(),
+  "overallScore": zod.number().nullish(),
+  "aiWritingScore": zod.number().nullish(),
+  "aiWritingFeedback": zod.string().nullish(),
+  "languageScore": zod.number().nullish(),
+  "languageFeedback": zod.string().nullish(),
+  "jobMatchScore": zod.number().nullish(),
+  "jobMatchFeedback": zod.string().nullish(),
+  "improvementSuggestions": zod.string().nullish(),
+  "urlAnalysisResult": zod.string().nullish(),
+  "richAnalysisResult": zod.string().nullish(),
+  "resumeTitle": zod.string().nullish(),
+  "companyName": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "completedAt": zod.string().nullish()
+})
+
+
+/**
  * @summary List all interview sessions for the user
  */
 export const ListInterviewsResponseItem = zod.object({

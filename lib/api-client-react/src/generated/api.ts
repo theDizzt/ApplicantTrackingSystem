@@ -1913,6 +1913,77 @@ export function useGetAnalysis<TData = Awaited<ReturnType<typeof getAnalysis>>, 
 
 
 
+export const getRetryAnalysisUrl = (id: number,) => {
+
+
+
+
+  return `/api/analyses/${id}/retry`
+}
+
+/**
+ * @summary Retry a failed analysis with the same resume and company
+ */
+export const retryAnalysis = async (id: number, options?: RequestInit): Promise<Analysis> => {
+
+  return customFetch<Analysis>(getRetryAnalysisUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getRetryAnalysisMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryAnalysis>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof retryAnalysis>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['retryAnalysis'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof retryAnalysis>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  retryAnalysis(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type RetryAnalysisMutationResult = NonNullable<Awaited<ReturnType<typeof retryAnalysis>>>
+
+    export type RetryAnalysisMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Retry a failed analysis with the same resume and company
+ */
+export const useRetryAnalysis = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof retryAnalysis>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof retryAnalysis>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getRetryAnalysisMutationOptions(options));
+    }
+
 export const getListInterviewsUrl = () => {
 
 
