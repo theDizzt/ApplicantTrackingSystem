@@ -297,22 +297,126 @@ router.get("/admin/settings/ai/local-status", requireAdmin, async (_req, res): P
   }
 });
 
-// 로컬 LLM(Ollama) 모델 다운로드: /api/pull 스트리밍을 NDJSON으로 중계
-router.post("/admin/settings/ai/local-pull", requireAdmin, async (req, res): Promise<void> => {
-  const config = await getAIConfig();
-  const baseUrl = (config.baseUrl ?? "").trim();
-  // local-status와 동일한 SSRF 방지 검증: 로컬 Ollama일 때만 허용
-  let ollamaRoot: string | null = null;
+// 로컬 Ollama URL 검증 (SSRF 방지: 로컬 Ollama일 때만 허용)
+function resolveOllamaRoot(baseUrl: string): string | null {
   try {
     const parsed = new URL(baseUrl);
     const localHosts = ["localhost", "127.0.0.1", "[::1]", "::1"];
     const isOllamaPort = (parsed.port || (parsed.protocol === "http:" ? "80" : "443")) === "11434";
     if (parsed.protocol === "http:" && localHosts.includes(parsed.hostname) && isOllamaPort) {
-      ollamaRoot = `http://${parsed.hostname}:11434`;
+      return `http://${parsed.hostname}:11434`;
     }
   } catch {
-    // 잘못된 URL → 아래에서 400 처리
+    // 잘못된 URL
   }
+  return null;
+}
+
+// ── 모델 다운로드(pull) 상태를 서버 메모리에 추적 ──────────────────────────
+// 브라우저가 페이지를 벗어나도 서버가 pull을 계속 진행하고,
+// 재접속 시 GET /local-pull/status 로 진행률을 다시 볼 수 있게 한다.
+type PullState = {
+  model: string;
+  inProgress: boolean;
+  status: string;          // Ollama가 보내는 단계 메시지 (예: "pulling manifest")
+  completedBytes: number;
+  totalBytes: number;
+  error: string | null;
+  done: boolean;           // 성공적으로 완료됨
+  startedAt: number;
+  updatedAt: number;
+};
+
+let pullState: PullState | null = null;
+
+async function runPull(ollamaRoot: string, model: string): Promise<void> {
+  const state: PullState = {
+    model,
+    inProgress: true,
+    status: "요청 중...",
+    completedBytes: 0,
+    totalBytes: 0,
+    error: null,
+    done: false,
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  pullState = state;
+  try {
+    const upstream = await fetch(`${ollamaRoot}/api/pull`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, stream: true }),
+    });
+    if (!upstream.ok || !upstream.body) {
+      const text = await upstream.text().catch(() => "");
+      throw new Error(`Ollama 응답 오류 (HTTP ${upstream.status})${text ? `: ${text.slice(0, 200)}` : ""}`);
+    }
+    const reader = upstream.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = "";
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        try {
+          const d = JSON.parse(trimmed) as { status?: string; completed?: number; total?: number; error?: string };
+          if (d.error) throw new Error(String(d.error));
+          state.status = String(d.status ?? state.status);
+          if (typeof d.total === "number" && d.total > 0) {
+            state.totalBytes = d.total;
+            state.completedBytes = Number(d.completed ?? 0);
+          }
+          state.updatedAt = Date.now();
+        } catch (err) {
+          if (err instanceof SyntaxError) continue; // 불완전한 JSON 라인 무시
+          throw err;
+        }
+      }
+    }
+    state.done = true;
+    state.status = "완료";
+  } catch (err) {
+    state.error = err instanceof Error ? err.message : String(err);
+  } finally {
+    state.inProgress = false;
+    state.updatedAt = Date.now();
+  }
+}
+
+// 진행 중/최근 pull 상태 조회 (페이지 재진입 시 진행률 복원용)
+router.get("/admin/settings/ai/local-pull/status", requireAdmin, async (_req, res): Promise<void> => {
+  if (!pullState) {
+    res.json({ active: false });
+    return;
+  }
+  const s = pullState;
+  res.json({
+    active: true,
+    model: s.model,
+    inProgress: s.inProgress,
+    status: s.status,
+    completedBytes: s.completedBytes,
+    totalBytes: s.totalBytes,
+    percent: s.totalBytes > 0 ? Math.min(100, Math.round((s.completedBytes / s.totalBytes) * 100)) : null,
+    error: s.error,
+    done: s.done,
+    startedAt: s.startedAt,
+    updatedAt: s.updatedAt,
+  });
+});
+
+// 로컬 LLM(Ollama) 모델 다운로드 시작: 서버가 백그라운드로 pull을 진행하고
+// 클라이언트는 /local-pull/status 를 폴링해 진행률을 본다.
+router.post("/admin/settings/ai/local-pull", requireAdmin, async (_req, res): Promise<void> => {
+  const config = await getAIConfig();
+  const baseUrl = (config.baseUrl ?? "").trim();
+  const ollamaRoot = resolveOllamaRoot(baseUrl);
   if (!ollamaRoot) {
     res.status(400).json({ error: "로컬 Ollama가 설정되어 있지 않습니다. Base URL을 확인하세요." });
     return;
@@ -322,39 +426,14 @@ router.post("/admin/settings/ai/local-pull", requireAdmin, async (req, res): Pro
     res.status(400).json({ error: "설정된 모델명이 없습니다. AI 공급자 설정에서 모델명을 먼저 지정하세요." });
     return;
   }
-  try {
-    const upstream = await fetch(`${ollamaRoot}/api/pull`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ model, stream: true }),
-    });
-    if (!upstream.ok || !upstream.body) {
-      const text = await upstream.text().catch(() => "");
-      res.status(502).json({ error: `Ollama 응답 오류 (HTTP ${upstream.status})${text ? `: ${text.slice(0, 200)}` : ""}` });
-      return;
-    }
-    res.status(200);
-    res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
-    res.setHeader("Cache-Control", "no-cache, no-transform");
-    res.flushHeaders?.();
-    const reader = upstream.body.getReader();
-    // 클라이언트가 연결을 끊으면 업스트림도 중단
-    res.on("close", () => { reader.cancel().catch(() => {}); });
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      res.write(Buffer.from(value));
-    }
-    res.end();
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
-    if (!res.headersSent) {
-      res.status(502).json({ error: `모델 다운로드 실패: ${message}` });
-    } else {
-      res.write(JSON.stringify({ error: `모델 다운로드 실패: ${message}` }) + "\n");
-      res.end();
-    }
+  if (pullState?.inProgress) {
+    // 이미 진행 중이면 새로 시작하지 않고 현재 상태를 안내
+    res.status(202).json({ ok: true, alreadyRunning: true, model: pullState.model });
+    return;
   }
+  // 백그라운드로 시작 (요청과 분리 — 페이지를 닫아도 계속 진행)
+  void runPull(ollamaRoot, model);
+  res.status(202).json({ ok: true, alreadyRunning: false, model });
 });
 
 // 연결 테스트: 현재 설정으로 간단한 completion 호출

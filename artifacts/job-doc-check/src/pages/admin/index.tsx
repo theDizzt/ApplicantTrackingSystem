@@ -266,56 +266,69 @@ function LocalLLMStatusCard() {
     finally { setLoading(false) }
   }, [])
 
+  // 서버의 pull 진행 상태를 폴링 — 완료/실패 시 종료
+  const pollPullStatus = useCallback(async (): Promise<void> => {
+    while (true) {
+      let d: any
+      try {
+        d = await api("/admin/settings/ai/local-pull/status")
+      } catch {
+        // 일시적 네트워크 오류는 무시하고 재시도
+        await new Promise((r) => setTimeout(r, 2000))
+        continue
+      }
+      if (!d.active) break
+      setPullProgress({
+        status: String(d.status ?? ""),
+        percent: d.percent ?? null,
+        completedBytes: Number(d.completedBytes ?? 0),
+        totalBytes: Number(d.totalBytes ?? 0),
+      })
+      if (!d.inProgress) {
+        if (d.error) toast.error(`모델 다운로드 실패: ${d.error}`)
+        else if (d.done) toast.success("모델 다운로드가 완료되었습니다.")
+        break
+      }
+      await new Promise((r) => setTimeout(r, 1500))
+    }
+    setPulling(false)
+    setPullProgress(null)
+    refresh()
+  }, [refresh])
+
   const handlePull = useCallback(async () => {
     setPulling(true)
     setPullProgress({ status: "요청 중...", percent: null, completedBytes: 0, totalBytes: 0 })
     try {
-      const res = await fetch(`${BASE}/api/admin/settings/ai/local-pull`, {
-        method: "POST",
-        credentials: "include",
-        headers: { "Content-Type": "application/json" },
-      })
-      if (!res.ok || !res.body) {
-        const body = await res.json().catch(() => ({}))
-        throw new Error(body.error ?? `HTTP ${res.status}`)
-      }
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer = ""
-      let failed: string | null = null
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-        const lines = buffer.split("\n")
-        buffer = lines.pop() ?? ""
-        for (const line of lines) {
-          const trimmed = line.trim()
-          if (!trimmed) continue
-          try {
-            const d = JSON.parse(trimmed)
-            if (d.error) { failed = String(d.error); continue }
-            const total = Number(d.total ?? 0)
-            const completed = Number(d.completed ?? 0)
-            setPullProgress({
-              status: String(d.status ?? ""),
-              percent: total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : null,
-              completedBytes: completed,
-              totalBytes: total,
-            })
-          } catch { /* 불완전한 JSON 라인 무시 */ }
-        }
-      }
-      if (failed) throw new Error(failed)
-      toast.success("모델 다운로드가 완료되었습니다.")
+      await api("/admin/settings/ai/local-pull", { method: "POST" })
+      await pollPullStatus()
     } catch (e: any) {
       toast.error(`모델 다운로드 실패: ${e.message}`)
-    } finally {
       setPulling(false)
       setPullProgress(null)
-      refresh()
     }
-  }, [refresh])
+  }, [pollPullStatus])
+
+  // 페이지 재진입 시 진행 중인 다운로드가 있으면 진행률 표시 재개
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const d: any = await api("/admin/settings/ai/local-pull/status")
+        if (!cancelled && d.active && d.inProgress) {
+          setPulling(true)
+          setPullProgress({
+            status: String(d.status ?? ""),
+            percent: d.percent ?? null,
+            completedBytes: Number(d.completedBytes ?? 0),
+            totalBytes: Number(d.totalBytes ?? 0),
+          })
+          pollPullStatus()
+        }
+      } catch { /* 무시 */ }
+    })()
+    return () => { cancelled = true }
+  }, [pollPullStatus])
 
   const handleUseModel = useCallback(async (name: string) => {
     setSwitching(name)
