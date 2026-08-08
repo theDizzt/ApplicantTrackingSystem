@@ -243,6 +243,14 @@ function formatGB(bytes: number) {
   return bytes > 0 ? `${(bytes / 1024 / 1024 / 1024).toFixed(1)}GB` : ""
 }
 
+type DiskUsage = {
+  path: string
+  totalBytes: number
+  freeBytes: number
+  usedBytes: number
+  usedPercent: number
+}
+
 type PullProgress = {
   status: string
   percent: number | null
@@ -260,6 +268,7 @@ function LocalLLMStatusCard() {
   const [deleteTarget, setDeleteTarget] = useState<{ name: string; sizeBytes: number } | null>(null)
   const [deleting, setDeleting] = useState(false)
   const [cleaning, setCleaning] = useState(false)
+  const [disk, setDisk] = useState<DiskUsage | null>(null)
 
   const handleCleanup = useCallback(async () => {
     setCleaning(true)
@@ -288,6 +297,10 @@ function LocalLLMStatusCard() {
       setStatus(d)
     } catch (e: any) { toast.error(e.message) }
     finally { setLoading(false) }
+    // 디스크 여유 공간은 부가 정보 — 실패해도 카드 자체는 동작
+    try {
+      setDisk(await api("/admin/settings/ai/disk-usage"))
+    } catch { setDisk(null) }
   }, [])
 
   // 서버의 pull 진행 상태를 폴링 — 완료/실패 시 종료
@@ -445,6 +458,32 @@ function LocalLLMStatusCard() {
             {status.baseUrl && (
               <p className="text-xs text-slate-500">확인 대상: <code className="text-slate-400">{status.baseUrl}</code></p>
             )}
+            {disk && disk.totalBytes > 0 && (() => {
+              const lowSpace = disk.freeBytes < 10 * 1024 * 1024 * 1024 || disk.usedPercent >= 90
+              return (
+                <div className={`text-xs rounded-md border px-3 py-2 space-y-1.5 ${lowSpace ? "border-red-800 bg-red-950/50" : "border-slate-800 bg-slate-950"}`}>
+                  <div className="flex items-center justify-between">
+                    <span className={lowSpace ? "text-red-300 font-medium" : "text-slate-300"}>
+                      서버 디스크 여유 공간: {formatGB(disk.freeBytes) || "0GB"}
+                    </span>
+                    <span className="text-slate-500">
+                      {formatGB(disk.usedBytes) || "0GB"} / {formatGB(disk.totalBytes)} 사용 ({disk.usedPercent}%)
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
+                    <div
+                      className={`h-full rounded-full ${lowSpace ? "bg-red-400" : "bg-emerald-400"}`}
+                      style={{ width: `${Math.min(100, disk.usedPercent)}%` }}
+                    />
+                  </div>
+                  {lowSpace && (
+                    <p className="text-[11px] text-red-300">
+                      여유 공간이 부족합니다. 사용하지 않는 모델을 삭제하거나 임시 파일을 정리하세요.
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
             {!status.serverUp && (
               <div className="text-xs rounded-md border border-red-800 bg-red-950/50 text-red-300 px-3 py-2 space-y-1">
                 <p>Ollama 서버에 연결할 수 없습니다{status.error ? ` — ${status.error}` : ""}.</p>

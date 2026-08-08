@@ -306,6 +306,39 @@ function resolveOllamaRoot(baseUrl: string): string | null {
   return null;
 }
 
+// ── 디스크 사용량 조회 (모델 저장 경로 기준 statfs) ────────────────────────
+// 모델 다운로드 전 공간 부족을 미리 알 수 있도록, Ollama 모델이 저장되는
+// 디렉터리(없으면 홈 디렉터리)가 위치한 파일시스템의 용량/여유 공간을 반환한다.
+router.get("/admin/settings/ai/disk-usage", requireAdmin, async (_req, res): Promise<void> => {
+  // 실제 존재하는 모델 디렉터리를 우선 사용, 없으면 홈 디렉터리 기준
+  let target = os.homedir();
+  for (const blobDir of candidateBlobDirs()) {
+    const modelsDir = path.dirname(blobDir);
+    try {
+      await fs.access(modelsDir);
+      target = modelsDir;
+      break;
+    } catch {
+      // 없음 → 다음 후보
+    }
+  }
+  try {
+    const stat = await fs.statfs(target);
+    const totalBytes = Number(stat.blocks) * Number(stat.bsize);
+    const freeBytes = Number(stat.bavail) * Number(stat.bsize); // 비특권 사용자 기준 가용 공간
+    const usedBytes = totalBytes - Number(stat.bfree) * Number(stat.bsize);
+    res.json({
+      path: target,
+      totalBytes,
+      freeBytes,
+      usedBytes,
+      usedPercent: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0,
+    });
+  } catch (err) {
+    res.status(500).json({ error: `디스크 정보 조회 실패: ${err instanceof Error ? err.message : String(err)}` });
+  }
+});
+
 // ── 모델 다운로드(pull) 상태를 서버 메모리에 추적 ──────────────────────────
 // 브라우저가 페이지를 벗어나도 서버가 pull을 계속 진행하고,
 // 재접속 시 GET /local-pull/status 로 진행률을 다시 볼 수 있게 한다.
