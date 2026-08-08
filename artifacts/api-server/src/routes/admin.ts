@@ -309,7 +309,13 @@ function resolveOllamaRoot(baseUrl: string): string | null {
 // ── 디스크 사용량 조회 (모델 저장 경로 기준 statfs) ────────────────────────
 // 모델 다운로드 전 공간 부족을 미리 알 수 있도록, Ollama 모델이 저장되는
 // 디렉터리(없으면 홈 디렉터리)가 위치한 파일시스템의 용량/여유 공간을 반환한다.
-router.get("/admin/settings/ai/disk-usage", requireAdmin, async (_req, res): Promise<void> => {
+async function getModelDiskUsage(): Promise<{
+  path: string;
+  totalBytes: number;
+  freeBytes: number;
+  usedBytes: number;
+  usedPercent: number;
+}> {
   // 실제 존재하는 모델 디렉터리를 우선 사용, 없으면 홈 디렉터리 기준
   let target = os.homedir();
   for (const blobDir of candidateBlobDirs()) {
@@ -322,22 +328,29 @@ router.get("/admin/settings/ai/disk-usage", requireAdmin, async (_req, res): Pro
       // 없음 → 다음 후보
     }
   }
+  const stat = await fs.statfs(target);
+  const totalBytes = Number(stat.blocks) * Number(stat.bsize);
+  const freeBytes = Number(stat.bavail) * Number(stat.bsize); // 비특권 사용자 기준 가용 공간
+  const usedBytes = totalBytes - Number(stat.bfree) * Number(stat.bsize);
+  return {
+    path: target,
+    totalBytes,
+    freeBytes,
+    usedBytes,
+    usedPercent: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0,
+  };
+}
+
+router.get("/admin/settings/ai/disk-usage", requireAdmin, async (_req, res): Promise<void> => {
   try {
-    const stat = await fs.statfs(target);
-    const totalBytes = Number(stat.blocks) * Number(stat.bsize);
-    const freeBytes = Number(stat.bavail) * Number(stat.bsize); // 비특권 사용자 기준 가용 공간
-    const usedBytes = totalBytes - Number(stat.bfree) * Number(stat.bsize);
-    res.json({
-      path: target,
-      totalBytes,
-      freeBytes,
-      usedBytes,
-      usedPercent: totalBytes > 0 ? Math.round((usedBytes / totalBytes) * 100) : 0,
-    });
+    res.json(await getModelDiskUsage());
   } catch (err) {
     res.status(500).json({ error: `디스크 정보 조회 실패: ${err instanceof Error ? err.message : String(err)}` });
   }
 });
+
+// 모델 다운로드에 필요한 최소 여유 공간 (10GB) — 미만이면 pull 시작을 거부한다.
+const MIN_FREE_BYTES_FOR_PULL = 10 * 1024 * 1024 * 1024;
 
 // ── 모델 다운로드(pull) 상태를 서버 메모리에 추적 ──────────────────────────
 // 브라우저가 페이지를 벗어나도 서버가 pull을 계속 진행하고,
@@ -518,6 +531,27 @@ router.post("/admin/settings/ai/local-pull", requireAdmin, async (_req, res): Pr
     res.status(400).json({ error: "설정된 모델명이 없습니다. AI 공급자 설정에서 모델명을 먼저 지정하세요." });
     return;
   }
+  // 다운로드 시작 전 디스크 여유 공간 확인 — 부족하면 시작 자체를 거부해
+  // 중간 실패와 불완전 임시 파일 낭비를 예방한다.
+  // 조회 실패 시에는 안전을 위해 시작을 거부한다(fail closed).
+  try {
+    const disk = await getModelDiskUsage();
+    if (disk.freeBytes < MIN_FREE_BYTES_FOR_PULL) {
+      const freeGB = (disk.freeBytes / 1024 / 1024 / 1024).toFixed(1);
+      res.status(400).json({
+        error: `디스크 여유 공간이 부족합니다 (남은 공간 ${freeGB}GB, 최소 10GB 필요). 사용하지 않는 모델을 삭제하거나 임시 파일을 정리한 뒤 다시 시도하세요.`,
+      });
+      return;
+    }
+  } catch (err) {
+    res.status(503).json({
+      error: `디스크 여유 공간을 확인할 수 없어 다운로드를 시작하지 않았습니다: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return;
+  }
+  // 진행 여부 확인과 시작을 원자적으로 처리 — 위의 await 이후 다른 요청이
+  // 먼저 시작했을 수 있으므로 여기서 다시 확인하고, runPull은 첫 await 전에
+  // pullState를 동기적으로 설정하므로 이 구간에서 이중 시작이 불가능하다.
   if (pullState?.inProgress) {
     // 이미 진행 중이면 새로 시작하지 않고 현재 상태를 안내
     res.status(202).json({ ok: true, alreadyRunning: true, model: pullState.model });
