@@ -1,14 +1,41 @@
-import { useListAnalyses } from "@workspace/api-client-react"
+import { useListAnalyses, useRetryAnalysis, getListAnalysesQueryKey } from "@workspace/api-client-react"
 import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { BrainCircuit, Building2, ChevronRight, FileText, Plus, Clock, CheckCircle2, XCircle } from "lucide-react"
+import { BrainCircuit, Building2, ChevronRight, FileText, Plus, Clock, CheckCircle2, XCircle, RotateCcw } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
+import { useQueryClient } from "@tanstack/react-query"
+import { toast } from "sonner"
+import { useState } from "react"
 
 export default function AnalysesPage() {
   const { data: analyses, isLoading } = useListAnalyses()
+  const queryClient = useQueryClient()
+  const retryAnalysis = useRetryAnalysis()
+  const [retryingId, setRetryingId] = useState<number | null>(null)
+
+  const handleRetry = (e: React.MouseEvent, id: number) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (retryAnalysis.isPending) return
+    setRetryingId(id)
+    retryAnalysis.mutate(
+      { id },
+      {
+        onSuccess: () => {
+          toast.success("심사를 다시 시작했습니다")
+          queryClient.invalidateQueries({ queryKey: getListAnalysesQueryKey() })
+        },
+        onError: (err) => {
+          const data = (err as { data?: { error?: string } | null })?.data
+          toast.error(data?.error || "재시도에 실패했습니다")
+        },
+        onSettled: () => setRetryingId(null),
+      }
+    )
+  }
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -74,6 +101,15 @@ export default function AnalysesPage() {
                           <Badge variant="destructive" className="flex items-center gap-1">
                             <XCircle className="w-3 h-3" /> 심사 실패
                           </Badge>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            disabled={retryingId === analysis.id}
+                            onClick={(e) => handleRetry(e, analysis.id)}
+                          >
+                            <RotateCcw className={`w-3.5 h-3.5 mr-1.5 ${retryingId === analysis.id ? "animate-spin" : ""}`} />
+                            {retryingId === analysis.id ? "재시도 중..." : "다시 시도"}
+                          </Button>
                         </div>
                       ) : (
                         <div className="flex flex-col items-end gap-2">
