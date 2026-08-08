@@ -54,7 +54,6 @@ router.get("/dashboard", requireAuth, async (req, res): Promise<void> => {
     aiWritingScore: a.aiWritingScore ?? null, aiWritingFeedback: a.aiWritingFeedback ?? null,
     languageScore: a.languageScore ?? null, languageFeedback: a.languageFeedback ?? null,
     jobMatchScore: a.jobMatchScore ?? null, jobMatchFeedback: a.jobMatchFeedback ?? null,
-    physiognomyScore: a.physiognomyScore ?? null, physiognomyFeedback: a.physiognomyFeedback ?? null,
     improvementSuggestions: a.improvementSuggestions ?? null,
     resumeTitle: resumeMap[a.resumeId] ?? null, companyName: companyMap[a.companyId] ?? null,
     createdAt: a.createdAt.toISOString(), completedAt: a.completedAt ? a.completedAt.toISOString() : null,

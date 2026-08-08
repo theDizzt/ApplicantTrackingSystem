@@ -69,6 +69,12 @@ export default function AnalysesPage() {
                             <Badge variant="destructive" className="mt-1">불합격</Badge>
                           )}
                         </div>
+                      ) : analysis.status === "failed" ? (
+                        <div className="flex flex-col items-end gap-2">
+                          <Badge variant="destructive" className="flex items-center gap-1">
+                            <XCircle className="w-3 h-3" /> 심사 실패
+                          </Badge>
+                        </div>
                       ) : (
                         <div className="flex flex-col items-end gap-2">
                           <Badge variant="secondary" className="flex items-center gap-1">

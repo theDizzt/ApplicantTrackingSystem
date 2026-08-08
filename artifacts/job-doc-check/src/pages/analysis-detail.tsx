@@ -126,6 +126,7 @@ export default function AnalysisDetail() {
   }
 
   const isProcessing = analysis.status === "pending" || analysis.status === "processing"
+  const isFailed = analysis.status === "failed"
 
   let rich: RichAnalysis | null = null
   if (analysis.richAnalysisResult) {
@@ -167,6 +168,11 @@ export default function AnalysisDetail() {
                 <span className="w-2 h-2 rounded-full bg-blue-500" />분석 중
               </span>
             )}
+            {isFailed && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-red-50 px-3 py-0.5 text-sm font-bold text-red-600 ring-1 ring-red-200">
+                <XCircle className="w-3.5 h-3.5" />심사 실패
+              </span>
+            )}
           </div>
           <p className="text-sm text-slate-500 mt-0.5 truncate">
             {analysis.resumeTitle} · {analysis.companyName}
@@ -195,7 +201,23 @@ export default function AnalysisDetail() {
         </Card>
       )}
 
-      {!isProcessing && (
+      {/* ── 심사 실패 ── */}
+      {isFailed && (
+        <Card className="rounded-2xl border-0 shadow-sm">
+          <CardContent className="flex flex-col items-center justify-center py-24 text-center">
+            <XCircle className="w-14 h-14 text-red-500 mb-6" />
+            <h3 className="text-xl font-bold">AI 심사를 완료하지 못했습니다</h3>
+            <p className="text-slate-500 max-w-md mt-2 text-sm leading-relaxed">
+              {analysis.errorMessage || "AI 서버에 연결할 수 없어 심사가 중단되었습니다. 관리자에게 문의해주세요."}
+            </p>
+            <p className="text-slate-400 max-w-md mt-3 text-xs">
+              문제가 해결된 후 새 심사를 다시 시작해주세요.
+            </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {!isProcessing && !isFailed && (
         <>
           {/* ── 4대 점수 ── */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

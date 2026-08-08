@@ -47,7 +47,10 @@ export default function NewAnalysisPage() {
       { data: { resumeId: selectedResumeId, companyId: selectedCompanyId } },
       {
         onSuccess: (data) => { toast.success("심사가 시작되었습니다"); setLocation(`/analyses/${data.id}`) },
-        onError:   () => toast.error("심사 시작에 실패했습니다"),
+        onError:   (err) => {
+          const data = (err as { data?: { error?: string } | null })?.data
+          toast.error(data?.error || "심사 시작에 실패했습니다")
+        },
       }
     )
   }

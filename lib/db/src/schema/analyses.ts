@@ -8,6 +8,7 @@ export const analysesTable = pgTable("analyses", {
   resumeId: integer("resume_id").notNull(),
   companyId: integer("company_id").notNull(),
   status: text("status").notNull().default("pending"),
+  errorMessage: text("error_message"),
   overallResult: text("overall_result"),
   overallScore: integer("overall_score"),
   aiWritingScore: integer("ai_writing_score"),

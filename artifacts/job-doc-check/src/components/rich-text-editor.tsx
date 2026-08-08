@@ -88,7 +88,7 @@ export function RichTextEditor({
     if (!editor || initializedRef.current) return
     if (value && value !== "<p></p>") {
       // emitUpdate: false → onUpdate 트리거 없음 → onChange 호출 없음 → 루프 없음
-      editor.commands.setContent(value, false)
+      editor.commands.setContent(value, { emitUpdate: false })
       initializedRef.current = true
     }
   }, [editor, value])

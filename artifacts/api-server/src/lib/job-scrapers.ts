@@ -72,7 +72,7 @@ export async function scrapeSaramin(keyword: string, limit = 8): Promise<Scraped
     const titleLink = $(el).find(".job_tit a").first();
     const titleAttr = titleLink.attr("title") ?? "";
     const href      = titleLink.attr("href") ?? "";
-    if (!href) return;
+    if (!href) return true;
 
     // title 속성: "회사명 채용공고(직무명)" 형식으로 파싱
     let companyName = "";
@@ -87,7 +87,7 @@ export async function scrapeSaramin(keyword: string, limit = 8): Promise<Scraped
       companyName = $(el).find(".corp_name").text().trim();
     }
 
-    if (!companyName && !jobTitle) return;
+    if (!companyName && !jobTitle) return true;
 
     // 경력·학력·근무지 조건 (job_condition > span)
     const conditions = $(el).find(".job_condition span")
@@ -111,6 +111,7 @@ export async function scrapeSaramin(keyword: string, limit = 8): Promise<Scraped
       educationText,
       location,
     });
+    return true;
   });
 
   logger.info({ keyword, count: results.length }, "사람인 스크래핑 완료");

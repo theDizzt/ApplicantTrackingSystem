@@ -3,7 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { db, analysesTable, resumesTable, companiesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-import { getAI } from "../lib/openai";
+import { getAI, checkAIHealth } from "../lib/openai";
 import { logger } from "../lib/logger";
 import { extractUrls, analyzeUrls, formatUrlAnalysisForPrompt } from "../lib/url-analyzer";
 
@@ -34,6 +34,7 @@ function serializeAnalysis(
     jobMatchScore: a.jobMatchScore ?? null,
     jobMatchFeedback: a.jobMatchFeedback ?? null,
     improvementSuggestions: a.improvementSuggestions ?? null,
+    errorMessage: a.errorMessage ?? null,
     urlAnalysisResult: a.urlAnalysisResult ?? null,
     richAnalysisResult: a.richAnalysisResult ?? null,
     resumeTitle: resumeTitle ?? null,
@@ -75,14 +76,32 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
     .where(and(eq(companiesTable.id, companyId), eq(companiesTable.userId, req.session.userId!)));
   if (!company) { res.status(400).json({ error: "회사를 찾을 수 없습니다." }); return; }
 
+  // AI 연결 사전 점검 — 로컬 LLM이 죽어 있으면 심사를 시작하지 않고 즉시 안내
+  const health = await checkAIHealth();
+  if (!health.ok) {
+    logger.error({ reason: health.error }, "AI health check failed before analysis");
+    res.status(503).json({ error: health.error });
+    return;
+  }
+
   const [analysis] = await db.insert(analysesTable)
     .values({ userId: req.session.userId!, resumeId, companyId, status: "processing" })
     .returning();
 
   res.status(201).json(serializeAnalysis(analysis, resume.title, company.name));
 
-  runAnalysis(analysis.id, resume, company).catch(err => {
+  runAnalysis(analysis.id, resume, company).catch(async (err) => {
     logger.error({ err, analysisId: analysis.id }, "Analysis failed");
+    const detail = err instanceof Error ? err.message : String(err);
+    try {
+      await db.update(analysesTable).set({
+        status: "failed",
+        errorMessage: `AI 심사 중 오류가 발생했습니다. 관리자에게 문의해주세요. (원인: ${detail})`,
+        completedAt: new Date(),
+      }).where(eq(analysesTable.id, analysis.id));
+    } catch (updateErr) {
+      logger.error({ err: updateErr, analysisId: analysis.id }, "Failed to record analysis failure");
+    }
   });
 });
 

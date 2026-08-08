@@ -65,6 +65,52 @@ export async function getAI(): Promise<{ openai: OpenAI; model: string }> {
   return { openai: client, model: config.model };
 }
 
+/**
+ * AI 서버 연결 상태를 사전 점검한다. (모델 목록 조회, 5초 타임아웃)
+ * 실패 시 사용자에게 보여줄 한국어 메시지를 반환한다.
+ */
+export async function checkAIHealth(): Promise<{ ok: boolean; error?: string }> {
+  let config: AIConfig;
+  try {
+    config = await getAIConfig();
+  } catch {
+    return { ok: false, error: "AI 설정을 불러오지 못했습니다. 관리자에게 문의해주세요." };
+  }
+  if (!config.apiKey) {
+    return {
+      ok: false,
+      error: "AI API 키가 설정되지 않았습니다. 관리자 페이지(/admin)의 AI 설정에서 키를 등록해주세요.",
+    };
+  }
+  const client = new OpenAI({
+    apiKey: config.apiKey,
+    baseURL: config.baseUrl,
+    timeout: 5_000,
+    maxRetries: 0,
+  });
+  try {
+    await client.models.list();
+    return { ok: true };
+  } catch (err) {
+    // HTTP 응답이 온 경우(404/405 등) 서버 자체는 살아있는 것 —
+    // 일부 OpenAI 호환 프록시는 /models 엔드포인트를 지원하지 않는다.
+    if (err instanceof OpenAI.APIError && typeof err.status === "number") {
+      if (err.status === 401 || err.status === 403) {
+        return {
+          ok: false,
+          error: "AI API 키가 유효하지 않습니다. 관리자 페이지(/admin)의 AI 설정을 확인해주세요.",
+        };
+      }
+      return { ok: true };
+    }
+    const detail = err instanceof Error ? err.message : String(err);
+    return {
+      ok: false,
+      error: `AI 서버(${config.baseUrl ?? "OpenAI"})에 연결할 수 없습니다. 관리자에게 문의해주세요. (원인: ${detail})`,
+    };
+  }
+}
+
 /** settings 테이블에 값 저장 (upsert) */
 export async function saveSetting(key: string, value: string): Promise<void> {
   await db
