@@ -2,6 +2,7 @@ import cron from "node-cron";
 import { db, companiesTable } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "./lib/logger";
+import { runAIHealthCheck } from "./lib/ai-health-monitor";
 
 /**
  * 매주 월요일 오전 9시 (KST) 실행:
@@ -29,5 +30,17 @@ export function startScheduler(): void {
     { timezone: "Asia/Seoul" }
   );
 
-  logger.info("⏰ 스케줄러 시작 — 매주 월요일 09:00 KST 회사 목록 자동 갱신");
+  // AI 서버 헬스체크 — 5분마다 + 서버 시작 직후 1회
+  cron.schedule("*/5 * * * *", async () => {
+    try {
+      await runAIHealthCheck();
+    } catch (err) {
+      logger.error({ err }, "❌ AI 헬스체크 실행 실패");
+    }
+  });
+  void runAIHealthCheck().catch((err) =>
+    logger.error({ err }, "❌ 초기 AI 헬스체크 실패")
+  );
+
+  logger.info("⏰ 스케줄러 시작 — 매주 월요일 09:00 KST 회사 목록 자동 갱신, 5분마다 AI 헬스체크");
 }

@@ -673,6 +673,36 @@ function AISettingsTab() {
   )
 }
 
+type AIHealthBannerStatus = {
+  checked: boolean
+  ok?: boolean
+  code?: string
+  error?: string
+  checkedAt?: string
+  downSince?: string | null
+}
+
+function fmtTime(iso: string) {
+  return new Date(iso).toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" })
+}
+
+function AIHealthBanner({ status }: { status: AIHealthBannerStatus | null }) {
+  if (!status || !status.checked || status.ok) return null
+  return (
+    <div className="rounded-lg border border-red-800 bg-red-950/60 px-4 py-3 flex items-start gap-3">
+      <AlertCircle className="h-5 w-5 text-red-400 shrink-0 mt-0.5" />
+      <div className="text-sm space-y-0.5 min-w-0">
+        <p className="font-semibold text-red-300">AI 서버 장애가 감지되었습니다 — 심사 요청이 실패할 수 있습니다.</p>
+        {status.error && <p className="text-red-300/80 text-xs break-words">{status.error}</p>}
+        <p className="text-red-400/70 text-xs">
+          {status.downSince && <>장애 시작: {fmtTime(status.downSince)} · </>}
+          마지막 점검: {status.checkedAt ? fmtTime(status.checkedAt) : "-"} (5분마다 자동 점검)
+        </p>
+      </div>
+    </div>
+  )
+}
+
 export default function AdminPage() {
   const [, navigate] = useLocation()
   const [checking, setChecking] = useState(true)
@@ -682,6 +712,22 @@ export default function AdminPage() {
   const [orgs, setOrgs] = useState<Organization[]>([])
   const [loading, setLoading] = useState(false)
   const [orgDialog, setOrgDialog] = useState<{ open: boolean; org: Organization | null }>({ open: false, org: null })
+  const [aiHealth, setAiHealth] = useState<AIHealthBannerStatus | null>(null)
+
+  // AI 서버 헬스 상태 — 진입 시 조회 + 1분마다 갱신
+  useEffect(() => {
+    if (checking) return
+    let cancelled = false
+    const load = async () => {
+      try {
+        const d = await api("/admin/settings/ai/health-status")
+        if (!cancelled) setAiHealth(d)
+      } catch { /* 무시 — 다음 주기에 재시도 */ }
+    }
+    load()
+    const timer = setInterval(load, 60_000)
+    return () => { cancelled = true; clearInterval(timer) }
+  }, [checking])
 
   // Check admin session
   useEffect(() => {
@@ -770,6 +816,9 @@ export default function AdminPage() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 py-6 space-y-6">
+        {/* AI 장애 경고 배너 — 모든 탭 상단에 표시 */}
+        <AIHealthBanner status={aiHealth} />
+
         {/* Tab Nav */}
         <div className="flex gap-1 bg-slate-900 p-1 rounded-lg w-fit border border-slate-800">
           {TABS.map((t) => (

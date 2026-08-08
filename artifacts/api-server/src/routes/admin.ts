@@ -4,6 +4,7 @@ import { eq, sql, count, sum, gte, and } from "drizzle-orm";
 import { db, usersTable, analysesTable, organizationsTable } from "@workspace/db";
 import { requireAdmin } from "../middlewares/admin";
 import { getAI, getAIConfig, saveSetting, invalidateAICache, checkAIHealth } from "../lib/openai";
+import { getAIHealthStatus } from "../lib/ai-health-monitor";
 
 // Admin credentials (hardcoded — change in production via env vars)
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "park1058";
@@ -467,6 +468,17 @@ router.get("/admin/settings/ai/health", requireAdmin, async (_req, res): Promise
   invalidateAICache();
   const health = await checkAIHealth();
   res.json(health);
+});
+
+// 주기적 헬스체크의 마지막 결과 조회 (대시보드 경고 배너용 — 즉시 응답)
+router.get("/admin/settings/ai/health-status", requireAdmin, async (_req, res): Promise<void> => {
+  const status = getAIHealthStatus();
+  if (!status) {
+    // 서버 시작 직후 아직 첫 점검 전 — 배너를 띄우지 않도록 checked: false 반환
+    res.json({ checked: false });
+    return;
+  }
+  res.json({ checked: true, ...status });
 });
 
 // 연결 테스트: 현재 설정으로 간단한 completion 호출
