@@ -680,6 +680,41 @@ function AISettingsTab() {
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null)
   const [health, setHealth] = useState<{ ok: boolean; code: string; error?: string } | null>(null)
   const [healthLoading, setHealthLoading] = useState(false)
+  // 입력 중인 모델의 예상 다운로드 크기 미리보기 (디바운스 조회)
+  const [sizePreview, setSizePreview] = useState<{
+    model: string
+    sizeBytes: number | null
+    requiredBytes: number | null
+    freeBytes: number | null
+  } | null>(null)
+  const [sizeLoading, setSizeLoading] = useState(false)
+
+  useEffect(() => {
+    const m = model.trim()
+    if (!m) { setSizePreview(null); setSizeLoading(false); return }
+    setSizeLoading(true)
+    let stale = false
+    const timer = setTimeout(async () => {
+      try {
+        const [size, disk] = await Promise.all([
+          api(`/admin/settings/ai/model-size?model=${encodeURIComponent(m)}`),
+          api("/admin/settings/ai/disk-usage").catch(() => null),
+        ])
+        if (stale) return
+        setSizePreview({
+          model: String(size.model ?? m),
+          sizeBytes: size.sizeBytes ?? null,
+          requiredBytes: size.requiredBytes ?? null,
+          freeBytes: disk ? Number(disk.freeBytes ?? 0) : null,
+        })
+      } catch {
+        if (!stale) setSizePreview(null)
+      } finally {
+        if (!stale) setSizeLoading(false)
+      }
+    }, 600)
+    return () => { stale = true; clearTimeout(timer) }
+  }, [model])
 
   const loadHealth = useCallback(async () => {
     setHealthLoading(true)
@@ -825,6 +860,32 @@ function AISettingsTab() {
             placeholder="gpt-5.6-luna 또는 qwen2.5:14b"
             className="bg-slate-950 border-slate-700 text-white"
           />
+          {model.trim() && (
+            sizeLoading ? (
+              <p className="text-[11px] text-slate-500">예상 다운로드 크기 확인 중...</p>
+            ) : sizePreview && sizePreview.sizeBytes !== null ? (() => {
+              const insufficient =
+                sizePreview.freeBytes !== null &&
+                sizePreview.requiredBytes !== null &&
+                sizePreview.freeBytes < sizePreview.requiredBytes
+              return (
+                <div className={`text-[11px] rounded-md border px-2.5 py-1.5 space-y-0.5 ${insufficient ? "border-red-800 bg-red-950/50 text-red-300" : "border-slate-800 bg-slate-950 text-slate-400"}`}>
+                  <p>
+                    예상 다운로드 크기: <span className={insufficient ? "font-medium" : "text-slate-300"}>{formatGB(sizePreview.sizeBytes)}</span>
+                    {sizePreview.requiredBytes !== null && <> (여유 공간 포함 약 {formatGB(sizePreview.requiredBytes)} 필요)</>}
+                    {sizePreview.freeBytes !== null && <> · 서버 여유 공간: {formatGB(sizePreview.freeBytes) || "0GB"}</>}
+                  </p>
+                  {insufficient && (
+                    <p className="font-medium">서버 디스크 공간이 부족합니다. 저장 전에 공간을 확보하거나 더 작은 모델을 선택하세요.</p>
+                  )}
+                </div>
+              )
+            })() : sizePreview ? (
+              <p className="text-[11px] text-slate-500">
+                이 모델의 예상 크기를 확인할 수 없습니다 (Ollama 공식 레지스트리 모델만 조회 가능).
+              </p>
+            ) : null
+          )}
         </div>
         {testResult && (
           <div className={`text-xs rounded-md border px-3 py-2 ${testResult.ok ? "border-emerald-800 bg-emerald-950/50 text-emerald-300" : "border-red-800 bg-red-950/50 text-red-300"}`}>

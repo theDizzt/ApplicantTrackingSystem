@@ -350,9 +350,15 @@ router.get("/admin/settings/ai/disk-usage", requireAdmin, async (_req, res): Pro
 });
 
 // 설정된 모델의 예상 다운로드 크기 조회 (다운로드 시작 전 미리보기용)
-router.get("/admin/settings/ai/model-size", requireAdmin, async (_req, res): Promise<void> => {
-  const config = await getAIConfig();
-  const model = (config.model ?? "").trim();
+router.get("/admin/settings/ai/model-size", requireAdmin, async (req, res): Promise<void> => {
+  // ?model=... 지정 시 해당 모델 기준, 미지정 시 저장된 모델 기준
+  const rawQuery = req.query.model;
+  const queryModel = typeof rawQuery === "string" ? rawQuery.trim() : "";
+  let model = queryModel;
+  if (!model) {
+    const config = await getAIConfig();
+    model = (config.model ?? "").trim();
+  }
   if (!model) {
     res.json({ model: "", sizeBytes: null, requiredBytes: null });
     return;
