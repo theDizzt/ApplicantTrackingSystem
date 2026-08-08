@@ -8,7 +8,7 @@ import { promisify } from "util";
 import { db, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { logger } from "../lib/logger";
-import { openai } from "../lib/openai";
+import { getAI } from "../lib/openai";
 
 const execFileAsync = promisify(execFile);
 const router: IRouter = Router();
@@ -70,8 +70,9 @@ async function splitAndFormatWithAI(
 4. 오직 JSON만 반환하세요. 마크다운 코드 블록 없이.`;
 
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.6-luna",
+    const ai = await getAI();
+      const response = await ai.openai.chat.completions.create({
+      model: ai.model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user",   content: rawText.slice(0, 14000) },

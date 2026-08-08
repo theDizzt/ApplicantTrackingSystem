@@ -3,7 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { db, analysesTable, resumesTable, companiesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-import { openai } from "../lib/openai";
+import { getAI } from "../lib/openai";
 import { logger } from "../lib/logger";
 import { extractUrls, analyzeUrls, formatUrlAnalysisForPrompt } from "../lib/url-analyzer";
 
@@ -110,8 +110,9 @@ interface AIResult {
 }
 
 async function callAI(messages: ChatCompletionMessageParam[]): Promise<AIResult> {
-  const response = await openai.chat.completions.create({
-    model: "gpt-5.6-luna",
+  const ai = await getAI();
+    const response = await ai.openai.chat.completions.create({
+    model: ai.model,
     messages,
     response_format: { type: "json_object" },
   });

@@ -227,7 +227,122 @@ function OrgDialog({
   )
 }
 
-type Tab = "overview" | "users" | "organizations"
+type Tab = "overview" | "users" | "organizations" | "ai"
+
+function AISettingsTab() {
+  const [loaded, setLoaded] = useState(false)
+  const [apiKeyMasked, setApiKeyMasked] = useState("")
+  const [hasApiKey, setHasApiKey] = useState(false)
+  const [apiKey, setApiKey] = useState("")
+  const [baseUrl, setBaseUrl] = useState("")
+  const [model, setModel] = useState("")
+  const [saving, setSaving] = useState(false)
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null)
+
+  const load = useCallback(async () => {
+    try {
+      const d = await api("/admin/settings/ai")
+      setApiKeyMasked(d.apiKeyMasked)
+      setHasApiKey(d.hasApiKey)
+      setBaseUrl(d.baseUrl)
+      setModel(d.model)
+      setLoaded(true)
+    } catch (e: any) { toast.error(e.message) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  const handleSave = async () => {
+    setSaving(true)
+    setTestResult(null)
+    try {
+      await api("/admin/settings/ai", {
+        method: "PUT",
+        body: JSON.stringify({
+          ...(apiKey ? { apiKey } : {}),
+          baseUrl,
+          model,
+        }),
+      })
+      toast.success("AI 설정이 저장되었습니다.")
+      setApiKey("")
+      load()
+    } catch (e: any) { toast.error(e.message) }
+    finally { setSaving(false) }
+  }
+
+  const handleTest = async () => {
+    setTesting(true)
+    setTestResult(null)
+    try {
+      const d = await api("/admin/settings/ai/test", { method: "POST" })
+      setTestResult({ ok: true, text: `연결 성공 — 모델 ${d.model}, 응답 ${d.latencyMs}ms, 답변: "${(d.reply || "").slice(0, 50)}"` })
+    } catch (e: any) {
+      setTestResult({ ok: false, text: `연결 실패: ${e.message}` })
+    } finally { setTesting(false) }
+  }
+
+  if (!loaded) return <div className="text-slate-400 text-sm">불러오는 중...</div>
+
+  return (
+    <Card className="bg-slate-900 border-slate-800 max-w-2xl">
+      <CardHeader>
+        <CardTitle className="text-white text-base flex items-center gap-2">
+          <Cpu className="h-4 w-4 text-primary" /> AI 공급자 설정
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-5">
+        <p className="text-xs text-slate-400 leading-relaxed">
+          OpenAI 또는 OpenAI 호환 로컬 LLM 서버(Ollama, LM Studio 등)를 사용할 수 있습니다.
+          로컬 LLM 사용 시 Base URL을 <code className="text-slate-300">http://localhost:11434/v1</code> 형식으로,
+          API 키는 아무 값(예: <code className="text-slate-300">ollama</code>)으로 설정하세요.
+        </p>
+        <div className="space-y-2">
+          <Label className="text-slate-300">API 키</Label>
+          <Input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder={hasApiKey ? `현재: ${apiKeyMasked} (변경 시에만 입력)` : "sk-... 또는 ollama"}
+            className="bg-slate-950 border-slate-700 text-white"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-slate-300">Base URL</Label>
+          <Input
+            value={baseUrl}
+            onChange={(e) => setBaseUrl(e.target.value)}
+            placeholder="https://api.openai.com/v1 또는 http://localhost:11434/v1"
+            className="bg-slate-950 border-slate-700 text-white"
+          />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-slate-300">모델명</Label>
+          <Input
+            value={model}
+            onChange={(e) => setModel(e.target.value)}
+            placeholder="gpt-5.6-luna 또는 qwen2.5:14b"
+            className="bg-slate-950 border-slate-700 text-white"
+          />
+        </div>
+        {testResult && (
+          <div className={`text-xs rounded-md border px-3 py-2 ${testResult.ok ? "border-emerald-800 bg-emerald-950/50 text-emerald-300" : "border-red-800 bg-red-950/50 text-red-300"}`}>
+            {testResult.text}
+          </div>
+        )}
+        <div className="flex gap-2">
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? "저장 중..." : "저장"}
+          </Button>
+          <Button variant="outline" onClick={handleTest} disabled={testing} className="border-slate-700 text-slate-300">
+            {testing ? "테스트 중..." : "연결 테스트"}
+          </Button>
+        </div>
+      </CardContent>
+    </Card>
+  )
+}
 
 export default function AdminPage() {
   const [, navigate] = useLocation()
@@ -289,6 +404,7 @@ export default function AdminPage() {
     { key: "overview", label: "대시보드" },
     { key: "organizations", label: "협회 관리" },
     { key: "users", label: "사용자 관리" },
+    { key: "ai", label: "AI 설정" },
   ]
 
   return (
@@ -575,6 +691,8 @@ export default function AdminPage() {
             </Card>
           </div>
         )}
+        {/* ── AI Settings Tab ── */}
+        {tab === "ai" && <AISettingsTab />}
       </div>
 
       <OrgDialog

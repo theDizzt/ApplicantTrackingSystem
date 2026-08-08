@@ -2,14 +2,9 @@ import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
-import OpenAI from "openai";
+import { getAI } from "../lib/openai";
 
 const router: IRouter = Router();
-
-const openai = new OpenAI({
-  apiKey: process.env.AI_INTEGRATIONS_OPENAI_API_KEY,
-  baseURL: process.env.AI_INTEGRATIONS_OPENAI_BASE_URL,
-});
 
 // HTML 태그 제거 유틸
 function stripHtml(html: string): string {
@@ -61,8 +56,9 @@ HTML 태그는 결과에 포함하지 마세요. 순수 텍스트로만 반환�
   ].filter(Boolean).join("\n\n");
 
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-5.6-luna",
+    const ai = await getAI();
+      const completion = await ai.openai.chat.completions.create({
+      model: ai.model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user",   content: userPrompt },

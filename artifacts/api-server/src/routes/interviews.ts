@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, interviewSessionsTable, interviewQuestionsTable, resumesTable, companiesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
-import { openai } from "../lib/openai";
+import { getAI } from "../lib/openai";
 import { logger } from "../lib/logger";
 
 const router: IRouter = Router();
@@ -117,8 +117,9 @@ router.post("/interviews", requireAuth, async (req, res): Promise<void> => {
     : "";
 
   try {
-    const response = await openai.chat.completions.create({
-      model: "gpt-5.6-luna",
+    const ai = await getAI();
+      const response = await ai.openai.chat.completions.create({
+      model: ai.model,
       messages: [
         {
           role: "system",
@@ -185,8 +186,9 @@ router.post("/interviews/:id/answers", requireAuth, async (req, res): Promise<vo
 
   // AI 피드백 생성
   try {
-    const feedbackResponse = await openai.chat.completions.create({
-      model: "gpt-5.6-luna",
+    const ai = await getAI();
+      const feedbackResponse = await ai.openai.chat.completions.create({
+      model: ai.model,
       messages: [
         {
           role: "system",

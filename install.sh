@@ -199,12 +199,9 @@ setup_env() {
         return
     fi
 
-    echo -e "  OpenAI API 키가 필요합니다. (https://platform.openai.com/api-keys)"
-    read -p "  OPENAI API KEY 입력: " OPENAI_KEY
-    if [ -z "$OPENAI_KEY" ]; then
-        echo -e "${YELLOW}  [경고] API 키 없이 설치를 계속합니다. AI 분석 기능이 작동하지 않습니다.${NC}"
-        echo -e "${YELLOW}  나중에 ${ENV_FILE} 파일에 직접 추가하세요.${NC}"
-    fi
+    # AI API 키는 설치 시 입력받지 않습니다.
+    # 설치 완료 후 관리자 페이지(/admin → AI 설정)에서 등록하세요.
+    echo -e "  ${YELLOW}AI API 키는 설치 후 관리자 페이지(/admin → AI 설정)에서 등록합니다.${NC}"
 
     SESSION_SECRET=$(openssl rand -hex 32)
 
@@ -213,8 +210,6 @@ NODE_ENV=production
 PORT=${API_PORT}
 DATABASE_URL=${DATABASE_URL}
 SESSION_SECRET=${SESSION_SECRET}
-AI_INTEGRATIONS_OPENAI_API_KEY=${OPENAI_KEY}
-AI_INTEGRATIONS_OPENAI_BASE_URL=https://api.openai.com/v1
 EOF
     chmod 600 "$ENV_FILE"
     echo -e "  ${GREEN}${ENV_FILE} 생성 완료${NC}"
@@ -388,6 +383,12 @@ echo "  API 상태 확인: systemctl status ${APP_NAME}-api"
 echo "  API 재시작:    sudo systemctl restart ${APP_NAME}-api"
 echo "  API 로그:      journalctl -u ${APP_NAME}-api -f"
 echo "  Nginx 재시작:  sudo systemctl restart nginx"
+echo ""
+echo -e "${BLUE}[AI 설정 (필수)]${NC}"
+echo "  관리자 포털(/admin) 로그인 → 'AI 설정' 탭에서 등록:"
+echo "   - OpenAI 사용:  Base URL=https://api.openai.com/v1, API 키=sk-..., 모델=gpt-4o-mini 등"
+echo "   - 로컬 LLM(Ollama): Base URL=http://localhost:11434/v1, API 키=ollama, 모델=qwen2.5:14b 등"
+echo "  저장 후 '연결 테스트' 버튼으로 확인하세요."
 echo ""
 echo -e "${BLUE}[환경변수]${NC}"
 echo "  설정 파일: ${INSTALL_DIR}/.env.production"

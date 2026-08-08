@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import { eq, sql, count, sum, gte, and } from "drizzle-orm";
 import { db, usersTable, analysesTable, organizationsTable } from "@workspace/db";
 import { requireAdmin } from "../middlewares/admin";
+import { getAI, getAIConfig, saveSetting, invalidateAICache } from "../lib/openai";
 
 // Admin credentials (hardcoded — change in production via env vars)
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "park1058";
@@ -210,6 +211,61 @@ router.delete("/admin/organizations/:id", requireAdmin, async (req, res): Promis
   if (isNaN(id)) { res.status(400).json({ error: "유효하지 않은 ID입니다." }); return; }
   await db.delete(organizationsTable).where(eq(organizationsTable.id, id));
   res.json({ ok: true });
+});
+
+// ── AI 설정 (API 키 / Base URL / 모델) ────────────────────────────────────
+router.get("/admin/settings/ai", requireAdmin, async (_req, res): Promise<void> => {
+  const config = await getAIConfig();
+  // 키는 마스킹해서 반환
+  const masked = config.apiKey
+    ? config.apiKey.slice(0, 6) + "…" + config.apiKey.slice(-4)
+    : "";
+  res.json({
+    apiKeyMasked: masked,
+    hasApiKey: !!config.apiKey,
+    baseUrl: config.baseUrl ?? "",
+    model: config.model,
+  });
+});
+
+router.put("/admin/settings/ai", requireAdmin, async (req, res): Promise<void> => {
+  const { apiKey, baseUrl, model } = req.body as {
+    apiKey?: string;
+    baseUrl?: string;
+    model?: string;
+  };
+  if (apiKey !== undefined && apiKey !== "") {
+    await saveSetting("ai_api_key", apiKey.trim());
+  }
+  if (baseUrl !== undefined) {
+    await saveSetting("ai_base_url", baseUrl.trim());
+  }
+  if (model !== undefined) {
+    await saveSetting("ai_model", model.trim());
+  }
+  res.json({ ok: true });
+});
+
+// 연결 테스트: 현재 설정으로 간단한 completion 호출
+router.post("/admin/settings/ai/test", requireAdmin, async (_req, res): Promise<void> => {
+  try {
+    invalidateAICache();
+    const ai = await getAI();
+    const started = Date.now();
+    const response = await ai.openai.chat.completions.create({
+      model: ai.model,
+      messages: [{ role: "user", content: "1+1=? 숫자만 답하세요." }],
+    });
+    res.json({
+      ok: true,
+      model: ai.model,
+      latencyMs: Date.now() - started,
+      reply: response.choices[0]?.message?.content ?? "",
+    });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    res.status(502).json({ ok: false, error: message });
+  }
 });
 
 export default router;

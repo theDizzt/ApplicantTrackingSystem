@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, and, inArray, sql } from "drizzle-orm";
 import { db, companiesTable, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
-import { openai } from "../lib/openai";
+import { getAI } from "../lib/openai";
 import { logger } from "../lib/logger";
 import { scrapeSaramin, buildKeyword, getJobkoreaSearchUrl, type ScrapedPosting } from "../lib/job-scrapers";
 
@@ -125,8 +125,9 @@ router.post("/companies/fetch-postings", requireAuth, async (req, res): Promise<
 
     const userPrompt = `필터 조건:\n${conditions.join("\n")}\n\n사람인 수집 공고:\n${saraminSummary}`;
 
-    const completion = await openai.chat.completions.create({
-      model: "gpt-5.6-luna",
+    const ai = await getAI();
+      const completion = await ai.openai.chat.completions.create({
+      model: ai.model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user",   content: userPrompt },
@@ -205,8 +206,9 @@ router.post("/companies/recommend", requireAuth, async (req, res): Promise<void>
   let recommendedIds: number[] = [];
 
   try {
-    const completion = await openai.chat.completions.create({
-      model: "gpt-5.6-luna",
+    const ai = await getAI();
+      const completion = await ai.openai.chat.completions.create({
+      model: ai.model,
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
