@@ -255,6 +255,7 @@ function LocalLLMStatusCard() {
   const [loading, setLoading] = useState(false)
   const [pulling, setPulling] = useState(false)
   const [pullProgress, setPullProgress] = useState<PullProgress | null>(null)
+  const [switching, setSwitching] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -316,7 +317,23 @@ function LocalLLMStatusCard() {
     }
   }, [refresh])
 
+  const handleUseModel = useCallback(async (name: string) => {
+    setSwitching(name)
+    try {
+      await api("/admin/settings/ai", { method: "PUT", body: JSON.stringify({ model: name }) })
+      toast.success(`사용 모델이 ${name}(으)로 변경되었습니다.`)
+      await refresh()
+    } catch (e: any) {
+      toast.error(`모델 전환 실패: ${e.message}`)
+    } finally {
+      setSwitching(null)
+    }
+  }, [refresh])
+
   useEffect(() => { refresh() }, [refresh])
+
+  // Ollama 태그 규칙: 태그 없는 이름은 ":latest"로 해석
+  const normalize = (name: string) => (name.includes(":") ? name : `${name}:latest`)
 
   const badge = (ok: boolean, okText: string, failText: string) => (
     <span className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-0.5 ${ok ? "bg-emerald-950/60 text-emerald-300 border border-emerald-800" : "bg-red-950/60 text-red-300 border border-red-800"}`}>
@@ -402,12 +419,32 @@ function LocalLLMStatusCard() {
               <div className="space-y-1.5">
                 <Label className="text-slate-300 text-xs">다운로드된 모델 ({status.models.length}개)</Label>
                 <ul className="text-xs text-slate-300 space-y-1">
-                  {status.models.map((m) => (
-                    <li key={m.name} className="flex items-center justify-between rounded border border-slate-800 bg-slate-950 px-2.5 py-1.5">
-                      <code>{m.name}</code>
-                      <span className="text-slate-500">{formatGB(m.sizeBytes)}</span>
-                    </li>
-                  ))}
+                  {status.models.map((m) => {
+                    const inUse = !!status.configuredModel && normalize(m.name) === normalize(status.configuredModel)
+                    return (
+                      <li key={m.name} className="flex items-center justify-between gap-2 rounded border border-slate-800 bg-slate-950 px-2.5 py-1.5">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <code className="truncate">{m.name}</code>
+                          <span className="text-slate-500 shrink-0">{formatGB(m.sizeBytes)}</span>
+                        </div>
+                        {inUse ? (
+                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-300 shrink-0">
+                            <Check className="h-3.5 w-3.5" /> 사용 중
+                          </span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-6 px-2 text-[11px] border-slate-700 text-slate-300 shrink-0"
+                            disabled={switching !== null}
+                            onClick={() => handleUseModel(m.name)}
+                          >
+                            {switching === m.name ? "전환 중..." : "이 모델 사용"}
+                          </Button>
+                        )}
+                      </li>
+                    )
+                  })}
                 </ul>
               </div>
             )}
