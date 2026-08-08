@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import { eq, sql, count, sum, gte, and } from "drizzle-orm";
 import { db, usersTable, analysesTable, organizationsTable } from "@workspace/db";
 import { requireAdmin } from "../middlewares/admin";
-import { getAI, getAIConfig, saveSetting, invalidateAICache } from "../lib/openai";
+import { getAI, getAIConfig, saveSetting, invalidateAICache, checkAIHealth } from "../lib/openai";
 
 // Admin credentials (hardcoded — change in production via env vars)
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "park1058";
@@ -460,6 +460,13 @@ router.post("/admin/settings/ai/local-pull/cancel", requireAdmin, async (_req, r
   pullState.updatedAt = Date.now();
   pullState.abortController.abort();
   res.json({ ok: true, wasRunning: true });
+});
+
+// 현재 AI 연결 상태 점검 (모델 목록 조회 기반, 5초 타임아웃)
+router.get("/admin/settings/ai/health", requireAdmin, async (_req, res): Promise<void> => {
+  invalidateAICache();
+  const health = await checkAIHealth();
+  res.json(health);
 });
 
 // 연결 테스트: 현재 설정으로 간단한 completion 호출

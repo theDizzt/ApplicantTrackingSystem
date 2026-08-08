@@ -69,16 +69,19 @@ export async function getAI(): Promise<{ openai: OpenAI; model: string }> {
  * AI 서버 연결 상태를 사전 점검한다. (모델 목록 조회, 5초 타임아웃)
  * 실패 시 사용자에게 보여줄 한국어 메시지를 반환한다.
  */
-export async function checkAIHealth(): Promise<{ ok: boolean; error?: string }> {
+export type AIHealthCode = "ok" | "no_key" | "auth_error" | "unreachable" | "config_error";
+
+export async function checkAIHealth(): Promise<{ ok: boolean; code: AIHealthCode; error?: string }> {
   let config: AIConfig;
   try {
     config = await getAIConfig();
   } catch {
-    return { ok: false, error: "AI 설정을 불러오지 못했습니다. 관리자에게 문의해주세요." };
+    return { ok: false, code: "config_error", error: "AI 설정을 불러오지 못했습니다. 관리자에게 문의해주세요." };
   }
   if (!config.apiKey) {
     return {
       ok: false,
+      code: "no_key",
       error: "AI API 키가 설정되지 않았습니다. 관리자 페이지(/admin)의 AI 설정에서 키를 등록해주세요.",
     };
   }
@@ -90,7 +93,7 @@ export async function checkAIHealth(): Promise<{ ok: boolean; error?: string }> 
   });
   try {
     await client.models.list();
-    return { ok: true };
+    return { ok: true, code: "ok" };
   } catch (err) {
     // HTTP 응답이 온 경우(404/405 등) 서버 자체는 살아있는 것 —
     // 일부 OpenAI 호환 프록시는 /models 엔드포인트를 지원하지 않는다.
@@ -98,14 +101,16 @@ export async function checkAIHealth(): Promise<{ ok: boolean; error?: string }> 
       if (err.status === 401 || err.status === 403) {
         return {
           ok: false,
+          code: "auth_error",
           error: "AI API 키가 유효하지 않습니다. 관리자 페이지(/admin)의 AI 설정을 확인해주세요.",
         };
       }
-      return { ok: true };
+      return { ok: true, code: "ok" };
     }
     const detail = err instanceof Error ? err.message : String(err);
     return {
       ok: false,
+      code: "unreachable",
       error: `AI 서버(${config.baseUrl ?? "OpenAI"})에 연결할 수 없습니다. 관리자에게 문의해주세요. (원인: ${detail})`,
     };
   }

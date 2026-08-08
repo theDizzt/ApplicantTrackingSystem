@@ -507,6 +507,21 @@ function AISettingsTab() {
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null)
+  const [health, setHealth] = useState<{ ok: boolean; code: string; error?: string } | null>(null)
+  const [healthLoading, setHealthLoading] = useState(false)
+
+  const loadHealth = useCallback(async () => {
+    setHealthLoading(true)
+    try {
+      setHealth(await api("/admin/settings/ai/health"))
+    } catch {
+      setHealth({ ok: false, code: "unreachable", error: "상태 확인 요청에 실패했습니다." })
+    } finally {
+      setHealthLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadHealth() }, [loadHealth])
 
   const load = useCallback(async () => {
     try {
@@ -536,6 +551,7 @@ function AISettingsTab() {
       toast.success("AI 설정이 저장되었습니다.")
       setApiKey("")
       load()
+      loadHealth()
     } catch (e: any) { toast.error(e.message) }
     finally { setSaving(false) }
   }
@@ -548,7 +564,10 @@ function AISettingsTab() {
       setTestResult({ ok: true, text: `연결 성공 — 모델 ${d.model}, 응답 ${d.latencyMs}ms, 답변: "${(d.reply || "").slice(0, 50)}"` })
     } catch (e: any) {
       setTestResult({ ok: false, text: `연결 실패: ${e.message}` })
-    } finally { setTesting(false) }
+    } finally {
+      setTesting(false)
+      loadHealth()
+    }
   }
 
   if (!loaded) return <div className="text-slate-400 text-sm">불러오는 중...</div>
@@ -556,11 +575,53 @@ function AISettingsTab() {
   return (
     <Card className="bg-slate-900 border-slate-800 max-w-2xl">
       <CardHeader>
-        <CardTitle className="text-white text-base flex items-center gap-2">
-          <Cpu className="h-4 w-4 text-primary" /> AI 공급자 설정
+        <CardTitle className="text-white text-base flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <Cpu className="h-4 w-4 text-primary" /> AI 공급자 설정
+          </span>
+          <span className="flex items-center gap-2">
+            {healthLoading && !health ? (
+              <span className="text-xs text-slate-500">상태 확인 중...</span>
+            ) : health && (
+              <span
+                title={health.error ?? ""}
+                className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-0.5 border ${
+                  health.ok
+                    ? "bg-emerald-950/60 text-emerald-300 border-emerald-800"
+                    : health.code === "no_key" || health.code === "auth_error"
+                      ? "bg-amber-950/60 text-amber-300 border-amber-800"
+                      : "bg-red-950/60 text-red-300 border-red-800"
+                }`}
+              >
+                <span className={`h-1.5 w-1.5 rounded-full ${
+                  health.ok ? "bg-emerald-400"
+                    : health.code === "no_key" || health.code === "auth_error" ? "bg-amber-400"
+                    : "bg-red-400"
+                }`} />
+                {health.ok ? "연결 정상"
+                  : health.code === "no_key" ? "키 미설정"
+                  : health.code === "auth_error" ? "키 오류"
+                  : "연결 실패"}
+              </span>
+            )}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-6 px-2 text-[11px] text-slate-400 hover:text-white"
+              onClick={loadHealth}
+              disabled={healthLoading}
+            >
+              <RefreshCw className={`h-3 w-3 ${healthLoading ? "animate-spin" : ""}`} />
+            </Button>
+          </span>
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-5">
+        {health && !health.ok && health.error && (
+          <div className="text-xs rounded-md border border-red-800 bg-red-950/50 text-red-300 px-3 py-2">
+            {health.error}
+          </div>
+        )}
         <p className="text-xs text-slate-400 leading-relaxed">
           OpenAI 또는 OpenAI 호환 로컬 LLM 서버(Ollama, LM Studio 등)를 사용할 수 있습니다.
           로컬 LLM 사용 시 Base URL을 <code className="text-slate-300">http://localhost:11434/v1</code> 형식으로,
