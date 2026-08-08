@@ -82,9 +82,9 @@ install_base_packages() {
     echo -e "${CYAN}[2/8] 기본 패키지 설치${NC}"
     if [ "$OS_FAMILY" = "debian" ]; then
         $SUDO apt-get update -y
-        $SUDO apt-get install -y curl ca-certificates gnupg git build-essential openssl
+        $SUDO apt-get install -y curl ca-certificates gnupg git build-essential openssl acl
     else
-        $SUDO $PKG install -y curl ca-certificates git gcc-c++ make openssl
+        $SUDO $PKG install -y curl ca-certificates git gcc-c++ make openssl acl
     fi
     echo -e "  ${GREEN}완료${NC}"
     echo ""
@@ -374,6 +374,105 @@ OLLAMA_INSTALLED=false
 OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5:14b}"
 OLLAMA_PULL_RETRIES="${OLLAMA_PULL_RETRIES:-3}"
 OLLAMA_PULL_RETRY_DELAY="${OLLAMA_PULL_RETRY_DELAY:-10}"
+# Ollama 서비스가 실제 사용하는 모델 저장 경로 확정 (systemd Environment 우선)
+detect_ollama_models_dir() {
+    OLLAMA_MODELS_DIR=""
+    SVC_ENV=$($SUDO systemctl show ollama -p Environment --value 2>/dev/null || true)
+    for kv in $SVC_ENV; do
+        case "$kv" in
+            OLLAMA_MODELS=*) OLLAMA_MODELS_DIR="${kv#OLLAMA_MODELS=}" ;;
+        esac
+    done
+    if [ -z "$OLLAMA_MODELS_DIR" ]; then
+        # 공식 설치 스크립트 기본값: ollama 시스템 사용자의 홈
+        if id ollama &>/dev/null; then
+            OLLAMA_MODELS_DIR="/usr/share/ollama/.ollama/models"
+        else
+            OLLAMA_MODELS_DIR="${HOME}/.ollama/models"
+        fi
+    fi
+}
+
+# API 서버 실행 계정이 불완전(partial) blob을 삭제할 수 있도록 최소 권한 부여
+# (파일 unlink에는 상위 디렉터리 쓰기 권한이 필요함. Ollama 서비스는 보통
+#  ollama 계정으로 돌아 blobs 디렉터리가 ollama:ollama 소유이기 때문)
+grant_cleanup_permission() {
+    RUN_USER="${SUDO_USER:-$(whoami)}"
+    BLOBS_DIR="${OLLAMA_MODELS_DIR}/blobs"
+    # Ollama 서비스 실행 계정 확인 (디렉터리를 새로 만들 때 소유권을 이 계정에 줘야
+    # 서비스가 pull 시 blob을 기록할 수 있음. root 소유로 만들면 pull이 실패한다)
+    OLLAMA_SVC_USER=$($SUDO systemctl show ollama -p User --value 2>/dev/null || true)
+    if [ -z "$OLLAMA_SVC_USER" ]; then
+        if id ollama &>/dev/null; then OLLAMA_SVC_USER="ollama"; else OLLAMA_SVC_USER="$RUN_USER"; fi
+    fi
+    if [ ! -d "$BLOBS_DIR" ]; then
+        $SUDO mkdir -p "$BLOBS_DIR" 2>/dev/null || true
+        # 새로 만든 저장소는 반드시 Ollama 서비스 계정 소유로.
+        # 소유권 변경은 모델 저장소 자신에게만 적용 (상위 디렉터리는 절대 건드리지 않음)
+        $SUDO chown "${OLLAMA_SVC_USER}:${OLLAMA_SVC_USER}" "$OLLAMA_MODELS_DIR" "$BLOBS_DIR" 2>/dev/null || true
+    fi
+    [ -d "$BLOBS_DIR" ] || return 0
+    # 소유권 안전장치: 어떤 경로로든 root 소유가 됐다면 서비스 계정으로 복구 (저장소 범위로 한정)
+    if [ "$(stat -c %U "$BLOBS_DIR" 2>/dev/null)" = "root" ] && [ "$OLLAMA_SVC_USER" != "root" ]; then
+        $SUDO chown "${OLLAMA_SVC_USER}:${OLLAMA_SVC_USER}" "$OLLAMA_MODELS_DIR" "$BLOBS_DIR" 2>/dev/null || true
+    fi
+    # 이미 실행 계정 소유이면 권한 작업 불필요
+    [ "$(stat -c %U "$BLOBS_DIR" 2>/dev/null)" = "$RUN_USER" ] && return 0
+    GRANT_OK=false
+    if command -v setfacl &>/dev/null; then
+        # ACL: 해당 계정에게 이 디렉터리(rwx)와 기존 파일(rw)만 허용
+        if $SUDO setfacl -m "u:${RUN_USER}:rwx" "$OLLAMA_MODELS_DIR" "$BLOBS_DIR" 2>/dev/null; then
+            $SUDO setfacl -m "u:${RUN_USER}:rw" "$BLOBS_DIR"/* 2>/dev/null || true
+            # 새로 생성되는 blob에도 기본 ACL 적용 (이후 취소된 다운로드 파일 포함)
+            $SUDO setfacl -d -m "u:${RUN_USER}:rw" "$BLOBS_DIR" 2>/dev/null || true
+            GRANT_OK=true
+            echo -e "  임시 파일 정리 권한 부여(ACL): ${RUN_USER} → ${BLOBS_DIR}"
+        fi
+    fi
+    if [ "$GRANT_OK" = false ] && getent group ollama &>/dev/null; then
+        # ACL 미지원/실패 시: ollama 그룹 가입 + 그룹 쓰기 허용 (차선책)
+        # setgid(g+s)로 이후 생성되는 blob도 ollama 그룹 소유가 되게 해,
+        # 그룹 쓰기(디렉터리)만으로 새 partial 파일도 삭제 가능하게 유지한다.
+        # (unlink는 파일이 아니라 상위 디렉터리 쓰기 권한만 필요)
+        if $SUDO usermod -aG ollama "$RUN_USER" 2>/dev/null \
+            && $SUDO chgrp ollama "$OLLAMA_MODELS_DIR" "$BLOBS_DIR" 2>/dev/null \
+            && $SUDO chmod g+rwx "$OLLAMA_MODELS_DIR" 2>/dev/null \
+            && $SUDO chmod g+rwxs "$BLOBS_DIR" 2>/dev/null; then
+            GRANT_OK=true
+            echo -e "  임시 파일 정리 권한 부여(그룹): ${RUN_USER} → ollama 그룹 (setgid 적용)"
+        fi
+    fi
+    # 최종 검증: 실행 계정이 실제로 blobs 디렉터리의 파일을 삭제할 수 있는지 확인
+    if [ "$GRANT_OK" = true ] && command -v sudo &>/dev/null; then
+        PROBE="${BLOBS_DIR}/.cleanup-permission-probe"
+        $SUDO touch "$PROBE" 2>/dev/null || true
+        if sudo -u "$RUN_USER" rm "$PROBE" 2>/dev/null \
+            || sudo -u "$RUN_USER" -g ollama rm "$PROBE" 2>/dev/null; then
+            GRANT_OK=true
+        else
+            $SUDO rm -f "$PROBE" 2>/dev/null || true
+            GRANT_OK=false
+        fi
+    fi
+    if [ "$GRANT_OK" = false ]; then
+        echo -e "  ${YELLOW}경고: ${BLOBS_DIR}에 대한 삭제 권한을 부여하지 못했습니다. 관리자 화면의 '임시 파일 정리'가 동작하지 않을 수 있습니다.${NC}"
+    fi
+}
+
+# 확정된 모델 경로를 API 서버(.env.production)와 공유하고 서비스에 반영
+share_models_path_with_api() {
+    ENV_FILE="${INSTALL_DIR}/.env.production"
+    [ -f "$ENV_FILE" ] || return 0
+    if grep -q "^OLLAMA_MODELS=" "$ENV_FILE"; then
+        sed -i "s|^OLLAMA_MODELS=.*|OLLAMA_MODELS=${OLLAMA_MODELS_DIR}|" "$ENV_FILE"
+    else
+        echo "OLLAMA_MODELS=${OLLAMA_MODELS_DIR}" >> "$ENV_FILE"
+    fi
+    echo -e "  API 서버에 모델 경로 공유: OLLAMA_MODELS=${OLLAMA_MODELS_DIR}"
+    # API 서비스가 이미 실행 중이면 새 환경변수 반영
+    $SUDO systemctl restart ${APP_NAME}-api.service 2>/dev/null || true
+}
+
 install_ollama() {
     echo -e "${CYAN}[선택] 로컬 LLM(Ollama) 설치${NC}"
     if [ "$OLLAMA_ONLY" = true ]; then
@@ -428,8 +527,16 @@ EOF
         return
     fi
 
+    # 모델 저장 경로 확정 + API 서버와 공유 + 정리 권한 부여
+    # (pull "이전"에 실행해, 다운로드가 어디로 가든 API가 정리할 수 있게 함)
+    detect_ollama_models_dir
+    grant_cleanup_permission
+    share_models_path_with_api
+
     # 권장 모델 다운로드 (RAM 32GB 기준 qwen2.5:14b 권장)
     # 네트워크가 끊겨도 자동 재시도 (Ollama pull은 이어받기를 지원하므로 재시도 시 이어서 받음)
+    # 주의: `ollama pull`은 CLI가 아니라 Ollama "서버"가 blob을 기록하므로,
+    #       저장 위치는 위에서 확정한 서비스의 OLLAMA_MODELS 경로다.
     echo -e "  권장 모델 다운로드 중: ${GREEN}${OLLAMA_MODEL}${NC} (수 GB, 시간이 걸릴 수 있습니다)"
     PULL_OK=false
     for attempt in $(seq 1 "$OLLAMA_PULL_RETRIES"); do
@@ -442,6 +549,10 @@ EOF
             sleep "$OLLAMA_PULL_RETRY_DELAY"
         fi
     done
+
+    # pull 이후 재적용: pull이 새로 만든 디렉터리/파일까지 권한 보장
+    # (그룹 방식은 기본 ACL이 없어 새 파일에 그룹 쓰기 재부여가 필요)
+    grant_cleanup_permission
 
     if [ "$PULL_OK" = true ]; then
         OLLAMA_INSTALLED=true

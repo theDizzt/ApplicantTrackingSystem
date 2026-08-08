@@ -1,1 +1,2 @@
 - [OpenAI gpt-5.6-luna 파라미터 제약](openai-model-constraints.md) — `temperature`(비기본값)·`max_tokens` 미지원, `max_completion_tokens`만 사용할 것
+- [Ollama 취소된 pull 정리](ollama-partial-blob-cleanup.md) — partial blob은 API로 못 지움; OLLAMA_MODELS 경로 공유 + blobs 디렉터리 쓰기 권한(ACL/그룹)이 전제

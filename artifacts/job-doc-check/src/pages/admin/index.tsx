@@ -257,6 +257,29 @@ function LocalLLMStatusCard() {
   const [pullProgress, setPullProgress] = useState<PullProgress | null>(null)
   const [switching, setSwitching] = useState<string | null>(null)
   const [cancelling, setCancelling] = useState(false)
+  const [deleteTarget, setDeleteTarget] = useState<{ name: string; sizeBytes: number } | null>(null)
+  const [deleting, setDeleting] = useState(false)
+  const [cleaning, setCleaning] = useState(false)
+
+  const handleCleanup = useCallback(async () => {
+    setCleaning(true)
+    try {
+      const d = await api("/admin/settings/ai/local-cleanup", { method: "POST" })
+      const freed = Number(d.freedBytes ?? 0)
+      if (Number(d.deletedCount ?? 0) > 0) {
+        toast.success(`불완전 임시 파일 ${d.deletedCount}개를 정리했습니다 (${formatGB(freed) || "1GB 미만"} 확보).`)
+      } else {
+        toast.info("정리할 임시 파일이 없습니다.")
+      }
+      if (Array.isArray(d.errors) && d.errors.length > 0) {
+        toast.error(`일부 파일은 정리하지 못했습니다: ${d.errors[0]}`)
+      }
+    } catch (e: any) {
+      toast.error(`임시 파일 정리 실패: ${e.message}`)
+    } finally {
+      setCleaning(false)
+    }
+  }, [])
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -286,7 +309,14 @@ function LocalLLMStatusCard() {
         totalBytes: Number(d.totalBytes ?? 0),
       })
       if (!d.inProgress) {
-        if (d.cancelled) toast.info("모델 다운로드가 취소되었습니다.")
+        if (d.cancelled) {
+          const freed = Number(d.cleanedFreedBytes ?? 0)
+          toast.info(
+            freed > 0
+              ? `모델 다운로드가 취소되었습니다. 임시 파일 ${formatGB(freed)}를 정리했습니다.`
+              : "모델 다운로드가 취소되었습니다."
+          )
+        }
         else if (d.error) toast.error(`모델 다운로드 실패: ${d.error}`)
         else if (d.done) toast.success("모델 다운로드가 완료되었습니다.")
         break
@@ -356,6 +386,24 @@ function LocalLLMStatusCard() {
       setSwitching(null)
     }
   }, [refresh])
+
+  const handleDeleteModel = useCallback(async () => {
+    if (!deleteTarget) return
+    setDeleting(true)
+    try {
+      await api("/admin/settings/ai/local-models", {
+        method: "DELETE",
+        body: JSON.stringify({ model: deleteTarget.name }),
+      })
+      toast.success(`모델 ${deleteTarget.name}이(가) 삭제되었습니다.`)
+      setDeleteTarget(null)
+      await refresh()
+    } catch (e: any) {
+      toast.error(`모델 삭제 실패: ${e.message}`)
+    } finally {
+      setDeleting(false)
+    }
+  }, [deleteTarget, refresh])
 
   useEffect(() => { refresh() }, [refresh])
 
@@ -456,6 +504,22 @@ function LocalLLMStatusCard() {
                 )}
               </div>
             )}
+            {status.isLocal && (
+              <div className="flex items-center justify-between gap-2 rounded border border-slate-800 bg-slate-950 px-2.5 py-1.5">
+                <p className="text-[11px] text-slate-500">
+                  취소된 다운로드가 남긴 불완전 임시 파일을 정리해 디스크 공간을 확보합니다.
+                </p>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-6 px-2 text-[11px] border-slate-700 text-slate-300 shrink-0"
+                  disabled={cleaning || pulling}
+                  onClick={handleCleanup}
+                >
+                  {cleaning ? "정리 중..." : "임시 파일 정리"}
+                </Button>
+              </div>
+            )}
             {status.serverUp && status.models.length > 0 && (
               <div className="space-y-1.5">
                 <Label className="text-slate-300 text-xs">다운로드된 모델 ({status.models.length}개)</Label>
@@ -468,21 +532,33 @@ function LocalLLMStatusCard() {
                           <code className="truncate">{m.name}</code>
                           <span className="text-slate-500 shrink-0">{formatGB(m.sizeBytes)}</span>
                         </div>
-                        {inUse ? (
-                          <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-300 shrink-0">
-                            <Check className="h-3.5 w-3.5" /> 사용 중
-                          </span>
-                        ) : (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {inUse ? (
+                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-300">
+                              <Check className="h-3.5 w-3.5" /> 사용 중
+                            </span>
+                          ) : (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="h-6 px-2 text-[11px] border-slate-700 text-slate-300"
+                              disabled={switching !== null}
+                              onClick={() => handleUseModel(m.name)}
+                            >
+                              {switching === m.name ? "전환 중..." : "이 모델 사용"}
+                            </Button>
+                          )}
                           <Button
                             size="sm"
                             variant="outline"
-                            className="h-6 px-2 text-[11px] border-slate-700 text-slate-300 shrink-0"
-                            disabled={switching !== null}
-                            onClick={() => handleUseModel(m.name)}
+                            className="h-6 w-6 p-0 border-slate-700 text-slate-400 hover:text-red-300 hover:border-red-800"
+                            disabled={pulling || deleting}
+                            onClick={() => setDeleteTarget({ name: m.name, sizeBytes: m.sizeBytes })}
+                            title="모델 삭제"
                           >
-                            {switching === m.name ? "전환 중..." : "이 모델 사용"}
+                            <Trash2 className="h-3.5 w-3.5" />
                           </Button>
-                        )}
+                        </div>
                       </li>
                     )
                   })}
@@ -492,6 +568,39 @@ function LocalLLMStatusCard() {
           </>
           )
         )}
+        <Dialog open={deleteTarget !== null} onOpenChange={(v) => { if (!v && !deleting) setDeleteTarget(null) }}>
+          <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-md">
+            <DialogHeader>
+              <DialogTitle className="text-white flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-red-400" /> 모델 삭제
+              </DialogTitle>
+            </DialogHeader>
+            <div className="text-sm text-slate-300 space-y-2 py-1">
+              <p>
+                모델 <code className="text-white bg-slate-800 rounded px-1.5 py-0.5">{deleteTarget?.name}</code>
+                {deleteTarget && deleteTarget.sizeBytes > 0 ? ` (${formatGB(deleteTarget.sizeBytes)})` : ""}
+                을(를) 서버에서 삭제할까요?
+              </p>
+              <p className="text-xs text-slate-500">
+                모델이 차지하던 디스크 공간이 확보됩니다. 다시 사용하려면 모델을 새로 내려받아야 합니다.
+              </p>
+              {deleteTarget && status?.configuredModel && normalize(deleteTarget.name) === normalize(status.configuredModel) && (
+                <p className="text-xs text-amber-300 rounded border border-amber-800 bg-amber-950/50 px-2 py-1.5">
+                  현재 사용 중으로 설정된 모델입니다. 삭제하면 심사 기능이 동작하지 않으니, 삭제 후 다른 모델을 지정하거나 다시 내려받으세요.
+                </p>
+              )}
+            </div>
+            <DialogFooter>
+              <Button variant="ghost" onClick={() => setDeleteTarget(null)} disabled={deleting} className="text-slate-400 hover:text-white">
+                취소
+              </Button>
+              <Button variant="destructive" onClick={handleDeleteModel} disabled={deleting}>
+                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                {deleting ? "삭제 중..." : "삭제"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   )

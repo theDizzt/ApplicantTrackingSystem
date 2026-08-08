@@ -7,6 +7,9 @@ import { getAI, getAIConfig, saveSetting, invalidateAICache, checkAIHealth } fro
 import { getAIHealthStatus } from "../lib/ai-health-monitor";
 
 // Admin credentials (hardcoded — change in production via env vars)
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "park1058";
 const ADMIN_PASSWORD_HASH =
   process.env.ADMIN_PASSWORD_HASH ??
@@ -252,17 +255,7 @@ router.get("/admin/settings/ai/local-status", requireAdmin, async (_req, res): P
   const config = await getAIConfig();
   const baseUrl = (config.baseUrl ?? "").trim();
   // 로컬 Ollama로 판단되는 경우에만 상태 조회 (SSRF 방지: 임의 URL로 서버측 요청 금지)
-  let ollamaRoot: string | null = null;
-  try {
-    const parsed = new URL(baseUrl);
-    const localHosts = ["localhost", "127.0.0.1", "[::1]", "::1"];
-    const isOllamaPort = (parsed.port || (parsed.protocol === "http:" ? "80" : "443")) === "11434";
-    if (parsed.protocol === "http:" && localHosts.includes(parsed.hostname) && isOllamaPort) {
-      ollamaRoot = `http://${parsed.hostname}:11434`;
-    }
-  } catch {
-    // baseUrl이 비었거나 잘못된 경우 → 로컬 AI 미설정으로 처리
-  }
+  const ollamaRoot = resolveOllamaRoot(baseUrl);
   const isLocal = ollamaRoot !== null;
   if (!ollamaRoot) {
     res.json({ isLocal: false, baseUrl, serverUp: false, models: [], configuredModel: config.model, modelInstalled: false });
@@ -325,6 +318,7 @@ type PullState = {
   error: string | null;
   done: boolean;           // 성공적으로 완료됨
   cancelled: boolean;      // 관리자가 취소함
+  cleanedFreedBytes: number | null; // 취소 후 정리된 불완전 파일 용량 (null = 정리 안 함/실패)
   startedAt: number;
   updatedAt: number;
   abortController: AbortController;
@@ -332,6 +326,15 @@ type PullState = {
 
 let pullState: PullState | null = null;
 
+function candidateBlobDirs(): string[] {
+  const dirs: string[] = [];
+  // install.sh가 .env.production에 기록하는 실제 서비스 경로 (최우선)
+  if (process.env.OLLAMA_MODELS) dirs.push(path.join(process.env.OLLAMA_MODELS, "blobs"));
+  dirs.push(path.join(os.homedir(), ".ollama", "models", "blobs")); // 사용자 실행 기본 경로
+  dirs.push(path.join(os.homedir(), "ollama", "models", "blobs")); // 구(舊) 설치 스크립트 경로
+  dirs.push("/usr/share/ollama/.ollama/models/blobs"); // 공식 systemd 서비스 기본 경로
+  return [...new Set(dirs)];
+}
 async function runPull(ollamaRoot: string, model: string): Promise<void> {
   const state: PullState = {
     model,
@@ -342,6 +345,7 @@ async function runPull(ollamaRoot: string, model: string): Promise<void> {
     error: null,
     done: false,
     cancelled: false,
+    cleanedFreedBytes: null,
     startedAt: Date.now(),
     updatedAt: Date.now(),
     abortController: new AbortController(),
@@ -391,6 +395,48 @@ async function runPull(ollamaRoot: string, model: string): Promise<void> {
     if (state.cancelled || (err instanceof Error && err.name === "AbortError")) {
       state.cancelled = true;
       state.status = "취소됨";
+      // 취소된 다운로드가 남긴 불완전(partial) blob 정리.
+      // 고정 지연은 Ollama의 종료 신호가 아니므로, "한 번 더 스캔했을 때
+      // 지울 것이 없고 오류도 없는" 안정 상태가 될 때까지 재시도한다.
+      // (취소 직후 Ollama가 아직 파일을 잡고 있거나 다시 쓸 수 있기 때문)
+      try {
+        let totalDeleted = 0;
+        let totalFreed = 0;
+        let stable = false;
+        let lastErrors: string[] = [];
+        let consecutiveClean = 0;
+        for (let attempt = 0; attempt < 6; attempt++) {
+          await new Promise((r) => setTimeout(r, 1500));
+          // 그 사이 새 pull이 시작됐으면 그 blob을 건드리지 않도록 중단
+          if (pullState !== state && pullState?.inProgress) break;
+          const result = await cleanupPartialBlobs();
+          totalDeleted += result.deletedCount;
+          totalFreed += result.freedBytes;
+          lastErrors = result.errors;
+          if (result.deletedCount === 0 && result.errors.length === 0) {
+            // 빈 스캔 1회는 종료 신호가 아님 — Ollama가 취소 직후 파일을
+            // 늦게 쓸 수 있으므로 연속 2회 깨끗해야 안정 상태로 판단
+            consecutiveClean += 1;
+            if (consecutiveClean >= 2) { stable = true; break; }
+          } else {
+            consecutiveClean = 0;
+          }
+        }
+        state.cleanedFreedBytes = totalFreed;
+        if (!stable) {
+          // 잔여 파일/권한 오류가 남음 → 관리자에게 수동 정리 재시도 안내
+          state.status = lastErrors.length > 0
+            ? `취소됨 — 임시 파일 일부를 정리하지 못했습니다 (${lastErrors[0]}). '임시 파일 정리' 버튼으로 다시 시도하세요.`
+            : "취소됨 — 임시 파일이 남아 있을 수 있습니다. '임시 파일 정리' 버튼으로 다시 시도하세요.";
+        } else if (totalDeleted > 0) {
+          state.status = `취소됨 — 임시 파일 ${totalDeleted}개 정리 (${(totalFreed / 1024 / 1024 / 1024).toFixed(1)}GB 확보)`;
+        } else {
+          state.status = "취소됨 — 정리할 임시 파일 없음";
+        }
+      } catch {
+        // 정리 실패는 취소 자체를 방해하지 않음 (수동 정리 엔드포인트로 재시도 가능)
+        state.status = "취소됨 — 임시 파일 정리 실패. '임시 파일 정리' 버튼으로 다시 시도하세요.";
+      }
     } else {
       state.error = err instanceof Error ? err.message : String(err);
     }
@@ -418,6 +464,7 @@ router.get("/admin/settings/ai/local-pull/status", requireAdmin, async (_req, re
     error: s.error,
     done: s.done,
     cancelled: s.cancelled,
+    cleanedFreedBytes: s.cleanedFreedBytes,
     startedAt: s.startedAt,
     updatedAt: s.updatedAt,
   });
@@ -463,6 +510,69 @@ router.post("/admin/settings/ai/local-pull/cancel", requireAdmin, async (_req, r
   res.json({ ok: true, wasRunning: true });
 });
 
+// 불완전(partial) 임시 파일 수동 정리: 이전에 취소된 다운로드가 남긴 파일을
+// 관리자가 버튼 한 번으로 정리할 수 있게 한다. 진행 중인 다운로드가 있으면 거부.
+router.post("/admin/settings/ai/local-cleanup", requireAdmin, async (_req, res): Promise<void> => {
+  const config = await getAIConfig();
+  if (!resolveOllamaRoot((config.baseUrl ?? "").trim())) {
+    res.status(400).json({ error: "로컬 Ollama가 설정되어 있지 않습니다." });
+    return;
+  }
+  if (pullState?.inProgress) {
+    res.status(409).json({ error: "모델 다운로드가 진행 중입니다. 완료 또는 취소 후 정리하세요." });
+    return;
+  }
+  const result = await cleanupPartialBlobs();
+  res.json({ ok: true, deletedCount: result.deletedCount, freedBytes: result.freedBytes, errors: result.errors });
+});
+
+// 설치된 모델 삭제 (Ollama DELETE /api/delete 프록시)
+// manifest와 다른 모델이 공유하지 않는 레이어(blob)가 삭제되어 디스크가 확보된다.
+router.delete("/admin/settings/ai/local-models", requireAdmin, async (req, res): Promise<void> => {
+  const config = await getAIConfig();
+  const ollamaRoot = resolveOllamaRoot((config.baseUrl ?? "").trim());
+  if (!ollamaRoot) {
+    res.status(400).json({ error: "로컬 Ollama가 설정되어 있지 않습니다. Base URL을 확인하세요." });
+    return;
+  }
+  const model = typeof req.body?.model === "string" ? req.body.model.trim() : "";
+  if (!model) {
+    res.status(400).json({ error: "삭제할 모델명을 지정해주세요." });
+    return;
+  }
+  // 진행 중인 다운로드 대상 모델은 삭제 금지 (blob 경합 방지)
+  if (pullState?.inProgress) {
+    res.status(409).json({ error: "모델 다운로드가 진행 중입니다. 완료 또는 취소 후 삭제하세요." });
+    return;
+  }
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10_000);
+    const resp = await fetch(`${ollamaRoot}/api/delete`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model }),
+      signal: controller.signal,
+    });
+    clearTimeout(timer);
+    if (resp.status === 404) {
+      res.status(404).json({ error: `모델 '${model}'을(를) 찾을 수 없습니다.` });
+      return;
+    }
+    if (!resp.ok) {
+      const text = await resp.text().catch(() => "");
+      res.status(502).json({ error: `Ollama 응답 오류 (HTTP ${resp.status})${text ? `: ${text.slice(0, 200)}` : ""}` });
+      return;
+    }
+    res.json({ ok: true, model });
+  } catch (err) {
+    const message = err instanceof Error && err.name === "AbortError"
+      ? "삭제 요청 시간 초과 (10초)"
+      : err instanceof Error ? err.message : String(err);
+    res.status(502).json({ error: message });
+  }
+});
+
 // 현재 AI 연결 상태 점검 (모델 목록 조회 기반, 5초 타임아웃)
 router.get("/admin/settings/ai/health", requireAdmin, async (_req, res): Promise<void> => {
   invalidateAICache();
@@ -504,3 +614,36 @@ router.post("/admin/settings/ai/test", requireAdmin, async (_req, res): Promise<
 });
 
 export default router;
+
+const PARTIAL_BLOB_RE = /^sha256[-:][0-9a-f]{64}-partial(-\d+)?$/;
+
+// 취소된 pull이 남긴 불완전(partial) blob 정리. Ollama는 다운로드 중인 레이어를
+// blobs 디렉터리에 "sha256-<digest>-partial(-N)" 파일로 저장하는데, pull을 취소하면
+// 이 파일들이 그대로 남아 디스크를 차지한다. API 서버가 Ollama와 같은 호스트에서
+// 돌기 때문에(localhost 전용) 직접 정리한다.
+async function cleanupPartialBlobs(): Promise<{ deletedCount: number; freedBytes: number; errors: string[] }> {
+  let deletedCount = 0;
+  let freedBytes = 0;
+  const errors: string[] = [];
+  for (const dir of candidateBlobDirs()) {
+    let entries: string[];
+    try {
+      entries = await fs.readdir(dir);
+    } catch {
+      continue; // 디렉터리 없음 → 다음 후보
+    }
+    for (const name of entries) {
+      if (!PARTIAL_BLOB_RE.test(name)) continue;
+      const filePath = path.join(dir, name);
+      try {
+        const stat = await fs.stat(filePath);
+        await fs.unlink(filePath);
+        deletedCount += 1;
+        freedBytes += stat.size;
+      } catch (err) {
+        errors.push(`${name}: ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
+  }
+  return { deletedCount, freedBytes, errors };
+}
