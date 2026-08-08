@@ -11,7 +11,16 @@ import { toast } from "sonner"
 import { useState } from "react"
 
 export default function AnalysesPage() {
-  const { data: analyses, isLoading } = useListAnalyses()
+  const { data: analyses, isLoading } = useListAnalyses({
+    query: {
+      queryKey: getListAnalysesQueryKey(),
+      refetchInterval: (q) => {
+        const list = q?.state?.data
+        const hasInProgress = list?.some(a => a.status === "pending" || a.status === "processing")
+        return hasInProgress ? 3000 : false
+      },
+    },
+  })
   const queryClient = useQueryClient()
   const retryAnalysis = useRetryAnalysis()
   const [retryingId, setRetryingId] = useState<number | null>(null)
