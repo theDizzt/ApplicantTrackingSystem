@@ -349,8 +349,60 @@ router.get("/admin/settings/ai/disk-usage", requireAdmin, async (_req, res): Pro
   }
 });
 
-// 모델 다운로드에 필요한 최소 여유 공간 (10GB) — 미만이면 pull 시작을 거부한다.
+// 모델 다운로드에 필요한 최소 여유 공간 (10GB) — 모델 크기 조회 실패 시 폴백 임계치.
 const MIN_FREE_BYTES_FOR_PULL = 10 * 1024 * 1024 * 1024;
+// 예상 모델 크기에 더하는 안전 마진: 크기의 10% + 1GB (임시 파일·메타데이터 여유분)
+const PULL_MARGIN_RATIO = 0.1;
+const PULL_MARGIN_FLAT_BYTES = 1 * 1024 * 1024 * 1024;
+
+// Ollama 레지스트리에서 모델 manifest를 조회해 예상 다운로드 크기(바이트)를 계산한다.
+// 실패(네트워크 오류, 미존재 모델, 타임아웃 등) 시 null 반환 → 호출부가 고정 임계치로 폴백.
+async function estimateModelSizeBytes(model: string): Promise<number | null> {
+  // 모델명 파싱: [registry/][namespace/]name[:tag]
+  // 예: "qwen2.5" → library/qwen2.5:latest, "user/model:7b" → user/model:7b
+  let rest = model.trim();
+  if (!rest || rest.includes("://")) return null;
+  let tag = "latest";
+  const colonIdx = rest.lastIndexOf(":");
+  if (colonIdx > -1 && !rest.slice(colonIdx + 1).includes("/")) {
+    tag = rest.slice(colonIdx + 1) || "latest";
+    rest = rest.slice(0, colonIdx);
+  }
+  const parts = rest.split("/").filter(Boolean);
+  let registry = "registry.ollama.ai";
+  let repo: string;
+  if (parts.length === 1) repo = `library/${parts[0]}`;
+  else if (parts.length === 2) repo = `${parts[0]}/${parts[1]}`;
+  else if (parts.length === 3) { registry = parts[0]; repo = `${parts[1]}/${parts[2]}`; }
+  else return null;
+  // 기본 공식 레지스트리 외 호스트는 조회하지 않음 (SSRF 방지)
+  if (registry !== "registry.ollama.ai") return null;
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 5000);
+    const resp = await fetch(
+      `https://${registry}/v2/${repo}/manifests/${encodeURIComponent(tag)}`,
+      {
+        headers: { Accept: "application/vnd.docker.distribution.manifest.v2+json" },
+        signal: controller.signal,
+      }
+    );
+    clearTimeout(timer);
+    if (!resp.ok) return null;
+    const manifest = (await resp.json()) as {
+      layers?: Array<{ size?: number }>;
+      config?: { size?: number };
+    };
+    if (!Array.isArray(manifest.layers)) return null;
+    let total = manifest.config?.size ?? 0;
+    for (const layer of manifest.layers) {
+      if (typeof layer.size === "number" && layer.size > 0) total += layer.size;
+    }
+    return total > 0 ? total : null;
+  } catch {
+    return null;
+  }
+}
 
 // ── 모델 다운로드(pull) 상태를 서버 메모리에 추적 ──────────────────────────
 // 브라우저가 페이지를 벗어나도 서버가 pull을 계속 진행하고,
@@ -535,9 +587,26 @@ router.post("/admin/settings/ai/local-pull", requireAdmin, async (_req, res): Pr
   // 중간 실패와 불완전 임시 파일 낭비를 예방한다.
   // 조회 실패 시에는 안전을 위해 시작을 거부한다(fail closed).
   try {
-    const disk = await getModelDiskUsage();
-    if (disk.freeBytes < MIN_FREE_BYTES_FOR_PULL) {
-      const freeGB = (disk.freeBytes / 1024 / 1024 / 1024).toFixed(1);
+    const [disk, modelSizeBytes] = await Promise.all([
+      getModelDiskUsage(),
+      estimateModelSizeBytes(model),
+    ]);
+    const freeGB = (disk.freeBytes / 1024 / 1024 / 1024).toFixed(1);
+    if (modelSizeBytes !== null) {
+      // 모델 크기 조회 성공 → 실제 필요 용량(크기 + 마진)과 비교
+      const requiredBytes = Math.ceil(
+        modelSizeBytes * (1 + PULL_MARGIN_RATIO) + PULL_MARGIN_FLAT_BYTES
+      );
+      if (disk.freeBytes < requiredBytes) {
+        const modelGB = (modelSizeBytes / 1024 / 1024 / 1024).toFixed(1);
+        const requiredGB = (requiredBytes / 1024 / 1024 / 1024).toFixed(1);
+        res.status(400).json({
+          error: `디스크 여유 공간이 부족합니다. 모델 '${model}'의 예상 크기는 ${modelGB}GB이며, 안전 마진을 포함해 약 ${requiredGB}GB의 여유 공간이 필요합니다 (현재 남은 공간 ${freeGB}GB). 사용하지 않는 모델을 삭제하거나 임시 파일을 정리한 뒤 다시 시도하세요.`,
+        });
+        return;
+      }
+    } else if (disk.freeBytes < MIN_FREE_BYTES_FOR_PULL) {
+      // 크기 조회 실패 → 기존 고정 임계치(10GB)로 폴백
       res.status(400).json({
         error: `디스크 여유 공간이 부족합니다 (남은 공간 ${freeGB}GB, 최소 10GB 필요). 사용하지 않는 모델을 삭제하거나 임시 파일을 정리한 뒤 다시 시도하세요.`,
       });
