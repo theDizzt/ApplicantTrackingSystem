@@ -269,6 +269,7 @@ function LocalLLMStatusCard() {
   const [deleting, setDeleting] = useState(false)
   const [cleaning, setCleaning] = useState(false)
   const [disk, setDisk] = useState<DiskUsage | null>(null)
+  const [modelSize, setModelSize] = useState<{ model: string; sizeBytes: number | null; requiredBytes: number | null } | null>(null)
 
   const handleCleanup = useCallback(async () => {
     setCleaning(true)
@@ -301,6 +302,10 @@ function LocalLLMStatusCard() {
     try {
       setDisk(await api("/admin/settings/ai/disk-usage"))
     } catch { setDisk(null) }
+    // 설정된 모델의 예상 다운로드 크기 — 조회 실패해도 카드 자체는 동작
+    try {
+      setModelSize(await api("/admin/settings/ai/model-size"))
+    } catch { setModelSize(null) }
   }, [])
 
   // 서버의 pull 진행 상태를 폴링 — 완료/실패 시 종료
@@ -501,6 +506,24 @@ function LocalLLMStatusCard() {
                 {status.configuredModel ? (
                   <>
                     <p>아래 버튼으로 설정된 모델(<code className="text-amber-200">{status.configuredModel}</code>)을 바로 내려받을 수 있습니다.</p>
+                    {modelSize?.sizeBytes != null && (
+                      <p className="text-[11px] text-amber-200/90">
+                        예상 다운로드 크기: <span className="font-medium">{formatGB(modelSize.sizeBytes) || "1GB 미만"}</span>
+                        {disk && disk.totalBytes > 0 && <> · 현재 여유 공간: {formatGB(disk.freeBytes) || "0GB"}</>}
+                      </p>
+                    )}
+                    {(() => {
+                      // 여유 공간 부족 경고: 예상 크기+마진 대비, 조회 실패 시 10GB 폴백 기준
+                      if (!disk || disk.totalBytes <= 0) return null
+                      const required = modelSize?.requiredBytes ?? 10 * 1024 * 1024 * 1024
+                      if (disk.freeBytes >= required) return null
+                      return (
+                        <p className="text-[11px] text-red-300 font-medium">
+                          ⚠ 여유 공간이 부족합니다 (필요: 약 {formatGB(required)}, 여유: {formatGB(disk.freeBytes) || "0GB"}).
+                          사용하지 않는 모델을 삭제하거나 임시 파일을 정리한 뒤 시도하세요.
+                        </p>
+                      )
+                    })()}
                     {pulling && pullProgress && (
                       <div className="space-y-1">
                         <div className="flex items-center justify-between text-[11px] text-amber-200">

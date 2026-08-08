@@ -349,6 +349,23 @@ router.get("/admin/settings/ai/disk-usage", requireAdmin, async (_req, res): Pro
   }
 });
 
+// 설정된 모델의 예상 다운로드 크기 조회 (다운로드 시작 전 미리보기용)
+router.get("/admin/settings/ai/model-size", requireAdmin, async (_req, res): Promise<void> => {
+  const config = await getAIConfig();
+  const model = (config.model ?? "").trim();
+  if (!model) {
+    res.json({ model: "", sizeBytes: null, requiredBytes: null });
+    return;
+  }
+  const sizeBytes = await estimateModelSizeBytes(model);
+  // 다운로드에 실제 필요한 공간 = 크기 + 안전 마진 (크기의 10% + 1GB)
+  const requiredBytes =
+    sizeBytes !== null
+      ? Math.round(sizeBytes * (1 + PULL_MARGIN_RATIO)) + PULL_MARGIN_FLAT_BYTES
+      : null;
+  res.json({ model, sizeBytes, requiredBytes });
+});
+
 // 모델 다운로드에 필요한 최소 여유 공간 (10GB) — 모델 크기 조회 실패 시 폴백 임계치.
 const MIN_FREE_BYTES_FOR_PULL = 10 * 1024 * 1024 * 1024;
 // 예상 모델 크기에 더하는 안전 마진: 크기의 10% + 1GB (임시 파일·메타데이터 여유분)
