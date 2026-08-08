@@ -355,6 +355,72 @@ EOF
 }
 
 # =====================================
+# 9. (선택) 로컬 LLM(Ollama) 설치
+# =====================================
+OLLAMA_INSTALLED=false
+OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5:14b}"
+install_ollama() {
+    echo -e "${CYAN}[선택] 로컬 LLM(Ollama) 설치${NC}"
+    read -p "  로컬 LLM(Ollama)을 설치하시겠습니까? (y/n): " INSTALL_LLM
+    if [ "$INSTALL_LLM" != "y" ] && [ "$INSTALL_LLM" != "Y" ]; then
+        echo -e "  ${YELLOW}건너뜁니다. (나중에 관리자 페이지에서 외부 API 또는 로컬 LLM을 설정할 수 있습니다)${NC}"
+        echo ""
+        return
+    fi
+
+    # Ollama 설치 (이미 있으면 생략)
+    if command -v ollama &>/dev/null; then
+        echo -e "  Ollama 이미 설치됨: $(ollama --version 2>/dev/null | head -1)"
+    else
+        echo -e "  Ollama 설치 중..."
+        curl -fsSL https://ollama.com/install.sh | sh
+    fi
+
+    # systemd 등록 및 시작 (공식 스크립트가 등록하지만, WSL 등에서 누락될 수 있어 보강)
+    if [ ! -f /etc/systemd/system/ollama.service ] && [ ! -f /usr/lib/systemd/system/ollama.service ]; then
+        OLLAMA_BIN=$(command -v ollama)
+        $SUDO tee /etc/systemd/system/ollama.service > /dev/null <<EOF
+[Unit]
+Description=Ollama Service
+After=network-online.target
+
+[Service]
+ExecStart=${OLLAMA_BIN} serve
+Restart=always
+RestartSec=3
+Environment="OLLAMA_HOST=127.0.0.1:11434"
+
+[Install]
+WantedBy=multi-user.target
+EOF
+        $SUDO systemctl daemon-reload
+    fi
+    $SUDO systemctl enable --now ollama 2>/dev/null || true
+
+    # 서버 기동 대기
+    echo -e "  Ollama 서버 기동 대기 중..."
+    for i in $(seq 1 30); do
+        if curl -fsS http://localhost:11434/api/version &>/dev/null; then break; fi
+        sleep 1
+    done
+    if ! curl -fsS http://localhost:11434/api/version &>/dev/null; then
+        echo -e "  ${RED}Ollama 서버가 응답하지 않습니다. 수동 확인: systemctl status ollama${NC}"
+        echo ""
+        return
+    fi
+
+    # 권장 모델 다운로드 (RAM 32GB 기준 qwen2.5:14b 권장)
+    echo -e "  권장 모델 다운로드 중: ${GREEN}${OLLAMA_MODEL}${NC} (수 GB, 시간이 걸릴 수 있습니다)"
+    if ollama pull "$OLLAMA_MODEL"; then
+        OLLAMA_INSTALLED=true
+        echo -e "  ${GREEN}로컬 LLM 설치 완료${NC}"
+    else
+        echo -e "  ${RED}모델 다운로드 실패. 나중에 수동 실행: ollama pull ${OLLAMA_MODEL}${NC}"
+    fi
+    echo ""
+}
+
+# =====================================
 # 실행
 # =====================================
 detect_os
@@ -365,6 +431,7 @@ setup_env
 build_app
 setup_systemd
 setup_nginx
+install_ollama
 
 HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
@@ -386,8 +453,15 @@ echo "  Nginx 재시작:  sudo systemctl restart nginx"
 echo ""
 echo -e "${BLUE}[AI 설정 (필수)]${NC}"
 echo "  관리자 포털(/admin) 로그인 → 'AI 설정' 탭에서 등록:"
-echo "   - OpenAI 사용:  Base URL=https://api.openai.com/v1, API 키=sk-..., 모델=gpt-4o-mini 등"
-echo "   - 로컬 LLM(Ollama): Base URL=http://localhost:11434/v1, API 키=ollama, 모델=qwen2.5:14b 등"
+if [ "$OLLAMA_INSTALLED" = true ]; then
+    echo "   ✔ 로컬 LLM(Ollama) 설치 완료 — 아래 값을 그대로 입력하세요:"
+    echo "      Base URL: http://localhost:11434/v1"
+    echo "      API 키:   ollama"
+    echo "      모델:     ${OLLAMA_MODEL}"
+else
+    echo "   - OpenAI 사용:  Base URL=https://api.openai.com/v1, API 키=sk-..., 모델=gpt-4o-mini 등"
+    echo "   - 로컬 LLM(Ollama): Base URL=http://localhost:11434/v1, API 키=ollama, 모델=qwen2.5:14b 등"
+fi
 echo "  저장 후 '연결 테스트' 버튼으로 확인하세요."
 echo ""
 echo -e "${BLUE}[환경변수]${NC}"
