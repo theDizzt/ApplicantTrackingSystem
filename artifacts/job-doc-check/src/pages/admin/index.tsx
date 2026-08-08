@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useLocation } from "wouter"
 import {
   Users, Building2, Cpu, TrendingUp, LogOut, Plus, Pencil, Trash2,
-  Shield, RefreshCw, ChevronDown, ChevronUp, X, Check, AlertCircle
+  Shield, RefreshCw, ChevronDown, ChevronUp, X, Check, AlertCircle, Download
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -243,9 +243,18 @@ function formatGB(bytes: number) {
   return bytes > 0 ? `${(bytes / 1024 / 1024 / 1024).toFixed(1)}GB` : ""
 }
 
+type PullProgress = {
+  status: string
+  percent: number | null
+  completedBytes: number
+  totalBytes: number
+}
+
 function LocalLLMStatusCard() {
   const [status, setStatus] = useState<LocalStatus | null>(null)
   const [loading, setLoading] = useState(false)
+  const [pulling, setPulling] = useState(false)
+  const [pullProgress, setPullProgress] = useState<PullProgress | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -255,6 +264,57 @@ function LocalLLMStatusCard() {
     } catch (e: any) { toast.error(e.message) }
     finally { setLoading(false) }
   }, [])
+
+  const handlePull = useCallback(async () => {
+    setPulling(true)
+    setPullProgress({ status: "요청 중...", percent: null, completedBytes: 0, totalBytes: 0 })
+    try {
+      const res = await fetch(`${BASE}/api/admin/settings/ai/local-pull`, {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      })
+      if (!res.ok || !res.body) {
+        const body = await res.json().catch(() => ({}))
+        throw new Error(body.error ?? `HTTP ${res.status}`)
+      }
+      const reader = res.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+      let failed: string | null = null
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split("\n")
+        buffer = lines.pop() ?? ""
+        for (const line of lines) {
+          const trimmed = line.trim()
+          if (!trimmed) continue
+          try {
+            const d = JSON.parse(trimmed)
+            if (d.error) { failed = String(d.error); continue }
+            const total = Number(d.total ?? 0)
+            const completed = Number(d.completed ?? 0)
+            setPullProgress({
+              status: String(d.status ?? ""),
+              percent: total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : null,
+              completedBytes: completed,
+              totalBytes: total,
+            })
+          } catch { /* 불완전한 JSON 라인 무시 */ }
+        }
+      }
+      if (failed) throw new Error(failed)
+      toast.success("모델 다운로드가 완료되었습니다.")
+    } catch (e: any) {
+      toast.error(`모델 다운로드 실패: ${e.message}`)
+    } finally {
+      setPulling(false)
+      setPullProgress(null)
+      refresh()
+    }
+  }, [refresh])
 
   useEffect(() => { refresh() }, [refresh])
 
@@ -300,18 +360,42 @@ function LocalLLMStatusCard() {
                 <code className="block bg-slate-950 rounded px-2 py-1 text-slate-200">bash install.sh --ollama</code>
               </div>
             )}
-            {status.serverUp && status.models.length === 0 && (
-              <div className="text-xs rounded-md border border-amber-800 bg-amber-950/50 text-amber-300 px-3 py-2 space-y-1">
-                <p>서버는 실행 중이지만 다운로드된 모델이 없습니다.</p>
-                <p>터미널에서 아래 명령으로 모델을 설치하세요:</p>
-                <code className="block bg-slate-950 rounded px-2 py-1 text-slate-200">bash install.sh --ollama</code>
-              </div>
-            )}
-            {status.serverUp && status.models.length > 0 && !status.modelInstalled && (
-              <div className="text-xs rounded-md border border-amber-800 bg-amber-950/50 text-amber-300 px-3 py-2 space-y-1">
-                <p>설정된 모델 <code className="text-amber-200">{status.configuredModel || "(없음)"}</code>이(가) 설치 목록에 없습니다.</p>
-                <p>아래 명령으로 재설치하거나, AI 공급자 설정에서 설치된 모델명으로 변경하세요:</p>
-                <code className="block bg-slate-950 rounded px-2 py-1 text-slate-200">bash install.sh --ollama</code>
+            {status.serverUp && !status.modelInstalled && (
+              <div className="text-xs rounded-md border border-amber-800 bg-amber-950/50 text-amber-300 px-3 py-2 space-y-2">
+                {status.models.length === 0 ? (
+                  <p>서버는 실행 중이지만 다운로드된 모델이 없습니다.</p>
+                ) : (
+                  <p>설정된 모델 <code className="text-amber-200">{status.configuredModel || "(없음)"}</code>이(가) 설치 목록에 없습니다.</p>
+                )}
+                {status.configuredModel ? (
+                  <>
+                    <p>아래 버튼으로 설정된 모델(<code className="text-amber-200">{status.configuredModel}</code>)을 바로 내려받을 수 있습니다.</p>
+                    {pulling && pullProgress && (
+                      <div className="space-y-1">
+                        <div className="flex items-center justify-between text-[11px] text-amber-200">
+                          <span>{pullProgress.status}</span>
+                          <span>
+                            {pullProgress.percent !== null
+                              ? `${pullProgress.percent}% (${formatGB(pullProgress.completedBytes) || "0GB"} / ${formatGB(pullProgress.totalBytes)})`
+                              : ""}
+                          </span>
+                        </div>
+                        <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full bg-amber-400 transition-all ${pullProgress.percent === null ? "w-1/3 animate-pulse" : ""}`}
+                            style={pullProgress.percent !== null ? { width: `${pullProgress.percent}%` } : undefined}
+                          />
+                        </div>
+                      </div>
+                    )}
+                    <Button size="sm" onClick={handlePull} disabled={pulling} className="mt-1">
+                      <Download className="h-3.5 w-3.5 mr-1.5" />
+                      {pulling ? "내려받는 중..." : "모델 내려받기"}
+                    </Button>
+                  </>
+                ) : (
+                  <p>AI 공급자 설정에서 모델명을 먼저 지정한 뒤 내려받을 수 있습니다.</p>
+                )}
               </div>
             )}
             {status.serverUp && status.models.length > 0 && (

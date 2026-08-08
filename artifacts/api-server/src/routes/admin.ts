@@ -297,6 +297,66 @@ router.get("/admin/settings/ai/local-status", requireAdmin, async (_req, res): P
   }
 });
 
+// 로컬 LLM(Ollama) 모델 다운로드: /api/pull 스트리밍을 NDJSON으로 중계
+router.post("/admin/settings/ai/local-pull", requireAdmin, async (req, res): Promise<void> => {
+  const config = await getAIConfig();
+  const baseUrl = (config.baseUrl ?? "").trim();
+  // local-status와 동일한 SSRF 방지 검증: 로컬 Ollama일 때만 허용
+  let ollamaRoot: string | null = null;
+  try {
+    const parsed = new URL(baseUrl);
+    const localHosts = ["localhost", "127.0.0.1", "[::1]", "::1"];
+    const isOllamaPort = (parsed.port || (parsed.protocol === "http:" ? "80" : "443")) === "11434";
+    if (parsed.protocol === "http:" && localHosts.includes(parsed.hostname) && isOllamaPort) {
+      ollamaRoot = `http://${parsed.hostname}:11434`;
+    }
+  } catch {
+    // 잘못된 URL → 아래에서 400 처리
+  }
+  if (!ollamaRoot) {
+    res.status(400).json({ error: "로컬 Ollama가 설정되어 있지 않습니다. Base URL을 확인하세요." });
+    return;
+  }
+  const model = (config.model ?? "").trim();
+  if (!model) {
+    res.status(400).json({ error: "설정된 모델명이 없습니다. AI 공급자 설정에서 모델명을 먼저 지정하세요." });
+    return;
+  }
+  try {
+    const upstream = await fetch(`${ollamaRoot}/api/pull`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model, stream: true }),
+    });
+    if (!upstream.ok || !upstream.body) {
+      const text = await upstream.text().catch(() => "");
+      res.status(502).json({ error: `Ollama 응답 오류 (HTTP ${upstream.status})${text ? `: ${text.slice(0, 200)}` : ""}` });
+      return;
+    }
+    res.status(200);
+    res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+    res.setHeader("Cache-Control", "no-cache, no-transform");
+    res.flushHeaders?.();
+    const reader = upstream.body.getReader();
+    // 클라이언트가 연결을 끊으면 업스트림도 중단
+    res.on("close", () => { reader.cancel().catch(() => {}); });
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      res.write(Buffer.from(value));
+    }
+    res.end();
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (!res.headersSent) {
+      res.status(502).json({ error: `모델 다운로드 실패: ${message}` });
+    } else {
+      res.write(JSON.stringify({ error: `모델 다운로드 실패: ${message}` }) + "\n");
+      res.end();
+    }
+  }
+});
+
 // 연결 테스트: 현재 설정으로 간단한 completion 호출
 router.post("/admin/settings/ai/test", requireAdmin, async (_req, res): Promise<void> => {
   try {
