@@ -13,6 +13,14 @@ if (!process.env.SESSION_SECRET) {
 
 const app: Express = express();
 
+const isProduction = process.env.NODE_ENV === "production";
+
+// Behind Replit's HTTPS proxy in production; needed so express-session
+// can see the original protocol and set secure cookies correctly.
+if (isProduction) {
+  app.set("trust proxy", 1);
+}
+
 app.use(
   pinoHttp({
     logger,
@@ -65,7 +73,7 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: false,
+    secure: isProduction,
     httpOnly: true,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   },
