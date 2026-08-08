@@ -229,6 +229,112 @@ function OrgDialog({
 
 type Tab = "overview" | "users" | "organizations" | "ai"
 
+type LocalStatus = {
+  isLocal: boolean
+  baseUrl: string
+  serverUp: boolean
+  models: { name: string; sizeBytes: number; modifiedAt: string }[]
+  configuredModel: string
+  modelInstalled: boolean
+  error?: string
+}
+
+function formatGB(bytes: number) {
+  return bytes > 0 ? `${(bytes / 1024 / 1024 / 1024).toFixed(1)}GB` : ""
+}
+
+function LocalLLMStatusCard() {
+  const [status, setStatus] = useState<LocalStatus | null>(null)
+  const [loading, setLoading] = useState(false)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const d = await api("/admin/settings/ai/local-status")
+      setStatus(d)
+    } catch (e: any) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { refresh() }, [refresh])
+
+  const badge = (ok: boolean, okText: string, failText: string) => (
+    <span className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-0.5 ${ok ? "bg-emerald-950/60 text-emerald-300 border border-emerald-800" : "bg-red-950/60 text-red-300 border border-red-800"}`}>
+      <span className={`h-1.5 w-1.5 rounded-full ${ok ? "bg-emerald-400" : "bg-red-400"}`} />
+      {ok ? okText : failText}
+    </span>
+  )
+
+  return (
+    <Card className="bg-slate-900 border-slate-800 max-w-2xl">
+      <CardHeader>
+        <CardTitle className="text-white text-base flex items-center justify-between">
+          <span className="flex items-center gap-2"><Cpu className="h-4 w-4 text-primary" /> 로컬 AI(Ollama) 설치 상태</span>
+          <Button variant="outline" size="sm" onClick={refresh} disabled={loading} className="border-slate-700 text-slate-300">
+            {loading ? "확인 중..." : "새로고침"}
+          </Button>
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {!status ? (
+          <div className="text-slate-400 text-sm">상태 확인 중...</div>
+        ) : (
+          !status.isLocal ? (
+            <div className="text-xs rounded-md border border-slate-700 bg-slate-950 text-slate-400 px-3 py-2 space-y-1">
+              <p>현재 로컬 AI(Ollama)가 설정되어 있지 않습니다{status.baseUrl ? <> — 설정된 Base URL: <code className="text-slate-300">{status.baseUrl}</code></> : ""}.</p>
+              <p>로컬 AI를 사용하려면 서버에서 <code className="text-slate-200">bash install.sh --ollama</code>로 설치한 뒤, 아래 AI 공급자 설정에서 Base URL을 <code className="text-slate-200">http://localhost:11434/v1</code>로 지정하세요.</p>
+            </div>
+          ) : (
+          <>
+            <div className="flex flex-wrap items-center gap-2">
+              {badge(status.serverUp, "서버 응답 정상", "서버 응답 없음")}
+              {status.serverUp && badge(status.modelInstalled, `모델 설치됨 (${status.configuredModel})`, status.configuredModel ? `모델 없음 (${status.configuredModel})` : "설정된 모델 없음")}
+            </div>
+            {status.baseUrl && (
+              <p className="text-xs text-slate-500">확인 대상: <code className="text-slate-400">{status.baseUrl}</code></p>
+            )}
+            {!status.serverUp && (
+              <div className="text-xs rounded-md border border-red-800 bg-red-950/50 text-red-300 px-3 py-2 space-y-1">
+                <p>Ollama 서버에 연결할 수 없습니다{status.error ? ` — ${status.error}` : ""}.</p>
+                <p>터미널에서 아래 명령으로 로컬 AI를 (재)설치하세요:</p>
+                <code className="block bg-slate-950 rounded px-2 py-1 text-slate-200">bash install.sh --ollama</code>
+              </div>
+            )}
+            {status.serverUp && status.models.length === 0 && (
+              <div className="text-xs rounded-md border border-amber-800 bg-amber-950/50 text-amber-300 px-3 py-2 space-y-1">
+                <p>서버는 실행 중이지만 다운로드된 모델이 없습니다.</p>
+                <p>터미널에서 아래 명령으로 모델을 설치하세요:</p>
+                <code className="block bg-slate-950 rounded px-2 py-1 text-slate-200">bash install.sh --ollama</code>
+              </div>
+            )}
+            {status.serverUp && status.models.length > 0 && !status.modelInstalled && (
+              <div className="text-xs rounded-md border border-amber-800 bg-amber-950/50 text-amber-300 px-3 py-2 space-y-1">
+                <p>설정된 모델 <code className="text-amber-200">{status.configuredModel || "(없음)"}</code>이(가) 설치 목록에 없습니다.</p>
+                <p>아래 명령으로 재설치하거나, AI 공급자 설정에서 설치된 모델명으로 변경하세요:</p>
+                <code className="block bg-slate-950 rounded px-2 py-1 text-slate-200">bash install.sh --ollama</code>
+              </div>
+            )}
+            {status.serverUp && status.models.length > 0 && (
+              <div className="space-y-1.5">
+                <Label className="text-slate-300 text-xs">다운로드된 모델 ({status.models.length}개)</Label>
+                <ul className="text-xs text-slate-300 space-y-1">
+                  {status.models.map((m) => (
+                    <li key={m.name} className="flex items-center justify-between rounded border border-slate-800 bg-slate-950 px-2.5 py-1.5">
+                      <code>{m.name}</code>
+                      <span className="text-slate-500">{formatGB(m.sizeBytes)}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </>
+          )
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 function AISettingsTab() {
   const [loaded, setLoaded] = useState(false)
   const [apiKeyMasked, setApiKeyMasked] = useState("")
@@ -692,7 +798,12 @@ export default function AdminPage() {
           </div>
         )}
         {/* ── AI Settings Tab ── */}
-        {tab === "ai" && <AISettingsTab />}
+        {tab === "ai" && (
+          <div className="space-y-6">
+            <LocalLLMStatusCard />
+            <AISettingsTab />
+          </div>
+        )}
       </div>
 
       <OrgDialog

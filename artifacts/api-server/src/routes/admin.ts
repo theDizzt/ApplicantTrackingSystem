@@ -246,6 +246,57 @@ router.put("/admin/settings/ai", requireAdmin, async (req, res): Promise<void> =
   res.json({ ok: true });
 });
 
+// 로컬 LLM(Ollama) 설치 상태 확인: 서버 응답 여부 + 다운로드된 모델 목록
+router.get("/admin/settings/ai/local-status", requireAdmin, async (_req, res): Promise<void> => {
+  const config = await getAIConfig();
+  const baseUrl = (config.baseUrl ?? "").trim();
+  // 로컬 Ollama로 판단되는 경우에만 상태 조회 (SSRF 방지: 임의 URL로 서버측 요청 금지)
+  let ollamaRoot: string | null = null;
+  try {
+    const parsed = new URL(baseUrl);
+    const localHosts = ["localhost", "127.0.0.1", "[::1]", "::1"];
+    const isOllamaPort = (parsed.port || (parsed.protocol === "http:" ? "80" : "443")) === "11434";
+    if (parsed.protocol === "http:" && localHosts.includes(parsed.hostname) && isOllamaPort) {
+      ollamaRoot = `http://${parsed.hostname}:11434`;
+    }
+  } catch {
+    // baseUrl이 비었거나 잘못된 경우 → 로컬 AI 미설정으로 처리
+  }
+  const isLocal = ollamaRoot !== null;
+  if (!ollamaRoot) {
+    res.json({ isLocal: false, baseUrl, serverUp: false, models: [], configuredModel: config.model, modelInstalled: false });
+    return;
+  }
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const resp = await fetch(`${ollamaRoot}/api/tags`, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!resp.ok) {
+      res.json({ isLocal, baseUrl, serverUp: false, models: [], configuredModel: config.model, modelInstalled: false, error: `서버 응답 오류 (HTTP ${resp.status})` });
+      return;
+    }
+    const data = (await resp.json()) as { models?: Array<{ name?: string; size?: number; modified_at?: string }> };
+    const models = (data.models ?? []).map((m) => ({
+      name: m.name ?? "",
+      sizeBytes: m.size ?? 0,
+      modifiedAt: m.modified_at ?? "",
+    }));
+    const configured = (config.model ?? "").trim();
+    // Ollama 태그 규칙: 태그 없는 이름은 ":latest"로 해석됨 (예: "qwen2.5" === "qwen2.5:latest")
+    const normalize = (name: string) => (name.includes(":") ? name : `${name}:latest`);
+    const modelInstalled = !!configured && models.some(
+      (m) => normalize(m.name) === normalize(configured)
+    );
+    res.json({ isLocal, baseUrl, serverUp: true, models, configuredModel: configured, modelInstalled });
+  } catch (err) {
+    const message = err instanceof Error && err.name === "AbortError"
+      ? "연결 시간 초과 (3초)"
+      : err instanceof Error ? err.message : String(err);
+    res.json({ isLocal, baseUrl, serverUp: false, models: [], configuredModel: config.model, modelInstalled: false, error: message });
+  }
+});
+
 // 연결 테스트: 현재 설정으로 간단한 completion 호출
 router.post("/admin/settings/ai/test", requireAdmin, async (_req, res): Promise<void> => {
   try {
