@@ -359,13 +359,19 @@ EOF
 # =====================================
 OLLAMA_INSTALLED=false
 OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5:14b}"
+OLLAMA_PULL_RETRIES="${OLLAMA_PULL_RETRIES:-3}"
+OLLAMA_PULL_RETRY_DELAY="${OLLAMA_PULL_RETRY_DELAY:-10}"
 install_ollama() {
     echo -e "${CYAN}[선택] 로컬 LLM(Ollama) 설치${NC}"
-    read -p "  로컬 LLM(Ollama)을 설치하시겠습니까? (y/n): " INSTALL_LLM
-    if [ "$INSTALL_LLM" != "y" ] && [ "$INSTALL_LLM" != "Y" ]; then
-        echo -e "  ${YELLOW}건너뜁니다. (나중에 관리자 페이지에서 외부 API 또는 로컬 LLM을 설정할 수 있습니다)${NC}"
-        echo ""
-        return
+    if [ "$OLLAMA_ONLY" = true ]; then
+        echo -e "  ${YELLOW}--ollama 모드: 로컬 LLM 설치 단계만 실행합니다.${NC}"
+    else
+        read -p "  로컬 LLM(Ollama)을 설치하시겠습니까? (y/n): " INSTALL_LLM
+        if [ "$INSTALL_LLM" != "y" ] && [ "$INSTALL_LLM" != "Y" ]; then
+            echo -e "  ${YELLOW}건너뜁니다. (나중에 관리자 페이지에서 외부 API 또는 로컬 LLM을 설정할 수 있습니다)${NC}"
+            echo ""
+            return
+        fi
     fi
 
     # Ollama 설치 (이미 있으면 생략)
@@ -410,12 +416,27 @@ EOF
     fi
 
     # 권장 모델 다운로드 (RAM 32GB 기준 qwen2.5:14b 권장)
+    # 네트워크가 끊겨도 자동 재시도 (Ollama pull은 이어받기를 지원하므로 재시도 시 이어서 받음)
     echo -e "  권장 모델 다운로드 중: ${GREEN}${OLLAMA_MODEL}${NC} (수 GB, 시간이 걸릴 수 있습니다)"
-    if ollama pull "$OLLAMA_MODEL"; then
+    PULL_OK=false
+    for attempt in $(seq 1 "$OLLAMA_PULL_RETRIES"); do
+        if ollama pull "$OLLAMA_MODEL"; then
+            PULL_OK=true
+            break
+        fi
+        if [ "$attempt" -lt "$OLLAMA_PULL_RETRIES" ]; then
+            echo -e "  ${YELLOW}다운로드 실패 (시도 ${attempt}/${OLLAMA_PULL_RETRIES}). ${OLLAMA_PULL_RETRY_DELAY}초 후 이어서 재시도합니다...${NC}"
+            sleep "$OLLAMA_PULL_RETRY_DELAY"
+        fi
+    done
+
+    if [ "$PULL_OK" = true ]; then
         OLLAMA_INSTALLED=true
         echo -e "  ${GREEN}로컬 LLM 설치 완료${NC}"
     else
-        echo -e "  ${RED}모델 다운로드 실패. 나중에 수동 실행: ollama pull ${OLLAMA_MODEL}${NC}"
+        echo -e "  ${RED}모델 다운로드가 ${OLLAMA_PULL_RETRIES}회 모두 실패했습니다.${NC}"
+        echo -e "  ${YELLOW}네트워크 복구 후 아래 명령으로 이 단계만 다시 실행하세요 (전체 설치 불필요):${NC}"
+        echo -e "      bash ${INSTALL_DIR}/install.sh --ollama"
     fi
     echo ""
 }
@@ -423,6 +444,34 @@ EOF
 # =====================================
 # 실행
 # =====================================
+# 옵션 파싱: --ollama → 로컬 LLM 설치 단계만 실행 (전체 설치 생략)
+OLLAMA_ONLY=false
+case "${1:-}" in
+    --ollama|--ollama-only)
+        OLLAMA_ONLY=true
+        ;;
+    "") ;;
+    *)
+        echo -e "${RED}[오류] 알 수 없는 옵션: $1${NC}"
+        echo "  사용법: bash install.sh            # 전체 설치"
+        echo "          bash install.sh --ollama   # 로컬 LLM(Ollama) 단계만 재실행"
+        exit 1
+        ;;
+esac
+
+if [ "$OLLAMA_ONLY" = true ]; then
+    detect_os
+    install_ollama
+    if [ "$OLLAMA_INSTALLED" = true ]; then
+        echo -e "${GREEN}로컬 LLM(Ollama) 설치가 완료되었습니다.${NC}"
+        echo "  관리자 포털(/admin) → 'AI 설정' 탭에서 등록:"
+        echo "      Base URL: http://localhost:11434/v1"
+        echo "      API 키:   ollama"
+        echo "      모델:     ${OLLAMA_MODEL}"
+    fi
+    exit 0
+fi
+
 detect_os
 install_base_packages
 install_nodejs
