@@ -256,6 +256,7 @@ function LocalLLMStatusCard() {
   const [pulling, setPulling] = useState(false)
   const [pullProgress, setPullProgress] = useState<PullProgress | null>(null)
   const [switching, setSwitching] = useState<string | null>(null)
+  const [cancelling, setCancelling] = useState(false)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -285,7 +286,8 @@ function LocalLLMStatusCard() {
         totalBytes: Number(d.totalBytes ?? 0),
       })
       if (!d.inProgress) {
-        if (d.error) toast.error(`모델 다운로드 실패: ${d.error}`)
+        if (d.cancelled) toast.info("모델 다운로드가 취소되었습니다.")
+        else if (d.error) toast.error(`모델 다운로드 실패: ${d.error}`)
         else if (d.done) toast.success("모델 다운로드가 완료되었습니다.")
         break
       }
@@ -329,6 +331,18 @@ function LocalLLMStatusCard() {
     })()
     return () => { cancelled = true }
   }, [pollPullStatus])
+
+  const handleCancelPull = useCallback(async () => {
+    setCancelling(true)
+    try {
+      await api("/admin/settings/ai/local-pull/cancel", { method: "POST" })
+      // 이후 상태 정리는 pollPullStatus 가 !inProgress 를 감지하며 처리
+    } catch (e: any) {
+      toast.error(`다운로드 취소 실패: ${e.message}`)
+    } finally {
+      setCancelling(false)
+    }
+  }, [])
 
   const handleUseModel = useCallback(async (name: string) => {
     setSwitching(name)
@@ -418,10 +432,24 @@ function LocalLLMStatusCard() {
                         </div>
                       </div>
                     )}
-                    <Button size="sm" onClick={handlePull} disabled={pulling} className="mt-1">
-                      <Download className="h-3.5 w-3.5 mr-1.5" />
-                      {pulling ? "내려받는 중..." : "모델 내려받기"}
-                    </Button>
+                    <div className="flex items-center gap-2 mt-1">
+                      <Button size="sm" onClick={handlePull} disabled={pulling}>
+                        <Download className="h-3.5 w-3.5 mr-1.5" />
+                        {pulling ? "내려받는 중..." : "모델 내려받기"}
+                      </Button>
+                      {pulling && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          className="border-slate-700 text-slate-300"
+                          disabled={cancelling}
+                          onClick={handleCancelPull}
+                        >
+                          <X className="h-3.5 w-3.5 mr-1.5" />
+                          {cancelling ? "취소 중..." : "취소"}
+                        </Button>
+                      )}
+                    </div>
                   </>
                 ) : (
                   <p>AI 공급자 설정에서 모델명을 먼저 지정한 뒤 내려받을 수 있습니다.</p>

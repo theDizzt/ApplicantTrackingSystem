@@ -323,8 +323,10 @@ type PullState = {
   totalBytes: number;
   error: string | null;
   done: boolean;           // 성공적으로 완료됨
+  cancelled: boolean;      // 관리자가 취소함
   startedAt: number;
   updatedAt: number;
+  abortController: AbortController;
 };
 
 let pullState: PullState | null = null;
@@ -338,8 +340,10 @@ async function runPull(ollamaRoot: string, model: string): Promise<void> {
     totalBytes: 0,
     error: null,
     done: false,
+    cancelled: false,
     startedAt: Date.now(),
     updatedAt: Date.now(),
+    abortController: new AbortController(),
   };
   pullState = state;
   try {
@@ -347,6 +351,7 @@ async function runPull(ollamaRoot: string, model: string): Promise<void> {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ model, stream: true }),
+      signal: state.abortController.signal,
     });
     if (!upstream.ok || !upstream.body) {
       const text = await upstream.text().catch(() => "");
@@ -382,7 +387,12 @@ async function runPull(ollamaRoot: string, model: string): Promise<void> {
     state.done = true;
     state.status = "완료";
   } catch (err) {
-    state.error = err instanceof Error ? err.message : String(err);
+    if (state.cancelled || (err instanceof Error && err.name === "AbortError")) {
+      state.cancelled = true;
+      state.status = "취소됨";
+    } else {
+      state.error = err instanceof Error ? err.message : String(err);
+    }
   } finally {
     state.inProgress = false;
     state.updatedAt = Date.now();
@@ -406,6 +416,7 @@ router.get("/admin/settings/ai/local-pull/status", requireAdmin, async (_req, re
     percent: s.totalBytes > 0 ? Math.min(100, Math.round((s.completedBytes / s.totalBytes) * 100)) : null,
     error: s.error,
     done: s.done,
+    cancelled: s.cancelled,
     startedAt: s.startedAt,
     updatedAt: s.updatedAt,
   });
@@ -434,6 +445,21 @@ router.post("/admin/settings/ai/local-pull", requireAdmin, async (_req, res): Pr
   // 백그라운드로 시작 (요청과 분리 — 페이지를 닫아도 계속 진행)
   void runPull(ollamaRoot, model);
   res.status(202).json({ ok: true, alreadyRunning: false, model });
+});
+
+// 진행 중인 모델 다운로드 취소: 업스트림 fetch를 중단하고 상태를 초기화한다.
+router.post("/admin/settings/ai/local-pull/cancel", requireAdmin, async (_req, res): Promise<void> => {
+  if (!pullState || !pullState.inProgress) {
+    // 진행 중인 다운로드가 없으면 남은 상태만 정리
+    pullState = null;
+    res.json({ ok: true, wasRunning: false });
+    return;
+  }
+  pullState.cancelled = true;
+  pullState.status = "취소 중...";
+  pullState.updatedAt = Date.now();
+  pullState.abortController.abort();
+  res.json({ ok: true, wasRunning: true });
 });
 
 // 연결 테스트: 현재 설정으로 간단한 completion 호출
