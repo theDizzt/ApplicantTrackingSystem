@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# =====================================================
+# ----------------------------------------
 #  AI 서류 심사관 (ATS) 설치 스크립트
 #  대상 OS: Ubuntu 20.04+ / Debian, Rocky Linux 8+ / RHEL 계열
 #  로컬 또는 서버 환경에 직접 설치합니다. (Docker 불필요)
@@ -11,7 +11,7 @@
 #    - API 서버 (Express, systemd 서비스로 등록)
 #    - 웹 프론트엔드 (정적 빌드, Nginx로 서빙)
 #    - OpenAI API 연동 (API 키 필요)
-# =====================================================
+# ----------------------------------------
 
 set -e
 
@@ -30,15 +30,15 @@ WEB_PORT="${WEB_PORT:-80}"
 DB_NAME="${DB_NAME:-ats_checker}"
 DB_USER="${DB_USER:-ats_user}"
 
-echo -e "${BLUE}==============================================${NC}"
+echo -e "${BLUE}----------------------------------------${NC}"
 echo -e "${BLUE}   AI 서류 심사관 (ATS) 설치 스크립트${NC}"
-echo -e "${BLUE}==============================================${NC}"
+echo -e "${BLUE}----------------------------------------${NC}"
 echo -e "  설치 경로: ${GREEN}${INSTALL_DIR}${NC}"
 echo ""
 
-# =====================================
+# ----------------------------------------
 # 1. OS 감지
-# =====================================
+# ----------------------------------------
 detect_os() {
     echo -e "${CYAN}[1/8] OS 정보 확인${NC}"
     OS_FAMILY="unknown"
@@ -72,27 +72,37 @@ detect_os() {
             exit 1
         fi
     fi
-    echo ""
 }
 
-# =====================================
+# postgres 사용자로 psql 실행 (root로 실행 시 $SUDO가 비어 있어도 동작하도록)
+psql_as_postgres() {
+    if [ -n "$SUDO" ]; then
+        $SUDO -u postgres psql "$@"
+    elif command -v runuser &>/dev/null; then
+        runuser -u postgres -- psql "$@"
+    else
+        su -s /bin/sh postgres -c "psql $(printf '%q ' "$@")"
+    fi
+}
+
+# ----------------------------------------
 # 2. 기본 패키지 설치
-# =====================================
+# ----------------------------------------
 install_base_packages() {
     echo -e "${CYAN}[2/8] 기본 패키지 설치${NC}"
     if [ "$OS_FAMILY" = "debian" ]; then
         $SUDO apt-get update -y
-        $SUDO apt-get install -y curl ca-certificates gnupg git build-essential openssl acl
+        $SUDO apt-get install -y curl ca-certificates gnupg git build-essential openssl acl zstd
     else
-        $SUDO $PKG install -y curl ca-certificates git gcc-c++ make openssl acl
+        $SUDO $PKG install -y curl ca-certificates git gcc-c++ make openssl acl zstd
     fi
     echo -e "  ${GREEN}완료${NC}"
     echo ""
 }
 
-# =====================================
+# ----------------------------------------
 # 3. Node.js 20 + pnpm 설치
-# =====================================
+# ----------------------------------------
 install_nodejs() {
     echo -e "${CYAN}[3/8] Node.js 20 + pnpm 설치${NC}"
     NEED_NODE=true
@@ -121,9 +131,9 @@ install_nodejs() {
     echo ""
 }
 
-# =====================================
+# ----------------------------------------
 # 4. PostgreSQL 설치 및 DB 생성
-# =====================================
+# ----------------------------------------
 install_postgres() {
     echo -e "${CYAN}[4/8] PostgreSQL 설치 및 데이터베이스 생성${NC}"
 
@@ -174,7 +184,7 @@ install_postgres() {
         ENV_DB_PASS=$(echo "$DATABASE_URL" | sed -n 's|.*://[^:]*:\([^@]*\)@.*|\1|p')
         ENV_DB_HOST=$(echo "$DATABASE_URL" | sed -n 's|.*@\([^:/]*\).*|\1|p')
         if [ -n "$ENV_DB_PASS" ] && { [ "$ENV_DB_HOST" = "localhost" ] || [ "$ENV_DB_HOST" = "127.0.0.1" ]; }; then
-            $SUDO -u postgres psql -c "ALTER USER ${DB_USER} WITH PASSWORD '${ENV_DB_PASS}';" 2>/dev/null || true
+            psql_as_postgres -c "ALTER USER ${DB_USER} WITH PASSWORD '${ENV_DB_PASS}';" 2>/dev/null || true
         fi
         echo -e "  기존 .env.production의 DATABASE_URL 재사용 (비밀번호 동기화 완료)"
         echo ""
@@ -183,21 +193,21 @@ install_postgres() {
 
     # DB 및 사용자 생성 (이미 있으면 무시)
     DB_PASS=$(openssl rand -hex 16)
-    $SUDO -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'" | grep -q 1 || \
-        $SUDO -u postgres psql -c "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASS}';"
-    $SUDO -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1 || \
-        $SUDO -u postgres psql -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
+    psql_as_postgres -tc "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'" | grep -q 1 || \
+        psql_as_postgres -c "CREATE USER ${DB_USER} WITH PASSWORD '${DB_PASS}';"
+    psql_as_postgres -tc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1 || \
+        psql_as_postgres -c "CREATE DATABASE ${DB_NAME} OWNER ${DB_USER};"
     # 최초 생성 시에도 비밀번호를 확실히 적용
-    $SUDO -u postgres psql -c "ALTER USER ${DB_USER} WITH PASSWORD '${DB_PASS}';"
+    psql_as_postgres -c "ALTER USER ${DB_USER} WITH PASSWORD '${DB_PASS}';"
 
     DATABASE_URL="postgres://${DB_USER}:${DB_PASS}@localhost:5432/${DB_NAME}"
     echo -e "  데이터베이스: ${GREEN}${DB_NAME}${NC} (사용자: ${DB_USER})"
     echo ""
 }
 
-# =====================================
+# ----------------------------------------
 # 5. 환경변수 설정 (.env)
-# =====================================
+# ----------------------------------------
 setup_env() {
     echo -e "${CYAN}[5/8] 환경변수 설정${NC}"
 
@@ -227,9 +237,9 @@ EOF
     echo ""
 }
 
-# =====================================
+# ----------------------------------------
 # 6. 빌드
-# =====================================
+# ----------------------------------------
 build_app() {
     echo -e "${CYAN}[6/8] 애플리케이션 빌드${NC}"
     cd "$INSTALL_DIR"
@@ -254,9 +264,9 @@ build_app() {
     echo ""
 }
 
-# =====================================
+# ----------------------------------------
 # 7. systemd 서비스 등록 (API 서버)
-# =====================================
+# ----------------------------------------
 setup_systemd() {
     echo -e "${CYAN}[7/8] systemd 서비스 등록${NC}"
 
@@ -292,9 +302,9 @@ EOF
     echo ""
 }
 
-# =====================================
+# ----------------------------------------
 # 8. Nginx 설치 및 설정 (프론트엔드 + API 프록시)
-# =====================================
+# ----------------------------------------
 setup_nginx() {
     echo -e "${CYAN}[8/8] Nginx 설치 및 설정${NC}"
 
@@ -367,9 +377,9 @@ EOF
     echo ""
 }
 
-# =====================================
+# ----------------------------------------
 # 9. (선택) 로컬 LLM(Ollama) 설치
-# =====================================
+# ----------------------------------------
 OLLAMA_INSTALLED=false
 OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5:14b}"
 OLLAMA_PULL_RETRIES="${OLLAMA_PULL_RETRIES:-3}"
@@ -565,9 +575,9 @@ EOF
     echo ""
 }
 
-# =====================================
+# ----------------------------------------
 # 실행
-# =====================================
+# ----------------------------------------
 # 옵션 파싱: --ollama → 로컬 LLM 설치 단계만 실행 (전체 설치 생략)
 OLLAMA_ONLY=false
 case "${1:-}" in
@@ -609,9 +619,9 @@ install_ollama
 HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
 
-echo -e "${GREEN}==============================================${NC}"
+echo -e "${GREEN}----------------------------------------${NC}"
 echo -e "${GREEN}   설치 완료!${NC}"
-echo -e "${GREEN}==============================================${NC}"
+echo -e "${GREEN}----------------------------------------${NC}"
 echo ""
 echo -e "${BLUE}[접속 정보]${NC}"
 echo "  웹 접속:     http://${HOST_IP}:${WEB_PORT}"
