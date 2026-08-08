@@ -40,11 +40,27 @@ app.use(cors({
 
 const PgSession = connectPgSimple(session);
 
+const sessionStore = new PgSession({
+  pool,
+  tableName: "user_sessions",
+  // Prune expired session rows every 15 minutes so the table stays
+  // close to the number of actually active sessions.
+  pruneSessionInterval: 60 * 15, // seconds
+});
+
+// connect-pg-simple only starts its prune timer lazily (on the first session
+// operation) and fires after a randomized delay. Prune once at startup so
+// expired rows are cleared immediately, even on servers with little traffic.
+sessionStore.pruneSessions((err?: Error) => {
+  if (err) {
+    logger.error({ err }, "Failed to prune expired sessions at startup");
+  } else {
+    logger.info("Pruned expired sessions at startup");
+  }
+});
+
 app.use(session({
-  store: new PgSession({
-    pool,
-    tableName: "user_sessions",
-  }),
+  store: sessionStore,
   secret: process.env.SESSION_SECRET,
   resave: false,
   saveUninitialized: false,
