@@ -670,7 +670,7 @@ function LocalLLMStatusCard() {
   )
 }
 
-function AISettingsTab() {
+export function AISettingsTab() {
   const [loaded, setLoaded] = useState(false)
   const [apiKeyMasked, setApiKeyMasked] = useState("")
   const [hasApiKey, setHasApiKey] = useState(false)
