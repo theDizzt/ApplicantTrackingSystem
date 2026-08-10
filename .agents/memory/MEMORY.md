@@ -4,3 +4,4 @@
 - [관리자 화면 흐름 검증 방법](admin-flow-verification.md) — 완료 리뷰는 UI 실행 증거 요구; 임시 admin 해시 + 가짜 Ollama + vitest 통합 테스트 패턴
 - [실제 Ollama 스모크 테스트 방법](real-ollama-smoke.md) — Replit에서 진짜 Ollama 바이너리로 pull/취소/삭제 검증 가능; 백그라운드 프로세스는 ShellExec 세션과 함께 죽으니 한 세션 안에서 실행
 - [VM 설치 스크립트 검증 방법](vm-install-validation.md) — Replit에서 docker+systemd 컨테이너로 install.sh 실검증 가능; libc6/postgres 함정과 psql_as_postgres 헬퍼 규칙
+- [api-server 통합 테스트 패턴](api-server-test-mocks.md) — admin 라우터를 vitest에서 직접 띄우는 법: db/미들웨어/openai 모듈 mock + 가짜 Ollama(11434) + 레지스트리 fetch stub
