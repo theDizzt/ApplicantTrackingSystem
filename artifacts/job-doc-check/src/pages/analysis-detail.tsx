@@ -28,8 +28,16 @@ interface TechSkill        { name: string; score: number }
 interface PersonalityDim   { name: string; score: number }
 interface SalaryField      { field: string; min: number; max: number }
 
+interface TechTermIssue    { term: string; issue: string; suggestion: string }
+
 interface RichAnalysis {
+  documentChecks?: {
+    photoMissing: boolean
+    coverLetterLength: number
+    coverLetterTooShort: boolean
+  }
   technicalSkills: TechSkill[]
+  techTermIssues?: TechTermIssue[]
   personalityAnalysis: {
     score: number; dimensions: PersonalityDim[]
     strengths: string; concerns: string; summary: string
@@ -260,6 +268,34 @@ export default function AnalysisDetail() {
             ))}
           </div>
 
+          {/* ── 서류 기본 점검 ── */}
+          {rich?.documentChecks && (rich.documentChecks.photoMissing || rich.documentChecks.coverLetterTooShort) && (
+            <Card className="rounded-2xl border border-amber-200 bg-amber-50/50 shadow-sm">
+              <CardHeader className="pb-2 pt-5 px-6">
+                <CardTitle className="text-base font-bold flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-amber-600" />서류 기본 점검
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-6 pb-5 space-y-2">
+                {rich.documentChecks.photoMissing && (
+                  <div className="flex items-start gap-2 text-sm text-slate-700">
+                    <XCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                    <span><b>사진 미등록</b> — 이력서에 사진이 없습니다. 지원 기업에 따라 사진이 요구될 수 있으니 확인하세요.</span>
+                  </div>
+                )}
+                {rich.documentChecks.coverLetterTooShort && (
+                  <div className="flex items-start gap-2 text-sm text-slate-700">
+                    <XCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
+                    <span>
+                      <b>자기소개서 분량 부족</b> — 현재 공백 제외 {rich.documentChecks.coverLetterLength.toLocaleString()}자로 300자 미만입니다.
+                      지원 동기와 핵심 경험을 구체적으로 보완하는 것을 권장합니다.
+                    </span>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          )}
+
           {/* ── 예상 연봉 산정 ── */}
           {salary && (
             <Card className="rounded-2xl border border-emerald-100 shadow-sm bg-gradient-to-br from-emerald-50/60 to-white">
@@ -379,6 +415,33 @@ export default function AnalysisDetail() {
                     <span className="w-36 shrink-0 text-sm font-medium text-slate-700 truncate">{sk.name}</span>
                     <HBar score={sk.score} color={barColor(sk.score)} />
                     <span className="w-8 text-right text-sm font-bold font-mono text-slate-700">{sk.score}</span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          )}
+
+          {/* ── 기술 용어 검증 ── */}
+          {rich?.techTermIssues && rich.techTermIssues.length > 0 && (
+            <Card className="rounded-2xl border border-slate-100 shadow-sm">
+              <CardHeader className="pb-2 pt-5 px-6">
+                <CardTitle className="text-base font-bold flex items-center gap-2">
+                  <AlertTriangle className="w-4 h-4 text-orange-500" />기술 용어 검증
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-6 pb-5 space-y-3">
+                {rich.techTermIssues.map((t, i) => (
+                  <div key={i} className="rounded-lg border border-slate-100 bg-slate-50 px-4 py-3">
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="font-mono font-semibold text-red-600 line-through">{t.term}</span>
+                      {t.suggestion && (
+                        <>
+                          <span className="text-slate-400">→</span>
+                          <span className="font-mono font-semibold text-emerald-700">{t.suggestion}</span>
+                        </>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-600 mt-1">{t.issue}</p>
                   </div>
                 ))}
               </CardContent>

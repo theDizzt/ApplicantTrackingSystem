@@ -254,12 +254,14 @@ async function runAnalysis(
 오직 JSON만 반환하세요:
 {
   "technicalSkills": [{"name": "기술명", "score": 0-100}, ...],
+  "techTermIssues": [{"term": "이력서에 적힌 표기", "issue": "문제 설명 (한국어, 1문장)", "suggestion": "올바른 표기 또는 권장 표현"}, ...],
   "languageScore": 0-100,
   "languageFeedback": "국어 품질 피드백 (한국어, 3~5문장)",
   "aiWritingScore": 0-100 (높을수록 인간 작성),
   "aiWritingFeedback": "진정성 피드백 (한국어, 2~3문장)"
 }
-technicalSkills는 이력서에서 명시적으로 언급된 기술만 포함하며, 최소 5개~최대 15개로 구성하세요.`;
+technicalSkills는 이력서에서 명시적으로 언급된 기술만 포함하며, 최소 5개~최대 15개로 구성하세요.
+techTermIssues는 기술 스택에 적힌 용어를 검증한 결과입니다. 오탈자(예: "Pyhton"), 잘못되거나 존재하지 않는 기술명, 대소문자·공식 표기 오류(예: "nodejs" → "Node.js"), 모호하거나 검증 불가능한 표현(예: "코딩 잘함")을 찾아서 보고하세요. 문제가 없으면 빈 배열 []을 반환하세요.`;
 
   // ── 심사 2: 인성 분석 (자기소개서 기반) ─────────────────────────────────
   const prompt2System = `당신은 인사 심리 평가 전문가입니다. 자기소개서와 이력서를 기반으로 지원자의 인성·태도를 분석하세요.
@@ -346,8 +348,29 @@ technicalSkills는 이력서에서 명시적으로 언급된 기술만 포함하
 
   const motivRaw = r3.motivationMatch as Record<string, unknown> | undefined;
 
+  // ── 서류 기본 점검 (규칙 기반) ──────────────────────────────────────────
+  // 자기소개서 분량: 공백 제외 글자 수 기준 300자 미만이면 부족으로 판단
+  const coverLetterCharCount = (resume.coverLetter ?? "").replace(/\s/g, "").length;
+  const documentChecks = {
+    photoMissing: !resume.photoUrl,
+    coverLetterLength: coverLetterCharCount,
+    coverLetterTooShort: coverLetterCharCount < 300,
+  };
+
+  // AI가 반환한 기술 용어 검증 결과를 문자열 필드만 남기고 정제
+  const techTermIssues = (Array.isArray(r1.techTermIssues) ? r1.techTermIssues : [])
+    .filter((t): t is Record<string, unknown> => !!t && typeof t === "object")
+    .map((t) => ({
+      term:       typeof t.term       === "string" ? t.term       : "",
+      issue:      typeof t.issue      === "string" ? t.issue      : "",
+      suggestion: typeof t.suggestion === "string" ? t.suggestion : "",
+    }))
+    .filter((t) => t.term !== "" || t.issue !== "");
+
   const richAnalysisResult = JSON.stringify({
+    documentChecks,
     technicalSkills:     Array.isArray(r1.technicalSkills) ? r1.technicalSkills : [],
+    techTermIssues,
     personalityAnalysis: {
       score:      typeof r2.personalityScore === "number" ? r2.personalityScore : 0,
       dimensions: Array.isArray(r2.dimensions) ? r2.dimensions : [],
