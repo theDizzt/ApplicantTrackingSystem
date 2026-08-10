@@ -233,11 +233,48 @@ router.get("/admin/settings/ai", requireAdmin, async (_req, res): Promise<void> 
 });
 
 router.put("/admin/settings/ai", requireAdmin, async (req, res): Promise<void> => {
-  const { apiKey, baseUrl, model } = req.body as {
+  const { apiKey, baseUrl, model, force } = req.body as {
     apiKey?: string;
     baseUrl?: string;
     model?: string;
+    force?: boolean;
   };
+  // 로컬(Ollama) 설정에서 레지스트리에 존재하지 않는(not_found) 모델명은
+  // force 플래그 없이는 저장을 거부한다. (unknown = 조회 불가 상태는 저장 허용)
+  if (model !== undefined && model.trim() !== "" && force !== true) {
+    const effectiveBaseUrl =
+      baseUrl !== undefined ? baseUrl.trim() : ((await getAIConfig()).baseUrl ?? "").trim();
+    const ollamaRoot = resolveOllamaRoot(effectiveBaseUrl);
+    if (ollamaRoot) {
+      // 이미 로컬에 설치된 모델이면 레지스트리에 없어도 허용 (직접 빌드한 모델 등)
+      let installedLocally = false;
+      try {
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 3000);
+        const resp = await fetch(`${ollamaRoot}/api/tags`, { signal: controller.signal });
+        clearTimeout(timer);
+        if (resp.ok) {
+          const data = (await resp.json()) as { models?: Array<{ name?: string }> };
+          const normalize = (name: string) => (name.includes(":") ? name : `${name}:latest`);
+          installedLocally = (data.models ?? []).some(
+            (m) => normalize(m.name ?? "") === normalize(model.trim())
+          );
+        }
+      } catch {
+        // 조회 실패 시 설치 여부 불명 → 레지스트리 조회 결과로 판단
+      }
+      if (!installedLocally) {
+        const { registryStatus } = await estimateModelSizeBytes(model.trim());
+        if (registryStatus === "not_found") {
+          res.status(409).json({
+            code: "model_not_found",
+            error: `모델 "${model.trim()}"이(가) Ollama 레지스트리에 존재하지 않습니다. 모델명에 오타가 없는지 확인하세요.`,
+          });
+          return;
+        }
+      }
+    }
+  }
   if (apiKey !== undefined && apiKey !== "") {
     await saveSetting("ai_api_key", apiKey.trim());
   }

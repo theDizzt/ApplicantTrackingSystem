@@ -30,7 +30,9 @@ async function api(path: string, opts?: RequestInit) {
   })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    throw new Error(body.error ?? `HTTP ${res.status}`)
+    const err = new Error(body.error ?? `HTTP ${res.status}`) as Error & { code?: string }
+    err.code = body.code
+    throw err
   }
   return res.json()
 }
@@ -747,7 +749,10 @@ function AISettingsTab() {
 
   useEffect(() => { load() }, [load])
 
-  const handleSave = async () => {
+  // 서버가 "레지스트리에 없는 모델" (409 model_not_found)로 거부했을 때 확인 다이얼로그 표시용
+  const [forceConfirm, setForceConfirm] = useState<string | null>(null)
+
+  const handleSave = async (force = false) => {
     setSaving(true)
     setTestResult(null)
     try {
@@ -757,13 +762,21 @@ function AISettingsTab() {
           ...(apiKey ? { apiKey } : {}),
           baseUrl,
           model,
+          ...(force ? { force: true } : {}),
         }),
       })
+      setForceConfirm(null)
       toast.success("AI 설정이 저장되었습니다.")
       setApiKey("")
       load()
       loadHealth()
-    } catch (e: any) { toast.error(e.message) }
+    } catch (e: any) {
+      if (e.code === "model_not_found") {
+        setForceConfirm(e.message)
+      } else {
+        toast.error(e.message)
+      }
+    }
     finally { setSaving(false) }
   }
 
@@ -906,7 +919,7 @@ function AISettingsTab() {
           </div>
         )}
         <div className="flex gap-2">
-          <Button onClick={handleSave} disabled={saving}>
+          <Button onClick={() => handleSave()} disabled={saving}>
             {saving ? "저장 중..." : "저장"}
           </Button>
           <Button variant="outline" onClick={handleTest} disabled={testing} className="border-slate-700 text-slate-300">
@@ -914,6 +927,29 @@ function AISettingsTab() {
           </Button>
         </div>
       </CardContent>
+      <Dialog open={forceConfirm !== null} onOpenChange={(v) => !v && setForceConfirm(null)}>
+        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-white flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-400" /> 레지스트리에 없는 모델
+            </DialogTitle>
+          </DialogHeader>
+          <div className="text-sm text-slate-300 space-y-2 py-1">
+            <p>{forceConfirm}</p>
+            <p className="text-xs text-slate-400">
+              잘못된 모델명을 저장하면 AI 분석이 동작하지 않을 수 있습니다. 그래도 저장하시겠습니까?
+            </p>
+          </div>
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setForceConfirm(null)} className="text-slate-400 hover:text-white">
+              취소
+            </Button>
+            <Button variant="destructive" onClick={() => handleSave(true)} disabled={saving}>
+              {saving ? "저장 중..." : "그래도 저장"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   )
 }
