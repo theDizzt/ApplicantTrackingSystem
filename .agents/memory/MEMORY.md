@@ -2,4 +2,5 @@
 - [TS 프로젝트 참조와 stale 선언](stale-db-dist-types.md) — `tsc -p --noEmit`만 도는 typecheck는 참조 프로젝트의 오래된 선언으로 거짓 오류 가능; 참조를 먼저 `tsc -b`로 빌드할 것
 - [Ollama 취소된 pull 정리](ollama-partial-blob-cleanup.md) — partial blob은 API로 못 지움; OLLAMA_MODELS 경로 공유 + blobs 디렉터리 쓰기 권한(ACL/그룹)이 전제
 - [관리자 화면 흐름 검증 방법](admin-flow-verification.md) — 완료 리뷰는 UI 실행 증거 요구; 임시 admin 해시 + 가짜 Ollama + vitest 통합 테스트 패턴
+- [실제 Ollama 스모크 테스트 방법](real-ollama-smoke.md) — Replit에서 진짜 Ollama 바이너리로 pull/취소/삭제 검증 가능; 백그라운드 프로세스는 ShellExec 세션과 함께 죽으니 한 세션 안에서 실행
 - [VM 설치 스크립트 검증 방법](vm-install-validation.md) — Replit에서 docker+systemd 컨테이너로 install.sh 실검증 가능; libc6/postgres 함정과 psql_as_postgres 헬퍼 규칙
