@@ -288,4 +288,96 @@ describe("모델 다운로드 취소", () => {
       await fs.rm(modelsDir, { recursive: true, force: true });
     }
   }, 30_000);
+
+  it("첫 정리 스캔 이후 늦게 생긴 partial 파일도 최종적으로 정리되고 cleanedFreedBytes에 합산된다", async () => {
+    // 취소 전부터 존재하는 partial 1개 + 첫 스캔에서 삭제된 직후 새로 쓰이는
+    // partial 1개(실제 Ollama가 취소 직후 파일을 늦게 쓰는 시나리오)를 검증한다.
+    const modelsDir = await fs.mkdtemp(path.join(os.tmpdir(), "ollama-models-late-"));
+    const blobsDir = path.join(modelsDir, "blobs");
+    await fs.mkdir(blobsDir, { recursive: true });
+    const earlyPath = path.join(blobsDir, "sha256-" + "b".repeat(64) + "-partial");
+    const latePath = path.join(blobsDir, "sha256-" + "c".repeat(64) + "-partial");
+    const EARLY_SIZE = 4096;
+    const LATE_SIZE = 8192;
+    await fs.writeFile(earlyPath, Buffer.alloc(EARLY_SIZE, 1));
+    const prevEnv = process.env.OLLAMA_MODELS;
+    process.env.OLLAMA_MODELS = modelsDir;
+    pullMode = "hang";
+    try {
+      const startResp = await realFetch(`${apiBase}/admin/settings/ai/local-pull`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      expect(startResp.status).toBe(202);
+
+      // 진행 중 상태 관찰 대기
+      let sawProgress = false;
+      const startDeadline = Date.now() + 10_000;
+      while (Date.now() < startDeadline) {
+        const resp = await realFetch(`${apiBase}/admin/settings/ai/local-pull/status`);
+        const body = (await resp.json()) as { active: boolean; inProgress?: boolean; completedBytes?: number };
+        if (body.active && body.inProgress && (body.completedBytes ?? 0) > 0) {
+          sawProgress = true;
+          break;
+        }
+        await sleep(20);
+      }
+      expect(sawProgress).toBe(true);
+
+      const cancelResp = await realFetch(`${apiBase}/admin/settings/ai/local-pull/cancel`, { method: "POST" });
+      expect(cancelResp.status).toBe(200);
+
+      // 첫 정리 스캔이 기존 partial을 지운 순간을 포착한 뒤,
+      // 곧바로 "늦게 쓰인" 새 partial 파일을 만든다.
+      let earlyDeleted = false;
+      const scanDeadline = Date.now() + 10_000;
+      while (Date.now() < scanDeadline) {
+        try {
+          await fs.access(earlyPath);
+        } catch {
+          earlyDeleted = true;
+          break;
+        }
+        await sleep(25);
+      }
+      expect(earlyDeleted).toBe(true);
+      await fs.writeFile(latePath, Buffer.alloc(LATE_SIZE, 2));
+
+      // 재시도 루프가 안정 상태로 종료될 때까지 대기
+      type CancelStatus = {
+        active: boolean;
+        inProgress: boolean;
+        cancelled: boolean;
+        status: string;
+        error: string | null;
+        done: boolean;
+        cleanedFreedBytes: number | null;
+      };
+      let final: CancelStatus | null = null;
+      const cancelDeadline = Date.now() + 25_000;
+      while (Date.now() < cancelDeadline) {
+        const resp = await realFetch(`${apiBase}/admin/settings/ai/local-pull/status`);
+        const body = (await resp.json()) as CancelStatus;
+        if (body && body.active && body.inProgress === false) {
+          final = body;
+          break;
+        }
+        await sleep(100);
+      }
+      expect(final).not.toBeNull();
+      expect(final!.cancelled).toBe(true);
+      expect(final!.error).toBeNull();
+      expect(final!.status.startsWith("취소됨")).toBe(true);
+      // 늦게 생긴 partial도 삭제되었고, 두 파일 용량이 모두 합산됨
+      await expect(fs.access(latePath)).rejects.toThrow();
+      expect(final!.cleanedFreedBytes).not.toBeNull();
+      expect(final!.cleanedFreedBytes!).toBeGreaterThanOrEqual(EARLY_SIZE + LATE_SIZE);
+    } finally {
+      pullMode = "success";
+      if (prevEnv === undefined) delete process.env.OLLAMA_MODELS;
+      else process.env.OLLAMA_MODELS = prevEnv;
+      await fs.rm(modelsDir, { recursive: true, force: true });
+    }
+  }, 40_000);
 });
