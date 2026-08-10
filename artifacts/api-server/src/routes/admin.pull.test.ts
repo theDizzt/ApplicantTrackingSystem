@@ -10,6 +10,9 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import http from "node:http";
 import express from "express";
+import { promises as fs } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 // admin.ts가 끌어오는 무거운 의존성(DB, 세션, OpenAI)을 모두 스텁 처리
 vi.mock("@workspace/db", () => ({
@@ -42,6 +45,9 @@ const SMALL_TOTAL = 1_000;
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+// 취소 테스트에서는 스트림이 끝나지 않고 계속 진행 라인을 보내게 전환한다.
+let pullMode: "success" | "hang" = "success";
+
 // 가짜 Ollama: /api/tags(빈 목록) + /api/pull(레이어 2개 순차 스트림)
 function startFakeOllama(): Promise<http.Server> {
   const server = http.createServer(async (req, res) => {
@@ -54,6 +60,26 @@ function startFakeOllama(): Promise<http.Server> {
       req.resume(); // 본문 소비
       res.writeHead(200, { "Content-Type": "application/x-ndjson" });
       const send = (obj: unknown) => res.write(JSON.stringify(obj) + "\n");
+      if (pullMode === "hang") {
+        // 취소 시나리오: 완료되지 않고 진행 라인을 계속 보냄. 클라이언트가
+        // abort하면 소켓이 닫히므로 그때 정리한다.
+        send({ status: "pulling manifest" });
+        let completed = 0;
+        const timer = setInterval(() => {
+          completed += 10_000;
+          try {
+            send({ status: "pulling sha256:big", digest: "sha256:big", total: BIG_TOTAL, completed: Math.min(completed, BIG_TOTAL - 1) });
+          } catch {
+            clearInterval(timer);
+          }
+        }, 25);
+        const stop = () => { clearInterval(timer); try { res.end(); } catch { /* noop */ } };
+        // 주의: req의 'close'는 본문 수신 완료 시에도 발생하므로 소켓 종료 기준으로 정리
+        res.on("close", stop);
+        res.on("error", stop);
+        req.socket.on("close", stop);
+        return;
+      }
       send({ status: "pulling manifest" });
       await sleep(30);
       // 큰 레이어: 10단계로 진행
@@ -179,5 +205,87 @@ describe("모델 다운로드 진행률", () => {
     expect(percents.length).toBeGreaterThan(3);
     // 큰 레이어 완료 후 작은 레이어 시작 구간에서도 감소가 없었음은
     // 위 루프의 단조 증가 단언으로 이미 보장됨
+  }, 30_000);
+});
+
+describe("모델 다운로드 취소", () => {
+  it("취소 시 상태가 '취소됨'이 되고 partial 임시 파일이 정리되어 cleanedFreedBytes에 반영된다", async () => {
+    // 임시 OLLAMA_MODELS 경로에 취소된 다운로드가 남긴 것과 같은 partial blob을 만들어 둔다
+    const modelsDir = await fs.mkdtemp(path.join(os.tmpdir(), "ollama-models-"));
+    const blobsDir = path.join(modelsDir, "blobs");
+    await fs.mkdir(blobsDir, { recursive: true });
+    const partialName = "sha256-" + "a".repeat(64) + "-partial";
+    const partialPath = path.join(blobsDir, partialName);
+    const PARTIAL_SIZE = 4096;
+    await fs.writeFile(partialPath, Buffer.alloc(PARTIAL_SIZE, 1));
+    const prevEnv = process.env.OLLAMA_MODELS;
+    process.env.OLLAMA_MODELS = modelsDir;
+    pullMode = "hang";
+    try {
+      const startResp = await realFetch(`${apiBase}/admin/settings/ai/local-pull`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      });
+      expect(startResp.status).toBe(202);
+
+      // 진행 중 상태가 실제로 관찰될 때까지 대기
+      let sawProgress = false;
+      const startDeadline = Date.now() + 10_000;
+      while (Date.now() < startDeadline) {
+        const resp = await realFetch(`${apiBase}/admin/settings/ai/local-pull/status`);
+        const body = (await resp.json()) as { active: boolean; inProgress?: boolean; completedBytes?: number };
+        if (body.active && body.inProgress && (body.completedBytes ?? 0) > 0) {
+          sawProgress = true;
+          break;
+        }
+        await sleep(20);
+      }
+      expect(sawProgress).toBe(true);
+
+      // 취소 요청
+      const cancelResp = await realFetch(`${apiBase}/admin/settings/ai/local-pull/cancel`, { method: "POST" });
+      expect(cancelResp.status).toBe(200);
+      expect(((await cancelResp.json()) as { wasRunning: boolean }).wasRunning).toBe(true);
+
+      // 취소 분기의 정리 재시도 루프(1.5초 간격, 연속 2회 깨끗해야 종료)가
+      // 끝날 때까지 대기 후 최종 상태 검증
+      type CancelStatus = {
+        active: boolean;
+        inProgress: boolean;
+        cancelled: boolean;
+        status: string;
+        error: string | null;
+        done: boolean;
+        cleanedFreedBytes: number | null;
+      };
+      let final: CancelStatus | null = null;
+      const cancelDeadline = Date.now() + 20_000;
+      while (Date.now() < cancelDeadline) {
+        const resp = await realFetch(`${apiBase}/admin/settings/ai/local-pull/status`);
+        const body = (await resp.json()) as CancelStatus;
+        if (body && body.active && body.inProgress === false) {
+          final = body;
+          break;
+        }
+        await sleep(100);
+      }
+      expect(final).not.toBeNull();
+      expect(final!.cancelled).toBe(true);
+      expect(final!.inProgress).toBe(false);
+      expect(final!.done).toBe(false);
+      expect(final!.error).toBeNull();
+      // 상태 메시지는 "취소됨" 계열
+      expect(final!.status.startsWith("취소됨")).toBe(true);
+      // partial 파일이 실제로 삭제되었고, 확보 용량이 cleanedFreedBytes에 반영됨
+      await expect(fs.access(partialPath)).rejects.toThrow();
+      expect(final!.cleanedFreedBytes).not.toBeNull();
+      expect(final!.cleanedFreedBytes!).toBeGreaterThanOrEqual(PARTIAL_SIZE);
+    } finally {
+      pullMode = "success";
+      if (prevEnv === undefined) delete process.env.OLLAMA_MODELS;
+      else process.env.OLLAMA_MODELS = prevEnv;
+      await fs.rm(modelsDir, { recursive: true, force: true });
+    }
   }, 30_000);
 });
