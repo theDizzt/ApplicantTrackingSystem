@@ -529,6 +529,23 @@ async function runPull(ollamaRoot: string, model: string): Promise<void> {
     const reader = upstream.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
+    // Ollama는 레이어(digest) 단위로 진행률을 보내므로, 마지막에 작은
+    // 메타데이터 레이어로 넘어가면 percent가 0%로 떨어져 보인다.
+    // 레이어별 total/completed를 누적 합산해 전체 기준 단조 증가 진행률을 만든다.
+    const layers = new Map<string, { total: number; completed: number }>();
+    const applyLayerTotals = () => {
+      let total = 0;
+      let completed = 0;
+      for (const l of layers.values()) {
+        total += l.total;
+        completed += Math.min(l.completed, l.total);
+      }
+      if (total > 0) {
+        state.totalBytes = total;
+        // 진행률이 뒤로 가지 않도록 단조 증가 보장
+        state.completedBytes = Math.max(state.completedBytes, completed);
+      }
+    };
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
@@ -539,12 +556,14 @@ async function runPull(ollamaRoot: string, model: string): Promise<void> {
         const trimmed = line.trim();
         if (!trimmed) continue;
         try {
-          const d = JSON.parse(trimmed) as { status?: string; completed?: number; total?: number; error?: string };
+          const d = JSON.parse(trimmed) as { status?: string; digest?: string; completed?: number; total?: number; error?: string };
           if (d.error) throw new Error(String(d.error));
           state.status = String(d.status ?? state.status);
           if (typeof d.total === "number" && d.total > 0) {
-            state.totalBytes = d.total;
-            state.completedBytes = Number(d.completed ?? 0);
+            // digest가 없는 진행 라인은 상태 문자열을 키로 사용 (레이어 구분 폴백)
+            const key = d.digest ?? `status:${d.status ?? ""}`;
+            layers.set(key, { total: d.total, completed: Number(d.completed ?? 0) });
+            applyLayerTotals();
           }
           state.updatedAt = Date.now();
         } catch (err) {
@@ -555,6 +574,9 @@ async function runPull(ollamaRoot: string, model: string): Promise<void> {
     }
     state.done = true;
     state.status = "완료";
+    // 완료 시 100%로 표시되도록 보정
+    if (state.totalBytes > 0) state.completedBytes = state.totalBytes;
+    else { state.totalBytes = 1; state.completedBytes = 1; }
   } catch (err) {
     if (state.cancelled || (err instanceof Error && err.name === "AbortError")) {
       state.cancelled = true;
