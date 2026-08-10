@@ -360,16 +360,16 @@ router.get("/admin/settings/ai/model-size", requireAdmin, async (req, res): Prom
     model = (config.model ?? "").trim();
   }
   if (!model) {
-    res.json({ model: "", sizeBytes: null, requiredBytes: null });
+    res.json({ model: "", sizeBytes: null, requiredBytes: null, registryStatus: "unknown" });
     return;
   }
-  const sizeBytes = await estimateModelSizeBytes(model);
+  const { sizeBytes, registryStatus } = await estimateModelSizeBytes(model);
   // 다운로드에 실제 필요한 공간 = 크기 + 안전 마진 (크기의 10% + 1GB)
   const requiredBytes =
     sizeBytes !== null
       ? Math.round(sizeBytes * (1 + PULL_MARGIN_RATIO)) + PULL_MARGIN_FLAT_BYTES
       : null;
-  res.json({ model, sizeBytes, requiredBytes });
+  res.json({ model, sizeBytes, requiredBytes, registryStatus });
 });
 
 // 모델 다운로드에 필요한 최소 여유 공간 (10GB) — 모델 크기 조회 실패 시 폴백 임계치.
@@ -379,12 +379,17 @@ const PULL_MARGIN_RATIO = 0.1;
 const PULL_MARGIN_FLAT_BYTES = 1 * 1024 * 1024 * 1024;
 
 // Ollama 레지스트리에서 모델 manifest를 조회해 예상 다운로드 크기(바이트)를 계산한다.
-// 실패(네트워크 오류, 미존재 모델, 타임아웃 등) 시 null 반환 → 호출부가 고정 임계치로 폴백.
-async function estimateModelSizeBytes(model: string): Promise<number | null> {
+// registryStatus: "found"(레지스트리에 존재) / "not_found"(404 = 미존재 모델) / "unknown"(조회 불가·실패)
+// sizeBytes가 null이면 호출부가 고정 임계치로 폴백.
+type ModelSizeResult = {
+  sizeBytes: number | null;
+  registryStatus: "found" | "not_found" | "unknown";
+};
+async function estimateModelSizeBytes(model: string): Promise<ModelSizeResult> {
   // 모델명 파싱: [registry/][namespace/]name[:tag]
   // 예: "qwen2.5" → library/qwen2.5:latest, "user/model:7b" → user/model:7b
   let rest = model.trim();
-  if (!rest || rest.includes("://")) return null;
+  if (!rest || rest.includes("://")) return { sizeBytes: null, registryStatus: "unknown" };
   let tag = "latest";
   const colonIdx = rest.lastIndexOf(":");
   if (colonIdx > -1 && !rest.slice(colonIdx + 1).includes("/")) {
@@ -397,9 +402,9 @@ async function estimateModelSizeBytes(model: string): Promise<number | null> {
   if (parts.length === 1) repo = `library/${parts[0]}`;
   else if (parts.length === 2) repo = `${parts[0]}/${parts[1]}`;
   else if (parts.length === 3) { registry = parts[0]; repo = `${parts[1]}/${parts[2]}`; }
-  else return null;
+  else return { sizeBytes: null, registryStatus: "unknown" };
   // 기본 공식 레지스트리 외 호스트는 조회하지 않음 (SSRF 방지)
-  if (registry !== "registry.ollama.ai") return null;
+  if (registry !== "registry.ollama.ai") return { sizeBytes: null, registryStatus: "unknown" };
   try {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 5000);
@@ -411,19 +416,20 @@ async function estimateModelSizeBytes(model: string): Promise<number | null> {
       }
     );
     clearTimeout(timer);
-    if (!resp.ok) return null;
+    if (resp.status === 404) return { sizeBytes: null, registryStatus: "not_found" };
+    if (!resp.ok) return { sizeBytes: null, registryStatus: "unknown" };
     const manifest = (await resp.json()) as {
       layers?: Array<{ size?: number }>;
       config?: { size?: number };
     };
-    if (!Array.isArray(manifest.layers)) return null;
+    if (!Array.isArray(manifest.layers)) return { sizeBytes: null, registryStatus: "found" };
     let total = manifest.config?.size ?? 0;
     for (const layer of manifest.layers) {
       if (typeof layer.size === "number" && layer.size > 0) total += layer.size;
     }
-    return total > 0 ? total : null;
+    return { sizeBytes: total > 0 ? total : null, registryStatus: "found" };
   } catch {
-    return null;
+    return { sizeBytes: null, registryStatus: "unknown" };
   }
 }
 
@@ -610,10 +616,17 @@ router.post("/admin/settings/ai/local-pull", requireAdmin, async (_req, res): Pr
   // 중간 실패와 불완전 임시 파일 낭비를 예방한다.
   // 조회 실패 시에는 안전을 위해 시작을 거부한다(fail closed).
   try {
-    const [disk, modelSizeBytes] = await Promise.all([
+    const [disk, sizeResult] = await Promise.all([
       getModelDiskUsage(),
       estimateModelSizeBytes(model),
     ]);
+    const modelSizeBytes = sizeResult.sizeBytes;
+    if (sizeResult.registryStatus === "not_found") {
+      res.status(400).json({
+        error: `모델 '${model}'을(를) Ollama 레지스트리에서 찾을 수 없습니다. 모델명에 오타가 없는지 확인하세요.`,
+      });
+      return;
+    }
     const freeGB = (disk.freeBytes / 1024 / 1024 / 1024).toFixed(1);
     if (modelSizeBytes !== null) {
       // 모델 크기 조회 성공 → 실제 필요 용량(크기 + 마진)과 비교

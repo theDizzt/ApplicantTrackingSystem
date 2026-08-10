@@ -686,6 +686,7 @@ function AISettingsTab() {
     sizeBytes: number | null
     requiredBytes: number | null
     freeBytes: number | null
+    registryStatus: "found" | "not_found" | "unknown"
   } | null>(null)
   const [sizeLoading, setSizeLoading] = useState(false)
 
@@ -706,6 +707,10 @@ function AISettingsTab() {
           sizeBytes: size.sizeBytes ?? null,
           requiredBytes: size.requiredBytes ?? null,
           freeBytes: disk ? Number(disk.freeBytes ?? 0) : null,
+          registryStatus:
+            size.registryStatus === "found" || size.registryStatus === "not_found"
+              ? size.registryStatus
+              : "unknown",
         })
       } catch {
         if (!stale) setSizePreview(null)
@@ -880,7 +885,15 @@ function AISettingsTab() {
                   )}
                 </div>
               )
-            })() : sizePreview ? (
+            })() : sizePreview?.registryStatus === "not_found" ? (
+              <div className="text-[11px] rounded-md border border-red-800 bg-red-950/50 text-red-300 px-2.5 py-1.5 flex items-start gap-1.5">
+                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-px" />
+                <p>
+                  <span className="font-medium">레지스트리에 없는 모델입니다.</span>{" "}
+                  모델명에 오타가 없는지 확인하세요 (예: <code className="text-red-200">qwen2.5:14b</code>).
+                </p>
+              </div>
+            ) : sizePreview ? (
               <p className="text-[11px] text-slate-500">
                 이 모델의 예상 크기를 확인할 수 없습니다 (Ollama 공식 레지스트리 모델만 조회 가능).
               </p>
