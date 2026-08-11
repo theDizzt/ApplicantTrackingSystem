@@ -72,6 +72,11 @@ export default defineConfig({
     fs: {
       strict: true,
     },
+    // 로컬(맥북 등) 개발용: API_PROXY_TARGET이 설정되면 /api 요청을 API 서버로 전달.
+    // Replit 환경에서는 이 변수가 없으므로 동작에 영향 없음.
+    ...(process.env.API_PROXY_TARGET
+      ? { proxy: { '/api': { target: process.env.API_PROXY_TARGET, changeOrigin: true } } }
+      : {}),
   },
   preview: {
     port,
