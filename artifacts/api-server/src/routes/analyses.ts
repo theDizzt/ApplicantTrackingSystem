@@ -261,7 +261,7 @@ async function runAnalysis(
   "aiWritingFeedback": "진정성 피드백 (한국어, 2~3문장)"
 }
 technicalSkills는 이력서에서 명시적으로 언급된 기술만 포함하며, 최소 5개~최대 15개로 구성하세요.
-techTermIssues는 기술 스택에 적힌 용어를 검증한 결과입니다. 오탈자(예: "Pyhton"), 잘못되거나 존재하지 않는 기술명, 대소문자·공식 표기 오류(예: "nodejs" → "Node.js"), 모호하거나 검증 불가능한 표현(예: "코딩 잘함")을 찾아서 보고하세요. 문제가 없으면 빈 배열 []을 반환하세요.`;
+techTermIssues는 기술 스택에 적힌 용어를 검증한 결과입니다. 오탈자(예: "Pyhton"), 잘못되거나 존재하지 않는 기술명, 대소문자·공식 표기 오류(예: "nodejs" → "Node.js"), 모호하거나 검증 불가능한 표현(예: "코딩 잘함")을 찾아서 보고하세요. 단, 학력 사항의 전공·학과 명칭(예: "컴퓨터공학과", "정보통신학부")은 기술 용어가 아니므로 검증 대상에서 제외하세요. 문제가 없으면 빈 배열 []을 반환하세요.`;
 
   // ── 심사 2: 인성 분석 (자기소개서 기반) ─────────────────────────────────
   const prompt2System = `당신은 인사 심리 평가 전문가입니다. 자기소개서와 이력서를 기반으로 지원자의 인성·태도를 분석하세요.
@@ -289,7 +289,7 @@ techTermIssues는 기술 스택에 적힌 용어를 검증한 결과입니다. �
 오직 JSON만 반환하세요:
 {
   "jobMatchScore": 0-100,
-  "jobMatchFeedback": "직무 적합도 피드백 (한국어, 3~5문장)",
+  "jobMatchFeedback": "직무 적합도 피드백 (한국어, 3~5문장). NCS(국가직무능력표준) 기반으로 평가: 지원 직무에 해당하는 NCS 직무 분류(대분류·중분류·세분류)를 식별하고, 해당 직무의 NCS 능력단위(필요 지식·기술·태도) 대비 지원자의 보유 역량을 비교 분석하세요. 지원자의 경력년수에 따른 직급(신입/주니어/시니어 등) 수준에서 요구되는 NCS 수준(1~8수준)과 실제 역량 수준을 함께 평가하세요. 피드백에 NCS 직무명과 요구 수준을 명시하세요.",
   "organizationalFit": {
     "score": 0-100,
     "reasoning": "조직 적합도 근거 (한국어, 3~5문장)"
@@ -313,10 +313,11 @@ techTermIssues는 기술 스택에 적힌 용어를 검증한 결과입니다. �
   },
   "graduationGap": {
     "detected": true/false,
+    "gapType": "graduation 또는 employment (아래 규칙 참조, detected가 false면 빈 문자열)",
     "graduationYear": 최종학력 졸업연도(숫자, 모르면 0),
-    "gapYears": 졸업년도 기준 현재까지 년수(숫자),
-    "isLongGap": 졸업년도가 ${threeYearsAgo}년 이하이면 true,
-    "copingStrategy": "졸업 후 공백이 긴 경우 면접 대응 방안 (한국어, 3~5문장. isLongGap이 false면 빈 문자열)",
+    "gapYears": 공백 기간 년수(숫자, 아래 규칙 참조),
+    "isLongGap": true/false (아래 규칙 참조),
+    "copingStrategy": "공백이 긴 경우 면접 대응 방안 (한국어, 3~5문장. isLongGap이 false면 빈 문자열)",
     "sampleQuestions": ["면접 질문 예시 (isLongGap이 false면 빈 배열)"]
   },
   "motivationMatch": {
@@ -326,7 +327,14 @@ techTermIssues는 기술 스택에 적힌 용어를 검증한 결과입니다. �
     "weaknesses": ["실제 회사와 연관성이 부족하거나 개선이 필요한 부분 (최대 3개, 없으면 빈 배열)"],
     "hasCoverLetter": true/false (자기소개서 내용 존재 여부)
   }
-}`;
+}
+
+graduationGap 판정 규칙 (반드시 순서대로 적용):
+1. 이력서에 경력사항(회사 근무 이력)이 있는 경우: 졸업 후 공백 분석은 하지 않습니다.
+   - 단, 마지막 회사의 퇴사일(근무 종료일)로부터 오늘까지 1년이 넘는 경우에만 경력 공백으로 판단하여 detected=true, gapType="employment", isLongGap=true, gapYears=퇴사 후 경과 년수로 설정하고, 경력 공백에 대한 면접 대응 방안(copingStrategy)과 예상 질문(sampleQuestions)을 제시하세요.
+   - 마지막 퇴사일로부터 1년 이내이거나 현재 재직 중이면 detected=false, gapType="", isLongGap=false, copingStrategy는 빈 문자열, sampleQuestions는 빈 배열로 설정하세요.
+2. 경력사항이 전혀 없는 경우(신입): 최종학력 졸업연도를 확실히 알 수 있고 그 연도가 ${threeYearsAgo}년 이하이면 detected=true, gapType="graduation", isLongGap=true, gapYears=졸업 후 경과 년수로 설정하고 졸업 공백에 대한 대응 방안을 제시하세요.
+   - 졸업연도를 알 수 없는 경우(graduationYear=0)에는 공백으로 판정하지 마세요: detected=false, gapType="", isLongGap=false로 설정하세요.`;
 
   // 3개 AI 모델 병렬 실행
   const [res1, res2, res3] = await Promise.all([
@@ -398,6 +406,7 @@ techTermIssues는 기술 스택에 적힌 용어를 검증한 결과입니다. �
     },
     graduationGap: {
       detected:       typeof gapRaw?.detected       === "boolean" ? gapRaw.detected       : false,
+      gapType:        gapRaw?.gapType === "graduation" || gapRaw?.gapType === "employment" ? gapRaw.gapType : "",
       graduationYear: typeof gapRaw?.graduationYear === "number"  ? gapRaw.graduationYear : 0,
       gapYears:       typeof gapRaw?.gapYears       === "number"  ? gapRaw.gapYears       : 0,
       isLongGap:      typeof gapRaw?.isLongGap      === "boolean" ? gapRaw.isLongGap      : false,

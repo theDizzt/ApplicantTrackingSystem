@@ -54,6 +54,7 @@ interface RichAnalysis {
     yearsOfExperience: number; reasoning: string
   }
   graduationGap?: {
+    gapType?: string;
     detected: boolean; graduationYear: number; gapYears: number
     isLongGap: boolean; copingStrategy: string; sampleQuestions: string[]
   }
@@ -369,9 +370,13 @@ export default function AnalysisDetail() {
               <CardHeader className="pb-2 pt-5 px-6">
                 <CardTitle className="text-base font-bold flex items-center gap-2 text-amber-800">
                   <GraduationCap className="w-4 h-4" />
-                  졸업 공백 면접 대응 방안
+                  공백 기간 면접 대응 방안
                   <span className="ml-auto text-xs font-normal bg-amber-100 text-amber-700 rounded-full px-2.5 py-0.5">
-                    {gap.graduationYear}년 졸업 · {gap.gapYears}년 경과
+                    {gap.gapType === "employment"
+                      ? `퇴사 후 ${gap.gapYears}년 경과`
+                      : gap.graduationYear > 0
+                        ? `${gap.graduationYear}년 졸업 · ${gap.gapYears}년 경과`
+                        : `${gap.gapYears}년 경과`}
                   </span>
                 </CardTitle>
               </CardHeader>
