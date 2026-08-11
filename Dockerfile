@@ -6,7 +6,10 @@
 # -----------------------------------------------------------------------------
 # Stage 1: deps — workspace-level dependency install
 # -----------------------------------------------------------------------------
-FROM node:22-alpine AS deps
+# NOTE: Debian-based image (glibc) is required — this workspace's
+# pnpm-workspace.yaml excludes all musl native binaries (e.g.
+# @rollup/rollup-linux-x64-musl), so Alpine images cannot build.
+FROM node:22-slim AS deps
 
 # Install pnpm
 RUN npm install -g pnpm@10 --quiet
@@ -64,14 +67,16 @@ RUN cp -r /workspace/artifacts/api-server/dist /api-deploy/dist
 # -----------------------------------------------------------------------------
 # Stage 3: production — Node.js API + Nginx static server
 # -----------------------------------------------------------------------------
-FROM node:22-alpine AS production
+FROM node:22-slim AS production
 
 LABEL org.opencontainers.image.title="AI 서류 심사관 (ATS)" \
       org.opencontainers.image.description="AI-powered applicant tracking system" \
       org.opencontainers.image.version="1.0.0"
 
 # Install Nginx + tini (proper PID 1 / signal handling) + curl (healthcheck)
-RUN apk add --no-cache nginx tini curl
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends nginx tini curl \
+    && rm -rf /var/lib/apt/lists/*
 
 # ── API server ───────────────────────────────────────────────────────────────
 WORKDIR /app
@@ -97,4 +102,4 @@ RUN chmod +x /entrypoint.sh
 EXPOSE 80
 
 # Use tini as PID 1 for proper signal propagation
-ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]
+ENTRYPOINT ["/usr/bin/tini", "--", "/entrypoint.sh"]

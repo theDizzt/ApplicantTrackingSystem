@@ -73,7 +73,10 @@ app.use(session({
   resave: false,
   saveUninitialized: false,
   cookie: {
-    secure: isProduction,
+    // "auto": set the Secure flag only when the request actually arrived over
+    // HTTPS (via trust proxy + X-Forwarded-Proto). This keeps login working on
+    // plain-HTTP local/on-prem installs while staying secure behind HTTPS.
+    secure: "auto",
     httpOnly: true,
     maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
   },

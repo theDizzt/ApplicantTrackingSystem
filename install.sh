@@ -329,6 +329,13 @@ setup_nginx() {
 
     NGINX_CONF="/etc/nginx/conf.d/${APP_NAME}.conf"
     $SUDO tee "$NGINX_CONF" > /dev/null <<EOF
+# 상위 프록시(TLS 종료 LB 등)가 보낸 X-Forwarded-Proto가 있으면 유지,
+# 없으면(직접 접속) 현재 연결의 스킴을 사용
+map \$http_x_forwarded_proto \$forwarded_proto {
+    default \$http_x_forwarded_proto;
+    ""      \$scheme;
+}
+
 server {
     listen ${WEB_PORT};
     server_name _;
@@ -342,7 +349,7 @@ server {
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
-        proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_set_header X-Forwarded-Proto \$forwarded_proto;
         proxy_read_timeout 300s;
     }
 
