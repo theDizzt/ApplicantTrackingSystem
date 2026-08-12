@@ -1,10 +1,9 @@
 import { Router, type IRouter } from "express";
-import { promises as dns } from "node:dns";
-import net from "node:net";
 import * as cheerio from "cheerio";
 import { requireAuth } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import { ocrImageBuffer } from "../lib/vision-ocr";
+import { validatePublicUrl, ssrfSafeFetch, readBodyLimited } from "../lib/safe-fetch";
 
 const router: IRouter = Router();
 
@@ -18,141 +17,6 @@ const MAX_OCR_IMAGES = 3;
 
 const BLOCKED_MESSAGE =
   "사이트가 자동 수집을 차단했거나 접속할 수 없습니다. 공고 내용을 직접 붙여넣어 주세요.";
-
-// ── SSRF 가드 ────────────────────────────────────────────────────────────────
-// 사설/루프백/링크로컬 대역으로 해석되는 호스트를 차단한다.
-function isPrivateIp(ip: string): boolean {
-  const type = net.isIP(ip);
-  if (type === 4) {
-    const parts = ip.split(".").map((n) => parseInt(n, 10));
-    const [a, b] = parts;
-    if (a === 127) return true;                       // 127.0.0.0/8 loopback
-    if (a === 10) return true;                         // 10.0.0.0/8
-    if (a === 172 && b >= 16 && b <= 31) return true;  // 172.16.0.0/12
-    if (a === 192 && b === 168) return true;           // 192.168.0.0/16
-    if (a === 169 && b === 254) return true;           // 169.254.0.0/16 link-local
-    if (a === 0) return true;                          // 0.0.0.0/8
-    return false;
-  }
-  if (type === 6) {
-    const lower = ip.toLowerCase();
-    if (lower === "::1") return true;                  // loopback
-    if (lower === "::") return true;
-    if (lower.startsWith("fe80")) return true;         // link-local
-    if (lower.startsWith("fc") || lower.startsWith("fd")) return true; // unique-local
-    // IPv4-mapped ::ffff:a.b.c.d
-    const mapped = lower.match(/::ffff:(\d+\.\d+\.\d+\.\d+)$/);
-    if (mapped) return isPrivateIp(mapped[1]);
-    return false;
-  }
-  return false;
-}
-
-/**
- * URL을 검증하고(http/https만), 호스트가 사설/루프백 대역으로 해석되지 않는지
- * 확인한다. 통과 시 파싱된 URL을 반환, 실패 시 null.
- */
-async function validatePublicUrl(rawUrl: string): Promise<URL | null> {
-  let url: URL;
-  try {
-    url = new URL(rawUrl);
-  } catch {
-    return null;
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") return null;
-
-  const hostname = url.hostname.replace(/^\[|\]$/g, "");
-  const lowerHost = hostname.toLowerCase();
-  if (lowerHost === "localhost" || lowerHost.endsWith(".localhost")) return null;
-
-  // 호스트가 이미 IP 리터럴이면 바로 검사
-  if (net.isIP(hostname)) {
-    return isPrivateIp(hostname) ? null : url;
-  }
-
-  // DNS 해석 후 모든 결과가 공인 대역인지 확인
-  try {
-    const records = await dns.lookup(hostname, { all: true });
-    if (records.length === 0) return null;
-    for (const rec of records) {
-      if (isPrivateIp(rec.address)) return null;
-    }
-  } catch {
-    return null;
-  }
-  return url;
-}
-
-// ── 바이트 상한을 지키며 응답 본문 읽기 ─────────────────────────────────────
-async function readBodyLimited(res: Response, limit: number): Promise<Buffer> {
-  const reader = res.body?.getReader();
-  if (!reader) {
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.byteLength > limit) return buf.subarray(0, limit);
-    return buf;
-  }
-  const chunks: Buffer[] = [];
-  let total = 0;
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) {
-      const chunk = Buffer.from(value);
-      chunks.push(chunk);
-      total += chunk.byteLength;
-      if (total >= limit) {
-        await reader.cancel().catch(() => {});
-        break;
-      }
-    }
-  }
-  return Buffer.concat(chunks).subarray(0, limit);
-}
-
-const MAX_REDIRECT_HOPS = 5;
-
-/**
- * SSRF에 안전한 fetch. redirect:"manual"로 3xx 응답을 직접 처리하여, 각 홉의
- * Location을 현재 URL 기준으로 해석하고 동일한 SSRF 검증(DNS 해석 포함)을
- * 매 홉마다 수행한다. 최대 MAX_REDIRECT_HOPS 홉까지 따라간다.
- * (완전한 DNS 리바인딩 방지 핀닝은 범위 밖 — 각 홉의 해석 주소 검증이 목표.)
- * 검증 실패·홉 초과 시 null 반환. 초기 URL은 이미 검증되었다고 가정한다.
- */
-async function ssrfSafeFetch(
-  initialUrl: URL,
-  init: { headers: Record<string, string>; timeoutMs: number },
-): Promise<globalThis.Response | null> {
-  let current: URL = initialUrl;
-  for (let hop = 0; hop <= MAX_REDIRECT_HOPS; hop++) {
-    const resp = await fetch(current.toString(), {
-      headers: init.headers,
-      redirect: "manual",
-      signal: AbortSignal.timeout(init.timeoutMs),
-    });
-
-    // 3xx 리다이렉트 처리
-    if (resp.status >= 300 && resp.status < 400) {
-      const location = resp.headers.get("location");
-      // 본문은 버린다.
-      await resp.body?.cancel().catch(() => {});
-      if (!location) return resp; // Location 없는 3xx → 그대로 반환
-      if (hop >= MAX_REDIRECT_HOPS) return null; // 홉 초과
-      let nextUrl: URL;
-      try {
-        nextUrl = new URL(location, current);
-      } catch {
-        return null;
-      }
-      const validatedNext = await validatePublicUrl(nextUrl.toString());
-      if (!validatedNext) return null; // 리다이렉트 대상이 사설/차단 대역
-      current = validatedNext;
-      continue;
-    }
-
-    return resp;
-  }
-  return null;
-}
 
 // ── HTML → 읽을 수 있는 텍스트 ──────────────────────────────────────────────
 function extractText($: cheerio.CheerioAPI): string {
@@ -206,6 +70,65 @@ function collectImageUrls($: cheerio.CheerioAPI, pageUrl: URL, max: number): str
   return urls;
 }
 
+// ── 상세 본문 페이지 해석 ────────────────────────────────────────────────────
+// 사람인·잡코리아 등 주요 채용 사이트는 공고 본문을 별도 상세 페이지(iframe/ajax)로
+// 로드하므로, 겉 페이지만 읽으면 내비게이션 문구만 나온다. 알려진 패턴과
+// 같은 호스트의 iframe src를 후보로 수집해 본문을 추가로 가져온다.
+const MAX_DETAIL_PAGES = 2;
+
+interface DetailCandidate {
+  url: string;
+  /** 알려진 사이트 패턴이면 true — 겉 페이지 텍스트보다 무조건 우선한다. */
+  preferred: boolean;
+}
+
+function resolveDetailUrls(pageUrl: URL, $: cheerio.CheerioAPI): DetailCandidate[] {
+  const candidates: DetailCandidate[] = [];
+  const host = pageUrl.hostname.toLowerCase();
+
+  // 사람인: /zf_user/jobs/... view?rec_idx=N → relay/view-detail?rec_idx=N
+  if (host.endsWith("saramin.co.kr")) {
+    const recIdx = pageUrl.searchParams.get("rec_idx");
+    if (recIdx && /^\d+$/.test(recIdx)) {
+      candidates.push({
+        url: `https://www.saramin.co.kr/zf_user/jobs/relay/view-detail?rec_idx=${recIdx}&rec_seq=0`,
+        preferred: true,
+      });
+    }
+  }
+
+  // 잡코리아: /Recruit/GI_Read/N → /Recruit/GI_Read_Comt_Ifrm?Gno=N
+  if (host.endsWith("jobkorea.co.kr")) {
+    const m = pageUrl.pathname.match(/\/Recruit\/GI_Read\/(\d+)/i);
+    if (m) {
+      candidates.push({
+        url: `https://www.jobkorea.co.kr/Recruit/GI_Read_Comt_Ifrm?Gno=${m[1]}`,
+        preferred: true,
+      });
+    }
+  }
+
+  // 일반: 같은 호스트(또는 상위 도메인 공유)의 iframe src
+  $("iframe[src]").each((_, el) => {
+    const raw = ($(el).attr("src") || "").trim();
+    if (!raw || raw === "about:blank" || raw.startsWith("javascript:")) return;
+    try {
+      const abs = new URL(raw, pageUrl);
+      const baseDomain = host.split(".").slice(-2).join(".");
+      if (abs.hostname.toLowerCase().endsWith(baseDomain)) {
+        candidates.push({ url: abs.toString(), preferred: false });
+      }
+    } catch {
+      /* 무시 */
+    }
+  });
+
+  const seen = new Set<string>();
+  return candidates
+    .filter((c) => (seen.has(c.url) ? false : (seen.add(c.url), true)))
+    .slice(0, MAX_DETAIL_PAGES);
+}
+
 // ── POST /companies/fetch-posting ────────────────────────────────────────────
 router.post("/companies/fetch-posting", requireAuth, async (req, res): Promise<void> => {
   const { url } = req.body as { url?: string };
@@ -237,7 +160,7 @@ router.post("/companies/fetch-posting", requireAuth, async (req, res): Promise<v
       res.status(502).json({ error: BLOCKED_MESSAGE });
       return;
     }
-    const buf = await readBodyLimited(resp as unknown as Response, MAX_BYTES);
+    const buf = await readBodyLimited(resp, MAX_BYTES);
     html = buf.toString("utf-8");
   } catch (err) {
     logger.warn({ url: validated.toString(), err: (err as Error).message }, "fetch-posting fetch 오류");
@@ -251,12 +174,62 @@ router.post("/companies/fetch-posting", requireAuth, async (req, res): Promise<v
   let text = extractText($);
   let source: "html" | "ocr" = "html";
 
+  // ── 상세 본문 페이지(사람인/잡코리아 iframe·ajax) 추가 수집 ────────────────
+  // img 수집용으로 원본 HTML을 다시 로드해 둔다 (extractText가 DOM을 훼손하므로).
+  const $imgs = cheerio.load(html);
+  const detailUrls = resolveDetailUrls(validated, $imgs);
+  let detailDollar: cheerio.CheerioAPI | null = null;
+  let detailPageUrl: URL | null = null;
+  for (const candidate of detailUrls) {
+    const detailValidated = await validatePublicUrl(candidate.url);
+    if (!detailValidated) continue;
+    try {
+      const detailResp = await ssrfSafeFetch(detailValidated, {
+        headers: {
+          "User-Agent": BROWSER_UA,
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8",
+          "Referer": validated.toString(),
+        },
+        timeoutMs: FETCH_TIMEOUT_MS,
+      });
+      if (!detailResp || !detailResp.ok) continue;
+      const detailBuf = await readBodyLimited(detailResp, MAX_BYTES);
+      const detailHtml = detailBuf.toString("utf-8");
+      const $detailImgs = cheerio.load(detailHtml);
+      const detailText = extractText(cheerio.load(detailHtml));
+      // 알려진 사이트 패턴의 상세 페이지는 공고 본문 그 자체이므로 겉 페이지
+      // (내비게이션 텍스트)보다 항상 우선한다. 본문이 짧으면(이미지 공고)
+      // 짧은 그대로 채택해 아래 OCR 폴백이 상세 페이지 이미지로 동작하게 한다.
+      if (candidate.preferred) {
+        text = detailText;
+        detailDollar = $detailImgs;
+        detailPageUrl = detailValidated;
+        break;
+      }
+      // 일반 iframe은 겉 페이지보다 길고 유의미할 때만 사용.
+      if (detailText.length >= MIN_TEXT_LEN && detailText.length > text.length) {
+        text = detailText;
+        detailDollar = $detailImgs;
+        detailPageUrl = detailValidated;
+        break;
+      }
+      if (!detailDollar) {
+        detailDollar = $detailImgs;
+        detailPageUrl = detailValidated;
+      }
+    } catch (err) {
+      logger.warn({ detailUrl: candidate.url, err: (err as Error).message }, "fetch-posting 상세 페이지 수집 실패");
+    }
+  }
+
   // ── 텍스트가 부족하면 이미지 OCR 시도 ──────────────────────────────────────
   if (text.length < MIN_TEXT_LEN) {
-    // cheerio.load(html) 에서 extractText가 script/style을 제거했으므로 img 수집은
-    // 원본 HTML을 다시 로드해서 진행한다.
-    const $imgs = cheerio.load(html);
-    const imgUrls = collectImageUrls($imgs, validated, MAX_OCR_IMAGES);
+    // 상세 페이지가 있으면 그쪽 이미지를 우선 사용 (본문 이미지가 거기 있음)
+    const imgUrls =
+      detailDollar && detailPageUrl
+        ? collectImageUrls(detailDollar, detailPageUrl, MAX_OCR_IMAGES)
+        : collectImageUrls($imgs, validated, MAX_OCR_IMAGES);
     const ocrParts: string[] = [];
 
     for (const imgUrl of imgUrls) {
@@ -274,7 +247,7 @@ router.post("/companies/fetch-posting", requireAuth, async (req, res): Promise<v
         if (!imgResp || !imgResp.ok) continue;
         const contentType = (imgResp.headers.get("content-type") || "").toLowerCase();
         if (!contentType.startsWith("image/")) continue;
-        const imgBuf = await readBodyLimited(imgResp as unknown as Response, MAX_BYTES);
+        const imgBuf = await readBodyLimited(imgResp, MAX_BYTES);
         if (imgBuf.byteLength === 0) continue;
         const mime = contentType.split(";")[0].trim() || "image/png";
         const ocrText = await ocrImageBuffer(imgBuf, mime);
@@ -292,6 +265,17 @@ router.post("/companies/fetch-posting", requireAuth, async (req, res): Promise<v
         source = "ocr";
       }
     }
+  }
+
+  // 최종적으로 읽어낸 본문이 사실상 없으면(빈 페이지·삭제된 공고·스크립트 전용
+  // 페이지) 빈 성공 응답 대신 한국어 안내를 반환한다.
+  if (collapseWhitespace(text).length < 30) {
+    logger.warn({ url: validated.toString() }, "fetch-posting 본문 추출 실패(내용 없음)");
+    res.status(422).json({
+      error:
+        "페이지에서 공고 내용을 읽지 못했습니다. 공고가 마감·삭제되었거나 스크립트로만 표시되는 페이지일 수 있습니다. 공고 내용을 직접 붙여넣어 주세요.",
+    });
+    return;
   }
 
   res.json({ ok: true, text, source, ...(title ? { title } : {}) });

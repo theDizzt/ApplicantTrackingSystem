@@ -5,4 +5,6 @@
 - [실제 Ollama 스모크 테스트 방법](real-ollama-smoke.md) — Replit에서 진짜 Ollama 바이너리로 pull/취소/삭제 검증 가능; 백그라운드 프로세스는 ShellExec 세션과 함께 죽으니 한 세션 안에서 실행
 - [VM 설치 스크립트 검증 방법](vm-install-validation.md) — Replit에서 docker+systemd 컨테이너로 install.sh 실검증 가능; libc6/postgres 함정과 psql_as_postgres 헬퍼 규칙
 - [로컬/온프렘 배포 함정](local-deploy-gotchas.md) — Docker는 Debian(slim)만 가능(musl 바이너리 제외됨); 세션 쿠키는 secure:"auto"+X-Forwarded-Proto 패스스루 유지
+- [SSRF 가드 패턴](ssrf-guard-pattern.md) — 사용자 URL fetch는 safe-fetch.ts 재사용; 16진 IPv4-매핑 IPv6·DNS 리바인딩까지 막아야 리뷰 통과
+- [채용 사이트 공고 본문 수집](job-portal-detail-pages.md) — 사람인/잡코리아 본문은 별도 상세 URL에 있음; 겉 페이지 내비 텍스트가 길이 휴리스틱을 속이므로 상세 페이지를 무조건 우선할 것
 - [api-server 통합 테스트 패턴](api-server-test-mocks.md) — admin 라우터를 vitest에서 직접 띄우는 법: db/미들웨어/openai 모듈 mock + 가짜 Ollama(11434) + 레지스트리 fetch stub
