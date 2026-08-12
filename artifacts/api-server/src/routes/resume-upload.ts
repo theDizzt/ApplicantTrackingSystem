@@ -9,6 +9,7 @@ import { db, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import { getAI } from "../lib/openai";
+import { ocrPdfBuffer, VisionOcrError } from "../lib/vision-ocr";
 
 const execFileAsync = promisify(execFile);
 const router: IRouter = Router();
@@ -97,8 +98,8 @@ router.post("/resumes/upload", requireAuth, upload.single("file"), async (req, r
     return;
   }
 
-  // multer 파일명 Latin-1 → UTF-8 재인코딩
-  const originalName = Buffer.from(req.file.originalname, "latin1").toString("utf8");
+  // multer 파일명 Latin-1 → UTF-8 재인코딩 + macOS NFD → NFC 정규화
+  const originalName = Buffer.from(req.file.originalname, "latin1").toString("utf8").normalize("NFC");
   const ext = path.extname(originalName).toLowerCase();
   let rawText = "";
 
@@ -114,22 +115,52 @@ router.post("/resumes/upload", requireAuth, upload.single("file"), async (req, r
     return;
   }
 
-  if (!rawText.trim()) {
-    res.status(422).json({ error: "파일에서 텍스트를 추출할 수 없습니다. 스캔된 이미지 PDF이거나 빈 파일일 수 있습니다." });
-    return;
+  const blankTextMessage =
+    "파일에서 텍스트를 추출할 수 없습니다. 스캔된 이미지 PDF이거나 빈 파일일 수 있습니다.";
+
+  // 텍스트가 비었거나 너무 짧으면(스캔/이미지 PDF 가능성) 비전 OCR로 폴백
+  if (rawText.trim().length < 30) {
+    if (ext === ".pdf") {
+      logger.info("pdftotext returned blank/short text – falling back to vision OCR");
+      try {
+        const ocrText = await ocrPdfBuffer(req.file.buffer);
+        if (ocrText.trim()) {
+          logger.info("Vision OCR fallback succeeded");
+          rawText = ocrText;
+        } else {
+          logger.warn("Vision OCR fallback returned empty text");
+          res.status(422).json({ error: blankTextMessage });
+          return;
+        }
+      } catch (err) {
+        logger.error({ err }, "Vision OCR fallback failed");
+        const message =
+          err instanceof VisionOcrError && err.message ? err.message : blankTextMessage;
+        res.status(422).json({ error: message });
+        return;
+      }
+    } else {
+      res.status(422).json({ error: blankTextMessage });
+      return;
+    }
   }
 
   // AI로 자기소개서 분리 + 표 마크다운 변환
   const { resumeContent, coverLetter } = await splitAndFormatWithAI(rawText);
 
-  const title = (req.body.title as string | undefined)?.trim() || extractTitle(originalName);
+  // macOS에서 생성된 PDF의 텍스트도 NFD일 수 있어 NFC로 정규화
+  const normalizedContent = (resumeContent || rawText).normalize("NFC");
+  const normalizedCoverLetter = coverLetter ? coverLetter.normalize("NFC") : null;
+
+  const rawTitle = (req.body.title as string | undefined)?.trim().normalize("NFC");
+  const title = (rawTitle || extractTitle(originalName)).normalize("NFC");
 
   const [resume] = await db.insert(resumesTable)
     .values({
       userId:      req.session.userId!,
       title,
-      content:     resumeContent || rawText,
-      coverLetter: coverLetter || null,
+      content:     normalizedContent,
+      coverLetter: normalizedCoverLetter,
       photoUrl:    null,
       fileUrl:     null,
     })

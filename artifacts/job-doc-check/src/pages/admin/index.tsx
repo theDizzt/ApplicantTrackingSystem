@@ -260,6 +260,24 @@ type PullProgress = {
   totalBytes: number
 }
 
+type RuntimeStatus = {
+  platformSupported: boolean
+  binaryInstalled: boolean
+  binaryPath: string | null
+  source: "managed" | "system" | null
+  serverUp: boolean
+  managedRunning: boolean
+  installState: {
+    inProgress: boolean
+    status: string
+    percent: number | null
+    completedBytes: number
+    totalBytes: number
+    error: string | null
+    done: boolean
+  } | null
+}
+
 function LocalLLMStatusCard() {
   const [status, setStatus] = useState<LocalStatus | null>(null)
   const [loading, setLoading] = useState(false)
@@ -272,6 +290,13 @@ function LocalLLMStatusCard() {
   const [cleaning, setCleaning] = useState(false)
   const [disk, setDisk] = useState<DiskUsage | null>(null)
   const [modelSize, setModelSize] = useState<{ model: string; sizeBytes: number | null; requiredBytes: number | null } | null>(null)
+  const [runtime, setRuntime] = useState<RuntimeStatus | null>(null)
+  const [installing, setInstalling] = useState(false)
+  const [installProgress, setInstallProgress] = useState<PullProgress | null>(null)
+  const [installCancelling, setInstallCancelling] = useState(false)
+  const [serverStarting, setServerStarting] = useState(false)
+  const [serverStopping, setServerStopping] = useState(false)
+  const [settingBaseUrl, setSettingBaseUrl] = useState(false)
 
   const handleCleanup = useCallback(async () => {
     setCleaning(true)
@@ -308,6 +333,10 @@ function LocalLLMStatusCard() {
     try {
       setModelSize(await api("/admin/settings/ai/model-size"))
     } catch { setModelSize(null) }
+    // 로컬 런타임(설치/서버 실행) 상태 — 조회 실패해도 카드 자체는 동작
+    try {
+      setRuntime(await api("/admin/settings/ai/local-runtime"))
+    } catch { setRuntime(null) }
   }, [])
 
   // 서버의 pull 진행 상태를 폴링 — 완료/실패 시 종료
@@ -394,6 +423,133 @@ function LocalLLMStatusCard() {
     }
   }, [])
 
+  // 서버의 설치 진행 상태를 폴링 — 완료/실패/취소 시 종료
+  const pollInstallStatus = useCallback(async (): Promise<void> => {
+    while (true) {
+      let d: any
+      try {
+        d = await api("/admin/settings/ai/local-install/status")
+      } catch {
+        await new Promise((r) => setTimeout(r, 2000))
+        continue
+      }
+      if (!d.active) break
+      setInstallProgress({
+        status: String(d.status ?? ""),
+        percent: d.percent ?? null,
+        completedBytes: Number(d.completedBytes ?? 0),
+        totalBytes: Number(d.totalBytes ?? 0),
+      })
+      if (!d.inProgress) {
+        if (d.cancelled) toast.info("Ollama 설치가 취소되었습니다.")
+        else if (d.error) toast.error(`Ollama 설치 실패: ${d.error}`)
+        else if (d.done) toast.success("Ollama 설치가 완료되었습니다.")
+        break
+      }
+      await new Promise((r) => setTimeout(r, 1500))
+    }
+    setInstalling(false)
+    setInstallProgress(null)
+    refresh()
+  }, [refresh])
+
+  const handleInstall = useCallback(async () => {
+    setInstalling(true)
+    setInstallProgress({ status: "요청 중...", percent: null, completedBytes: 0, totalBytes: 0 })
+    try {
+      await api("/admin/settings/ai/local-install", { method: "POST" })
+      await pollInstallStatus()
+    } catch (e: any) {
+      toast.error(`Ollama 설치 실패: ${e.message}`)
+      setInstalling(false)
+      setInstallProgress(null)
+    }
+  }, [pollInstallStatus])
+
+  const handleCancelInstall = useCallback(async () => {
+    setInstallCancelling(true)
+    try {
+      await api("/admin/settings/ai/local-install/cancel", { method: "POST" })
+    } catch (e: any) {
+      toast.error(`설치 취소 실패: ${e.message}`)
+    } finally {
+      setInstallCancelling(false)
+    }
+  }, [])
+
+  // 페이지 재진입 시 진행 중인 설치가 있으면 진행률 표시 재개
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const d: any = await api("/admin/settings/ai/local-install/status")
+        if (!cancelled && d.active && d.inProgress) {
+          setInstalling(true)
+          setInstallProgress({
+            status: String(d.status ?? ""),
+            percent: d.percent ?? null,
+            completedBytes: Number(d.completedBytes ?? 0),
+            totalBytes: Number(d.totalBytes ?? 0),
+          })
+          pollInstallStatus()
+        }
+      } catch { /* 무시 */ }
+    })()
+    return () => { cancelled = true }
+  }, [pollInstallStatus])
+
+  const handleStartServer = useCallback(async () => {
+    setServerStarting(true)
+    try {
+      const d = await api("/admin/settings/ai/local-server/start", { method: "POST" })
+      if (d.alreadyUp) toast.info("로컬 AI 서버가 이미 실행 중입니다.")
+      else toast.success("로컬 AI 서버가 시작되었습니다.")
+      await refresh()
+    } catch (e: any) {
+      toast.error(`로컬 AI 서버 시작 실패: ${e.message}`)
+    } finally {
+      setServerStarting(false)
+    }
+  }, [refresh])
+
+  const handleStopServer = useCallback(async () => {
+    if (!window.confirm("로컬 AI 서버를 중지할까요? 심사 기능이 동작하지 않게 됩니다.")) return
+    setServerStopping(true)
+    try {
+      await api("/admin/settings/ai/local-server/stop", { method: "POST" })
+      toast.success("로컬 AI 서버가 중지되었습니다.")
+      await refresh()
+    } catch (e: any) {
+      toast.error(`로컬 AI 서버 중지 실패: ${e.message}`)
+    } finally {
+      setServerStopping(false)
+    }
+  }, [refresh])
+
+  const handleSetLocalBaseUrl = useCallback(async () => {
+    setSettingBaseUrl(true)
+    try {
+      let hasApiKey = false
+      try {
+        const cfg = await api("/admin/settings/ai")
+        hasApiKey = !!cfg.hasApiKey
+      } catch { /* 조회 실패 시 apiKey 함께 설정 */ }
+      await api("/admin/settings/ai", {
+        method: "PUT",
+        body: JSON.stringify({
+          baseUrl: "http://localhost:11434/v1",
+          ...(hasApiKey ? {} : { apiKey: "ollama" }),
+        }),
+      })
+      toast.success("Base URL이 로컬 Ollama로 설정되었습니다.")
+      await refresh()
+    } catch (e: any) {
+      toast.error(`Base URL 설정 실패: ${e.message}`)
+    } finally {
+      setSettingBaseUrl(false)
+    }
+  }, [refresh])
+
   const handleUseModel = useCallback(async (name: string) => {
     setSwitching(name)
     try {
@@ -448,13 +604,115 @@ function LocalLLMStatusCard() {
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
+        {/* 관리형 Ollama 설치/실행 관리 — 항상 표시 */}
+        {runtime && (
+          <div className="rounded-md border border-slate-700 bg-slate-950 px-3 py-3 space-y-3">
+            {!runtime.platformSupported ? (
+              <p className="text-xs text-slate-500">
+                자동 설치는 Linux(x64) 서버에서만 지원됩니다.
+              </p>
+            ) : !runtime.binaryInstalled ? (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-300">
+                  로컬 AI(Ollama)가 설치되어 있지 않습니다. 아래 버튼으로 서버에 자동 설치할 수 있습니다.
+                </p>
+                {installing && installProgress && (
+                  <div className="space-y-1">
+                    <div className="flex items-center justify-between text-[11px] text-slate-300">
+                      <span>{installProgress.status}</span>
+                      <span>
+                        {installProgress.percent !== null
+                          ? `${installProgress.percent}% (${formatGB(installProgress.completedBytes) || "0GB"} / ${formatGB(installProgress.totalBytes)})`
+                          : ""}
+                      </span>
+                    </div>
+                    <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
+                      <div
+                        className={`h-full rounded-full bg-primary transition-all ${installProgress.percent === null ? "w-1/3 animate-pulse" : ""}`}
+                        style={installProgress.percent !== null ? { width: `${installProgress.percent}%` } : undefined}
+                      />
+                    </div>
+                  </div>
+                )}
+                <div className="flex items-center gap-2">
+                  <Button size="sm" onClick={handleInstall} disabled={installing}>
+                    <Download className="h-3.5 w-3.5 mr-1.5" />
+                    {installing ? "설치 중..." : "Ollama 설치"}
+                  </Button>
+                  {installing && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="border-slate-700 text-slate-300"
+                      disabled={installCancelling}
+                      onClick={handleCancelInstall}
+                    >
+                      <X className="h-3.5 w-3.5 mr-1.5" />
+                      {installCancelling ? "취소 중..." : "취소"}
+                    </Button>
+                  )}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-xs text-slate-300">
+                    로컬 AI(Ollama) 설치됨
+                    {runtime.source === "system" && <span className="text-slate-500"> (시스템 설치)</span>}
+                  </span>
+                  {runtime.serverUp ? (
+                    runtime.managedRunning ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-0.5 bg-emerald-950/60 text-emerald-300 border border-emerald-800">
+                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                        실행 중 (관리형)
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-0.5 bg-slate-800 text-slate-300 border border-slate-700">
+                        <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                        실행 중 (외부 프로세스)
+                      </span>
+                    )
+                  ) : null}
+                </div>
+                {!runtime.serverUp && (
+                  <Button size="sm" onClick={handleStartServer} disabled={serverStarting}>
+                    {serverStarting ? "시작 중..." : "로컬 AI 서버 시작"}
+                  </Button>
+                )}
+                {runtime.serverUp && runtime.managedRunning && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="border-slate-700 text-slate-300"
+                    disabled={serverStopping}
+                    onClick={handleStopServer}
+                  >
+                    {serverStopping ? "중지 중..." : "서버 중지"}
+                  </Button>
+                )}
+                {runtime.serverUp && status && !status.isLocal && (
+                  <div className="text-xs rounded-md border border-amber-800 bg-amber-950/50 text-amber-300 px-3 py-2 space-y-2">
+                    <p>로컬 AI 서버는 실행 중이지만, 심사에 사용할 Base URL이 로컬로 설정되어 있지 않습니다.</p>
+                    <Button size="sm" onClick={handleSetLocalBaseUrl} disabled={settingBaseUrl}>
+                      {settingBaseUrl ? "설정 중..." : "Base URL을 로컬로 설정"}
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
         {!status ? (
           <div className="text-slate-400 text-sm">상태 확인 중...</div>
         ) : (
           !status.isLocal ? (
             <div className="text-xs rounded-md border border-slate-700 bg-slate-950 text-slate-400 px-3 py-2 space-y-1">
               <p>현재 로컬 AI(Ollama)가 설정되어 있지 않습니다{status.baseUrl ? <> — 설정된 Base URL: <code className="text-slate-300">{status.baseUrl}</code></> : ""}.</p>
-              <p>로컬 AI를 사용하려면 서버에서 <code className="text-slate-200">bash install.sh --ollama</code>로 설치한 뒤, 아래 AI 공급자 설정에서 Base URL을 <code className="text-slate-200">http://localhost:11434/v1</code>로 지정하세요.</p>
+              {runtime && !runtime.platformSupported ? (
+                <p>이 서버는 자동 설치를 지원하지 않습니다. 서버에서 <code className="text-slate-200">bash install.sh --ollama</code>로 설치한 뒤, 아래 AI 공급자 설정에서 Base URL을 <code className="text-slate-200">http://localhost:11434/v1</code>로 지정하세요.</p>
+              ) : (
+                <p>위의 설치/서버 관리 버튼으로 로컬 AI를 설치·시작한 뒤, <code className="text-slate-200">Base URL을 로컬로 설정</code> 버튼으로 심사에 연결하세요.</p>
+              )}
             </div>
           ) : (
           <>
@@ -494,8 +752,14 @@ function LocalLLMStatusCard() {
             {!status.serverUp && (
               <div className="text-xs rounded-md border border-red-800 bg-red-950/50 text-red-300 px-3 py-2 space-y-1">
                 <p>Ollama 서버에 연결할 수 없습니다{status.error ? ` — ${status.error}` : ""}.</p>
-                <p>터미널에서 아래 명령으로 로컬 AI를 (재)설치하세요:</p>
-                <code className="block bg-slate-950 rounded px-2 py-1 text-slate-200">bash install.sh --ollama</code>
+                {runtime && !runtime.platformSupported ? (
+                  <>
+                    <p>터미널에서 아래 명령으로 로컬 AI를 (재)설치하세요:</p>
+                    <code className="block bg-slate-950 rounded px-2 py-1 text-slate-200">bash install.sh --ollama</code>
+                  </>
+                ) : (
+                  <p>위의 서버 관리 영역에서 <code className="text-red-200">로컬 AI 서버 시작</code> 버튼으로 서버를 실행하세요.</p>
+                )}
               </div>
             )}
             {status.serverUp && !status.modelInstalled && (
@@ -677,6 +941,18 @@ export function AISettingsTab() {
   const [apiKey, setApiKey] = useState("")
   const [baseUrl, setBaseUrl] = useState("")
   const [model, setModel] = useState("")
+  // 보조 심사 모델 (선택)
+  const [apiKey2Masked, setApiKey2Masked] = useState("")
+  const [hasApiKey2, setHasApiKey2] = useState(false)
+  const [apiKey2, setApiKey2] = useState("")
+  const [baseUrl2, setBaseUrl2] = useState("")
+  const [model2, setModel2] = useState("")
+  const [apiKey3Masked, setApiKey3Masked] = useState("")
+  const [hasApiKey3, setHasApiKey3] = useState(false)
+  const [apiKey3, setApiKey3] = useState("")
+  const [baseUrl3, setBaseUrl3] = useState("")
+  const [model3, setModel3] = useState("")
+  const [showSecondary, setShowSecondary] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null)
@@ -743,6 +1019,15 @@ export function AISettingsTab() {
       setHasApiKey(d.hasApiKey)
       setBaseUrl(d.baseUrl)
       setModel(d.model)
+      setApiKey2Masked(d.apiKey2Masked ?? "")
+      setHasApiKey2(!!d.hasApiKey2)
+      setBaseUrl2(d.baseUrl2 ?? "")
+      setModel2(d.model2 ?? "")
+      setApiKey3Masked(d.apiKey3Masked ?? "")
+      setHasApiKey3(!!d.hasApiKey3)
+      setBaseUrl3(d.baseUrl3 ?? "")
+      setModel3(d.model3 ?? "")
+      if (d.model2 || d.model3) setShowSecondary(true)
       setLoaded(true)
     } catch (e: any) { toast.error(e.message) }
   }, [])
@@ -762,12 +1047,20 @@ export function AISettingsTab() {
           ...(apiKey ? { apiKey } : {}),
           baseUrl,
           model,
+          ...(apiKey2 ? { apiKey2 } : {}),
+          baseUrl2,
+          model2,
+          ...(apiKey3 ? { apiKey3 } : {}),
+          baseUrl3,
+          model3,
           ...(force ? { force: true } : {}),
         }),
       })
       setForceConfirm(null)
       toast.success("AI 설정이 저장되었습니다.")
       setApiKey("")
+      setApiKey2("")
+      setApiKey3("")
       load()
       loadHealth()
     } catch (e: any) {
@@ -911,6 +1204,89 @@ export function AISettingsTab() {
                 이 모델의 예상 크기를 확인할 수 없습니다 (Ollama 공식 레지스트리 모델만 조회 가능).
               </p>
             ) : null
+          )}
+        </div>
+        {/* ── 보조 심사 모델 (선택) ── */}
+        <div className="border-t border-slate-800 pt-4">
+          <button
+            type="button"
+            onClick={() => setShowSecondary((v) => !v)}
+            className="flex items-center gap-1.5 text-sm font-medium text-slate-300 hover:text-white"
+          >
+            <ChevronDown className={`h-4 w-4 transition-transform ${showSecondary ? "rotate-180" : ""}`} />
+            보조 심사 모델 (선택)
+          </button>
+          {showSecondary && (
+            <div className="mt-3 space-y-5">
+              <p className="text-xs text-slate-400 leading-relaxed">
+                보조 모델을 등록하면 심사 시 3개 모델의 의견이 함께 표시됩니다 (심사 시간·비용 증가).
+                모델명을 비우면 해당 보조 모델은 사용되지 않습니다.
+              </p>
+              {/* 보조 모델 2 */}
+              <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                <p className="text-xs font-semibold text-slate-300">보조 모델 2</p>
+                <div className="space-y-2">
+                  <Label className="text-slate-400 text-xs">API 키</Label>
+                  <Input
+                    type="password"
+                    value={apiKey2}
+                    onChange={(e) => setApiKey2(e.target.value)}
+                    placeholder={hasApiKey2 ? `현재: ${apiKey2Masked} (변경 시에만 입력)` : "sk-... 또는 ollama"}
+                    className="bg-slate-950 border-slate-700 text-white"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-400 text-xs">Base URL</Label>
+                  <Input
+                    value={baseUrl2}
+                    onChange={(e) => setBaseUrl2(e.target.value)}
+                    placeholder="https://api.openai.com/v1 또는 http://localhost:11434/v1"
+                    className="bg-slate-950 border-slate-700 text-white"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-400 text-xs">모델명</Label>
+                  <Input
+                    value={model2}
+                    onChange={(e) => setModel2(e.target.value)}
+                    placeholder="gpt-5.6-luna 또는 qwen2.5:14b"
+                    className="bg-slate-950 border-slate-700 text-white"
+                  />
+                </div>
+              </div>
+              {/* 보조 모델 3 */}
+              <div className="space-y-3 rounded-lg border border-slate-800 bg-slate-950/40 p-3">
+                <p className="text-xs font-semibold text-slate-300">보조 모델 3</p>
+                <div className="space-y-2">
+                  <Label className="text-slate-400 text-xs">API 키</Label>
+                  <Input
+                    type="password"
+                    value={apiKey3}
+                    onChange={(e) => setApiKey3(e.target.value)}
+                    placeholder={hasApiKey3 ? `현재: ${apiKey3Masked} (변경 시에만 입력)` : "sk-... 또는 ollama"}
+                    className="bg-slate-950 border-slate-700 text-white"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-400 text-xs">Base URL</Label>
+                  <Input
+                    value={baseUrl3}
+                    onChange={(e) => setBaseUrl3(e.target.value)}
+                    placeholder="https://api.openai.com/v1 또는 http://localhost:11434/v1"
+                    className="bg-slate-950 border-slate-700 text-white"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label className="text-slate-400 text-xs">모델명</Label>
+                  <Input
+                    value={model3}
+                    onChange={(e) => setModel3(e.target.value)}
+                    placeholder="gpt-5.6-luna 또는 qwen2.5:14b"
+                    className="bg-slate-950 border-slate-700 text-white"
+                  />
+                </div>
+              </div>
+            </div>
           )}
         </div>
         {testResult && (

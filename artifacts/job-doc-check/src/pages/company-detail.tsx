@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState } from "react"
 import { useLocation, useParams } from "wouter"
 import { useForm, Controller } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
@@ -20,7 +20,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ChevronLeft, Save } from "lucide-react"
+import { ChevronLeft, Save, Download, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
 
 // ── 옵션 정의 ────────────────────────────────────────────────────────────────
@@ -110,6 +110,55 @@ export default function CompanyDetail() {
 
   const createCompany = useCreateCompany()
   const updateCompany = useUpdateCompany()
+
+  // ── 채용 공고 URL 가져오기 ──────────────────────────────────────────────────
+  const [fetchUrl, setFetchUrl] = useState("")
+  const [isFetchingPosting, setIsFetchingPosting] = useState(false)
+
+  const handleFetchPosting = async () => {
+    const url = fetchUrl.trim()
+    if (!url) { toast.error("채용 공고 URL을 입력해주세요"); return }
+    setIsFetchingPosting(true)
+    try {
+      const res = await fetch("/api/companies/fetch-posting", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        throw new Error(err.error || "공고를 가져오지 못했습니다")
+      }
+      const data: { ok: boolean; text: string; source: "html" | "ocr"; title?: string } = await res.json()
+      const fetched = (data.text || "").trim()
+      if (!fetched) {
+        toast.error("공고에서 텍스트를 추출하지 못했습니다. 내용을 직접 붙여넣어 주세요.")
+        return
+      }
+      const existing = (form.getValues("jobDescription") || "").trim()
+      let next = fetched
+      if (existing) {
+        const append = window.confirm(
+          "기존 채용공고 내용에 가져온 내용을 이어 붙일까요?\n(취소를 누르면 기존 내용을 덮어씁니다)"
+        )
+        next = append ? `${existing}\n\n${fetched}` : fetched
+      }
+      form.setValue("jobDescription", next, { shouldDirty: true, shouldValidate: true })
+      if (!form.getValues("jobPostingUrl")) {
+        form.setValue("jobPostingUrl", url, { shouldDirty: true })
+      }
+      toast.success(
+        data.source === "ocr"
+          ? "이미지 공고를 OCR로 읽어 채용공고 내용에 채웠습니다"
+          : "채용공고 내용을 가져왔습니다"
+      )
+    } catch (err: unknown) {
+      toast.error(err instanceof Error ? err.message : "공고를 가져오지 못했습니다")
+    } finally {
+      setIsFetchingPosting(false)
+    }
+  }
 
   const form = useForm<CompanyForm>({
     resolver: zodResolver(companySchema),
@@ -294,6 +343,39 @@ export default function CompanyDetail() {
               <FormMessage />
             </FormItem>
           )} />
+
+          {/* ── 채용 공고 URL로 가져오기 ── */}
+          <div className="rounded-xl border bg-slate-50/60 p-5 space-y-3">
+            <div>
+              <p className="text-sm font-semibold text-slate-700">채용 공고 URL로 가져오기</p>
+              <p className="text-sm text-muted-foreground mt-1">
+                사람인·잡코리아 등 공고 URL을 입력하면 내용을 자동으로 불러와 아래 채용공고 내용에 채웁니다.
+              </p>
+            </div>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Input
+                placeholder="https://www.saramin.co.kr/..."
+                value={fetchUrl}
+                onChange={(e) => setFetchUrl(e.target.value)}
+                disabled={isFetchingPosting}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") { e.preventDefault(); handleFetchPosting() }
+                }}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                onClick={handleFetchPosting}
+                disabled={isFetchingPosting}
+                className="shrink-0"
+              >
+                {isFetchingPosting
+                  ? <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  : <Download className="w-4 h-4 mr-2" />}
+                {isFetchingPosting ? "가져오는 중..." : "공고 가져오기"}
+              </Button>
+            </div>
+          </div>
 
           <FormField control={form.control} name="jobDescription" render={({ field }) => (
             <FormItem>

@@ -3,13 +3,17 @@ import bcrypt from "bcrypt";
 import { eq, sql, count, sum, gte, and } from "drizzle-orm";
 import { db, usersTable, analysesTable, organizationsTable } from "@workspace/db";
 import { requireAdmin } from "../middlewares/admin";
-import { getAI, getAIConfig, saveSetting, invalidateAICache, checkAIHealth } from "../lib/openai";
+import { getAI, getAIConfig, getSetting, saveSetting, invalidateAICache, checkAIHealth } from "../lib/openai";
 import { getAIHealthStatus } from "../lib/ai-health-monitor";
 
 // Admin credentials (hardcoded — change in production via env vars)
-import { promises as fs } from "node:fs";
+import { promises as fs, createWriteStream, constants as fsConstants } from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "park1058";
 const ADMIN_PASSWORD_HASH =
   process.env.ADMIN_PASSWORD_HASH ??
@@ -218,27 +222,51 @@ router.delete("/admin/organizations/:id", requireAdmin, async (req, res): Promis
 });
 
 // ── AI 설정 (API 키 / Base URL / 모델) ────────────────────────────────────
+function maskApiKey(key: string): string {
+  return key ? key.slice(0, 6) + "…" + key.slice(-4) : "";
+}
+
 router.get("/admin/settings/ai", requireAdmin, async (_req, res): Promise<void> => {
   const config = await getAIConfig();
-  // 키는 마스킹해서 반환
-  const masked = config.apiKey
-    ? config.apiKey.slice(0, 6) + "…" + config.apiKey.slice(-4)
-    : "";
+  const [apiKey2, baseUrl2, model2, apiKey3, baseUrl3, model3] = await Promise.all([
+    getSetting("ai2_api_key"),
+    getSetting("ai2_base_url"),
+    getSetting("ai2_model"),
+    getSetting("ai3_api_key"),
+    getSetting("ai3_base_url"),
+    getSetting("ai3_model"),
+  ]);
   res.json({
-    apiKeyMasked: masked,
+    apiKeyMasked: maskApiKey(config.apiKey),
     hasApiKey: !!config.apiKey,
     baseUrl: config.baseUrl ?? "",
     model: config.model,
+    // 보조 심사 모델 (선택)
+    apiKey2Masked: maskApiKey(apiKey2 ?? ""),
+    hasApiKey2: !!(apiKey2 ?? ""),
+    baseUrl2: baseUrl2 ?? "",
+    model2: model2 ?? "",
+    apiKey3Masked: maskApiKey(apiKey3 ?? ""),
+    hasApiKey3: !!(apiKey3 ?? ""),
+    baseUrl3: baseUrl3 ?? "",
+    model3: model3 ?? "",
   });
 });
 
 router.put("/admin/settings/ai", requireAdmin, async (req, res): Promise<void> => {
-  const { apiKey, baseUrl, model, force } = req.body as {
-    apiKey?: string;
-    baseUrl?: string;
-    model?: string;
-    force?: boolean;
-  };
+  const { apiKey, baseUrl, model, force, apiKey2, baseUrl2, model2, apiKey3, baseUrl3, model3 } =
+    req.body as {
+      apiKey?: string;
+      baseUrl?: string;
+      model?: string;
+      force?: boolean;
+      apiKey2?: string;
+      baseUrl2?: string;
+      model2?: string;
+      apiKey3?: string;
+      baseUrl3?: string;
+      model3?: string;
+    };
   // 로컬(Ollama) 설정에서 레지스트리에 존재하지 않는(not_found) 모델명은
   // force 플래그 없이는 저장을 거부한다. (unknown = 조회 불가 상태는 저장 허용)
   if (model !== undefined && model.trim() !== "" && force !== true) {
@@ -283,6 +311,25 @@ router.put("/admin/settings/ai", requireAdmin, async (req, res): Promise<void> =
   }
   if (model !== undefined) {
     await saveSetting("ai_model", model.trim());
+  }
+  // 보조 심사 모델 — 레지스트리 검증 없이 저장. 빈 문자열은 설정 해제.
+  if (apiKey2 !== undefined && apiKey2 !== "") {
+    await saveSetting("ai2_api_key", apiKey2.trim());
+  }
+  if (baseUrl2 !== undefined) {
+    await saveSetting("ai2_base_url", baseUrl2.trim());
+  }
+  if (model2 !== undefined) {
+    await saveSetting("ai2_model", model2.trim());
+  }
+  if (apiKey3 !== undefined && apiKey3 !== "") {
+    await saveSetting("ai3_api_key", apiKey3.trim());
+  }
+  if (baseUrl3 !== undefined) {
+    await saveSetting("ai3_base_url", baseUrl3.trim());
+  }
+  if (model3 !== undefined) {
+    await saveSetting("ai3_model", model3.trim());
   }
   res.json({ ok: true });
 });
@@ -842,6 +889,396 @@ router.post("/admin/settings/ai/test", requireAdmin, async (_req, res): Promise<
     const message = err instanceof Error ? err.message : String(err);
     res.status(502).json({ ok: false, error: message });
   }
+});
+
+// ── 관리형 Ollama 설치/실행 ─────────────────────────────────────────────
+// 관리자가 UI에서 Ollama 바이너리를 설치하고 서버를 시작/중지할 수 있게 한다.
+// 설치는 공식 tgz를 관리형 디렉터리에 내려받아 압축 해제하는 방식이며,
+// 서버 프로세스는 pid 파일로 추적해 우리가 시작한 프로세스만 중지할 수 있다.
+const OLLAMA_DIR = process.env.OLLAMA_INSTALL_DIR ?? path.join(os.homedir(), ".ats-ollama");
+const OLLAMA_BIN = path.join(OLLAMA_DIR, "bin", "ollama");
+const OLLAMA_PID_FILE = path.join(OLLAMA_DIR, "ollama.pid");
+const OLLAMA_LOG_FILE = path.join(OLLAMA_DIR, "ollama.log");
+const OLLAMA_TGZ_URL = "https://ollama.com/download/ollama-linux-amd64.tgz";
+const OLLAMA_LOCAL_URL = "http://127.0.0.1:11434";
+const MIN_FREE_BYTES_FOR_INSTALL = 6 * 1024 * 1024 * 1024; // 6GB
+
+const runtimePlatformSupported = process.platform === "linux" && process.arch === "x64";
+
+// 관리형 경로 → 시스템 PATH 순으로 Ollama 바이너리를 탐색
+async function findOllamaBinary(): Promise<{ path: string; source: "managed" | "system" } | null> {
+  try {
+    await fs.access(OLLAMA_BIN, fsConstants.X_OK);
+    return { path: OLLAMA_BIN, source: "managed" };
+  } catch {
+    // 관리형 경로에 없음 → 시스템 PATH 확인
+  }
+  try {
+    const { stdout } = await execFileAsync("which", ["ollama"]);
+    const p = stdout.trim();
+    if (p) return { path: p, source: "system" };
+  } catch {
+    // PATH에도 없음
+  }
+  return null;
+}
+
+// 127.0.0.1:11434 서버가 응답하는지 확인 (3초 타임아웃)
+async function ollamaServerUp(): Promise<boolean> {
+  try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 3000);
+    const resp = await fetch(`${OLLAMA_LOCAL_URL}/api/tags`, { signal: controller.signal });
+    clearTimeout(timer);
+    return resp.ok;
+  } catch {
+    return false;
+  }
+}
+
+// 프로세스 생존 확인 (신호 0 전송)
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// pid 파일을 읽어 우리가 관리하는 서버가 실행 중인지 확인
+async function readManagedPid(): Promise<number | null> {
+  try {
+    const raw = await fs.readFile(OLLAMA_PID_FILE, "utf8");
+    const pid = parseInt(raw.trim(), 10);
+    if (Number.isFinite(pid) && pid > 0) return pid;
+  } catch {
+    // pid 파일 없음
+  }
+  return null;
+}
+
+async function managedServerRunning(): Promise<boolean> {
+  const pid = await readManagedPid();
+  return pid !== null && pidAlive(pid);
+}
+
+// ── 관리형 설치 진행 상태 (pullState 패턴 미러링) ────────────────────────
+type InstallState = {
+  inProgress: boolean;
+  status: string;
+  completedBytes: number;
+  totalBytes: number;
+  error: string | null;
+  done: boolean;
+  cancelled: boolean;
+  startedAt: number;
+  updatedAt: number;
+  abortController: AbortController;
+};
+
+let installState: InstallState | null = null;
+
+async function runInstall(): Promise<void> {
+  const state: InstallState = {
+    inProgress: true,
+    status: "다운로드 준비 중...",
+    completedBytes: 0,
+    totalBytes: 0,
+    error: null,
+    done: false,
+    cancelled: false,
+    startedAt: Date.now(),
+    updatedAt: Date.now(),
+    abortController: new AbortController(),
+  };
+  installState = state;
+  const ts = Date.now();
+  const tmpPath = path.join(OLLAMA_DIR, `ollama-download-${ts}.tgz`);
+  const stagingDir = path.join(OLLAMA_DIR, `.staging-${ts}`);
+  try {
+    await fs.mkdir(OLLAMA_DIR, { recursive: true });
+    state.status = "다운로드 중...";
+    state.updatedAt = Date.now();
+    const resp = await fetch(OLLAMA_TGZ_URL, { signal: state.abortController.signal });
+    if (!resp.ok || !resp.body) {
+      throw new Error(`다운로드 응답 오류 (HTTP ${resp.status})`);
+    }
+    const contentLength = Number(resp.headers.get("content-length") ?? 0);
+    if (contentLength > 0) state.totalBytes = contentLength;
+    const reader = resp.body.getReader();
+    const out = createWriteStream(tmpPath);
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) {
+          await new Promise<void>((resolve, reject) => {
+            out.write(Buffer.from(value), (err) => (err ? reject(err) : resolve()));
+          });
+          state.completedBytes += value.byteLength;
+          state.updatedAt = Date.now();
+        }
+      }
+    } finally {
+      await new Promise<void>((resolve) => out.end(resolve));
+    }
+    // 다운로드 완료 보정
+    if (state.totalBytes > 0) state.completedBytes = state.totalBytes;
+
+    state.status = "설치 파일 검증 중...";
+    state.updatedAt = Date.now();
+    // 추출 전 아카이브 엔트리 검증 (경로 순회/절대 경로 공격 방지):
+    // 절대 경로, '..' 세그먼트, bin/·lib/ 이외 최상위 경로는 거부한다.
+    const { stdout: listing } = await execFileAsync("tar", ["-tzf", tmpPath]);
+    const entries = listing.split("\n").map((l) => l.trim()).filter(Boolean);
+    if (entries.length === 0) {
+      throw new Error("다운로드한 설치 파일에 비정상 경로가 포함되어 있습니다.");
+    }
+    for (const entry of entries) {
+      const normalized = entry.replace(/^\.\//, "");
+      const isAbsolute = normalized.startsWith("/");
+      const hasDotDot = normalized.split("/").some((seg) => seg === "..");
+      const allowedPrefix = normalized.startsWith("bin/") || normalized.startsWith("lib/");
+      if (isAbsolute || hasDotDot || !allowedPrefix) {
+        throw new Error("다운로드한 설치 파일에 비정상 경로가 포함되어 있습니다.");
+      }
+    }
+
+    state.status = "압축 해제 중...";
+    state.updatedAt = Date.now();
+    // 검증된 아카이브를 새 스테이징 디렉터리에 해제한 뒤, 바이너리 확인 후
+    // bin/·lib/ 만 OLLAMA_DIR로 원자적으로 이동한다 (기존 설치 교체).
+    await fs.mkdir(stagingDir, { recursive: true });
+    await execFileAsync("tar", ["-xzf", tmpPath, "-C", stagingDir]);
+    const stagedBin = path.join(stagingDir, "bin", "ollama");
+    try {
+      await fs.access(stagedBin);
+    } catch {
+      throw new Error("다운로드한 설치 파일에서 ollama 바이너리를 찾을 수 없습니다.");
+    }
+    // bin/, lib/ 를 OLLAMA_DIR로 이동 (기존 항목 제거 후 교체)
+    for (const sub of ["bin", "lib"]) {
+      const src = path.join(stagingDir, sub);
+      try {
+        await fs.access(src);
+      } catch {
+        continue; // 아카이브에 해당 디렉터리가 없으면 건너뜀
+      }
+      const dest = path.join(OLLAMA_DIR, sub);
+      await fs.rm(dest, { recursive: true, force: true });
+      await fs.rename(src, dest);
+    }
+    // 스테이징·임시 파일 정리
+    await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+    // 바이너리 실행 권한 부여
+    await fs.chmod(OLLAMA_BIN, 0o755).catch(() => {});
+    // 임시 파일 삭제
+    await fs.unlink(tmpPath).catch(() => {});
+
+    state.done = true;
+    state.status = "완료";
+    if (state.totalBytes <= 0) { state.totalBytes = 1; state.completedBytes = 1; }
+  } catch (err) {
+    // 임시 파일·스테이징 디렉터리 정리
+    await fs.unlink(tmpPath).catch(() => {});
+    await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => {});
+    if (state.cancelled || (err instanceof Error && err.name === "AbortError")) {
+      state.cancelled = true;
+      state.status = "취소됨";
+    } else {
+      state.error = `설치 실패: ${err instanceof Error ? err.message : String(err)}`;
+      state.status = "실패";
+    }
+  } finally {
+    state.inProgress = false;
+    state.updatedAt = Date.now();
+  }
+}
+
+// 로컬 런타임 종합 상태 조회
+router.get("/admin/settings/ai/local-runtime", requireAdmin, async (_req, res): Promise<void> => {
+  const binary = await findOllamaBinary();
+  const [serverUp, managedRunning] = await Promise.all([
+    ollamaServerUp(),
+    managedServerRunning(),
+  ]);
+  const s = installState;
+  res.json({
+    platformSupported: runtimePlatformSupported,
+    binaryInstalled: binary !== null,
+    binaryPath: binary?.path ?? null,
+    source: binary?.source ?? null,
+    serverUp,
+    managedRunning: managedRunning && serverUp,
+    installState: s
+      ? {
+          inProgress: s.inProgress,
+          status: s.status,
+          percent: s.totalBytes > 0 ? Math.min(100, Math.round((s.completedBytes / s.totalBytes) * 100)) : null,
+          completedBytes: s.completedBytes,
+          totalBytes: s.totalBytes,
+          error: s.error,
+          done: s.done,
+        }
+      : null,
+  });
+});
+
+// 관리형 Ollama 설치 시작
+router.post("/admin/settings/ai/local-install", requireAdmin, async (_req, res): Promise<void> => {
+  if (!runtimePlatformSupported) {
+    res.status(400).json({ error: "자동 설치는 Linux(x64) 서버에서만 지원됩니다." });
+    return;
+  }
+  const binary = await findOllamaBinary();
+  if (binary) {
+    res.status(409).json({ error: "Ollama가 이미 설치되어 있습니다." });
+    return;
+  }
+  if (installState?.inProgress) {
+    res.status(202).json({ ok: true, alreadyRunning: true });
+    return;
+  }
+  // 디스크 여유 공간 확인 (최소 6GB)
+  try {
+    const disk = await getModelDiskUsage();
+    if (disk.freeBytes < MIN_FREE_BYTES_FOR_INSTALL) {
+      const freeGB = (disk.freeBytes / 1024 / 1024 / 1024).toFixed(1);
+      res.status(400).json({
+        error: `디스크 여유 공간이 부족합니다 (남은 공간 ${freeGB}GB, 최소 6GB 필요). 공간을 확보한 뒤 다시 시도하세요.`,
+      });
+      return;
+    }
+  } catch (err) {
+    res.status(400).json({
+      error: `디스크 여유 공간을 확인할 수 없어 설치를 시작하지 않았습니다: ${err instanceof Error ? err.message : String(err)}`,
+    });
+    return;
+  }
+  void runInstall();
+  res.status(202).json({ ok: true, alreadyRunning: false });
+});
+
+// 관리형 설치 진행 상태 조회
+router.get("/admin/settings/ai/local-install/status", requireAdmin, async (_req, res): Promise<void> => {
+  if (!installState) {
+    res.json({ active: false });
+    return;
+  }
+  const s = installState;
+  res.json({
+    active: true,
+    inProgress: s.inProgress,
+    status: s.status,
+    completedBytes: s.completedBytes,
+    totalBytes: s.totalBytes,
+    percent: s.totalBytes > 0 ? Math.min(100, Math.round((s.completedBytes / s.totalBytes) * 100)) : null,
+    error: s.error,
+    done: s.done,
+    cancelled: s.cancelled,
+    startedAt: s.startedAt,
+    updatedAt: s.updatedAt,
+  });
+});
+
+// 관리형 설치 취소
+router.post("/admin/settings/ai/local-install/cancel", requireAdmin, async (_req, res): Promise<void> => {
+  if (!installState || !installState.inProgress) {
+    installState = null;
+    res.json({ ok: true, wasRunning: false });
+    return;
+  }
+  installState.cancelled = true;
+  installState.status = "취소 중...";
+  installState.updatedAt = Date.now();
+  installState.abortController.abort();
+  res.json({ ok: true, wasRunning: true });
+});
+
+// 관리형 Ollama 서버 시작
+router.post("/admin/settings/ai/local-server/start", requireAdmin, async (_req, res): Promise<void> => {
+  const binary = await findOllamaBinary();
+  if (!binary) {
+    res.status(400).json({ error: "Ollama가 설치되어 있지 않습니다. 먼저 설치하세요." });
+    return;
+  }
+  if (await ollamaServerUp()) {
+    res.json({ ok: true, alreadyUp: true });
+    return;
+  }
+  await fs.mkdir(OLLAMA_DIR, { recursive: true });
+  const modelsDir = process.env.OLLAMA_MODELS ?? path.join(OLLAMA_DIR, "models");
+  await fs.mkdir(modelsDir, { recursive: true }).catch(() => {});
+  const logFd = await fs.open(OLLAMA_LOG_FILE, "a");
+  try {
+    const child = spawn(binary.path, ["serve"], {
+      detached: true,
+      stdio: ["ignore", logFd.fd, logFd.fd],
+      env: {
+        ...process.env,
+        OLLAMA_HOST: "127.0.0.1:11434",
+        OLLAMA_MODELS: modelsDir,
+      },
+    });
+    child.unref();
+    if (child.pid) {
+      await fs.writeFile(OLLAMA_PID_FILE, String(child.pid), "utf8");
+    }
+  } finally {
+    await logFd.close();
+  }
+  // 서버가 응답할 때까지 최대 15초 폴링
+  const deadline = Date.now() + 15_000;
+  while (Date.now() < deadline) {
+    await new Promise((r) => setTimeout(r, 1000));
+    if (await ollamaServerUp()) {
+      res.json({ ok: true });
+      return;
+    }
+  }
+  // 실패 → 로그 tail 반환
+  let tail = "";
+  try {
+    const log = await fs.readFile(OLLAMA_LOG_FILE, "utf8");
+    tail = log.slice(-500);
+  } catch {
+    // 로그 없음
+  }
+  res.status(502).json({
+    error: `로컬 AI 서버가 15초 내에 응답하지 않았습니다.${tail ? ` 최근 로그: ${tail}` : ""}`,
+  });
+});
+
+// 관리형 Ollama 서버 중지
+router.post("/admin/settings/ai/local-server/stop", requireAdmin, async (_req, res): Promise<void> => {
+  const pid = await readManagedPid();
+  const serverUp = await ollamaServerUp();
+  if (pid !== null && pidAlive(pid)) {
+    try {
+      process.kill(pid, "SIGTERM");
+    } catch {
+      // 이미 죽었을 수 있음
+    }
+    // 최대 5초 대기 후 SIGKILL
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 500));
+      if (!pidAlive(pid)) break;
+    }
+    if (pidAlive(pid)) {
+      try { process.kill(pid, "SIGKILL"); } catch { /* 무시 */ }
+    }
+    await fs.unlink(OLLAMA_PID_FILE).catch(() => {});
+    res.json({ ok: true, stopped: true });
+    return;
+  }
+  // 우리가 시작한 서버가 아님 (pid 파일 없음/죽음)
+  if (serverUp) {
+    res.status(409).json({ error: "이 서버가 시작한 Ollama가 아닙니다. 서버에서 직접 종료하세요." });
+    return;
+  }
+  res.json({ ok: true, stopped: false });
 });
 
 export default router;

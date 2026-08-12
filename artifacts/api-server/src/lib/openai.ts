@@ -46,6 +46,78 @@ export async function getAIConfig(): Promise<AIConfig> {
 }
 
 /**
+ * 보조(secondary) AI 모델 설정을 조회한다.
+ * settings 키:
+ *   ai2_api_key / ai2_base_url / ai2_model  — 보조 모델 2
+ *   ai3_api_key / ai3_base_url / ai3_model  — 보조 모델 3
+ * 완전히 설정된 항목(모델명 존재 AND (API 키 존재 또는 로컬 baseUrl))만 반환한다.
+ * 기본(primary)과 달리 환경변수 폴백은 하지 않는다.
+ */
+function isLocalBaseUrl(baseUrl: string): boolean {
+  const u = baseUrl.toLowerCase();
+  return u.includes("localhost") || u.includes("127.0.0.1") || u.includes("0.0.0.0");
+}
+
+export async function getSecondaryAIs(): Promise<
+  Array<{ openai: OpenAI; model: string; label: "모델 2" | "모델 3" }>
+> {
+  let map: Record<string, string> = {};
+  try {
+    const rows = await db
+      .select()
+      .from(settingsTable)
+      .where(
+        inArray(settingsTable.key, [
+          "ai2_api_key",
+          "ai2_base_url",
+          "ai2_model",
+          "ai3_api_key",
+          "ai3_base_url",
+          "ai3_model",
+        ]),
+      );
+    map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  } catch {
+    // settings 테이블이 아직 없는 DB에서는 보조 모델 없음
+    return [];
+  }
+
+  const specs: Array<{
+    label: "모델 2" | "모델 3";
+    apiKey: string;
+    baseUrl: string | undefined;
+    model: string;
+  }> = [
+    {
+      label: "모델 2",
+      apiKey: map["ai2_api_key"] || "",
+      baseUrl: map["ai2_base_url"] || undefined,
+      model: map["ai2_model"] || "",
+    },
+    {
+      label: "모델 3",
+      apiKey: map["ai3_api_key"] || "",
+      baseUrl: map["ai3_base_url"] || undefined,
+      model: map["ai3_model"] || "",
+    },
+  ];
+
+  const result: Array<{ openai: OpenAI; model: string; label: "모델 2" | "모델 3" }> = [];
+  for (const spec of specs) {
+    if (!spec.model.trim()) continue;
+    const hasKey = !!spec.apiKey.trim();
+    const localBase = !!spec.baseUrl && isLocalBaseUrl(spec.baseUrl);
+    if (!hasKey && !localBase) continue;
+    const client = new OpenAI({
+      apiKey: spec.apiKey || "local",
+      baseURL: spec.baseUrl,
+    });
+    result.push({ openai: client, model: spec.model.trim(), label: spec.label });
+  }
+  return result;
+}
+
+/**
  * AI 클라이언트와 모델명을 반환한다. 키가 미설정이면 명확한 오류를 던진다.
  * 사용 예: const { openai, model } = await getAI();
  */

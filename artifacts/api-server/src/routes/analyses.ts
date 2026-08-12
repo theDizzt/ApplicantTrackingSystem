@@ -3,9 +3,11 @@ import { eq, and } from "drizzle-orm";
 import { db, analysesTable, resumesTable, companiesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
-import { getAI, checkAIHealth } from "../lib/openai";
+import { getAI, getSecondaryAIs, checkAIHealth } from "../lib/openai";
 import { logger } from "../lib/logger";
 import { extractUrls, analyzeUrls, formatUrlAnalysisForPrompt } from "../lib/url-analyzer";
+import { jobSimilarityScore } from "../lib/similarity";
+import type OpenAI from "openai";
 
 const router: IRouter = Router();
 
@@ -209,6 +211,68 @@ async function callAI(messages: ChatCompletionMessageParam[]): Promise<AIResult>
   };
 }
 
+// ── 모델별 의견 (Task3) ────────────────────────────────────────────────────
+const MODEL_OPINION_SYSTEM =
+  '당신은 채용 서류 심사관입니다. 이력서와 지원 회사 정보를 보고 JSON만 반환하세요: {"score": 0-100, "opinion": "종합 심사 의견 (한국어 4~6문장)", "verdict": "추천" | "보류" | "비추천"}';
+
+interface ModelOpinion {
+  label: string;
+  model: string;
+  score: number;
+  opinion: string;
+  verdict: string;
+}
+
+interface OpinionRaw {
+  opinion: ModelOpinion;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+function sanitizeOpinion(
+  data: Record<string, unknown>,
+  label: string,
+  model: string,
+): ModelOpinion {
+  const rawScore = typeof data.score === "number" ? data.score : 0;
+  const score = Math.max(0, Math.min(100, Math.round(rawScore)));
+  const opinion = typeof data.opinion === "string" ? data.opinion : "";
+  const verdict =
+    data.verdict === "추천" || data.verdict === "보류" || data.verdict === "비추천"
+      ? data.verdict
+      : "보류";
+  return { label, model, score, opinion, verdict };
+}
+
+async function callModelOpinion(
+  client: OpenAI,
+  model: string,
+  label: string,
+  userContent: string,
+): Promise<OpinionRaw> {
+  const response = await client.chat.completions.create({
+    model,
+    messages: [
+      { role: "system", content: MODEL_OPINION_SYSTEM },
+      { role: "user", content: userContent },
+    ],
+    response_format: { type: "json_object" },
+    max_completion_tokens: 800,
+  });
+  const raw = response.choices[0]?.message?.content ?? "{}";
+  let data: Record<string, unknown> = {};
+  try {
+    data = JSON.parse(raw);
+  } catch {
+    /* ignore */
+  }
+  return {
+    opinion: sanitizeOpinion(data, label, model),
+    inputTokens: response.usage?.prompt_tokens ?? 0,
+    outputTokens: response.usage?.completion_tokens ?? 0,
+  };
+}
+
 async function runAnalysis(
   analysisId: number,
   resume: typeof resumesTable.$inferSelect,
@@ -357,8 +421,57 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
   const r1 = res1.data;
   const r2 = res2.data;
   const r3 = res3.data;
-  const totalInputTokens  = res1.inputTokens  + res2.inputTokens  + res3.inputTokens;
-  const totalOutputTokens = res1.outputTokens + res2.outputTokens + res3.outputTokens;
+  let totalInputTokens  = res1.inputTokens  + res2.inputTokens  + res3.inputTokens;
+  let totalOutputTokens = res1.outputTokens + res2.outputTokens + res3.outputTokens;
+
+  const overallScoreNum = typeof r3.overallScore === "number" ? r3.overallScore : 0;
+
+  // ── 모델별 의견 (Task3) ──────────────────────────────────────────────────
+  // 주 모델(모델 1)에도 동일한 단일 프롬프트를 실행하여 의견을 확보한다.
+  // (이 함수에는 주 모델용 단일 스칼라 종합 피드백이 없으므로 별도 호출)
+  const primaryAI = await getAI();
+  const secondaryAIs = await getSecondaryAIs();
+
+  const opinionResults = await Promise.allSettled([
+    callModelOpinion(primaryAI.openai, primaryAI.model, "모델 1(주 모델)", userContent),
+    ...secondaryAIs.map((s) =>
+      callModelOpinion(s.openai, s.model, s.label, userContent),
+    ),
+  ]);
+
+  const modelOpinions: ModelOpinion[] = [];
+  opinionResults.forEach((r, idx) => {
+    if (r.status === "fulfilled") {
+      totalInputTokens += r.value.inputTokens;
+      totalOutputTokens += r.value.outputTokens;
+      const op = r.value.opinion;
+      if (idx === 0) {
+        // 주 모델: score는 overallScore로, opinion은 확보된 종합 의견 사용
+        modelOpinions.push({ ...op, score: Math.max(0, Math.min(100, Math.round(overallScoreNum))) });
+      } else {
+        modelOpinions.push(op);
+      }
+    } else {
+      logger.warn({ analysisId, err: r.reason }, "Model opinion failed (tolerated)");
+    }
+  });
+
+  // ── 직무 문장 유사도 (Task4) ─────────────────────────────────────────────
+  const applicantText =
+    (resume.coverLetter && resume.coverLetter.trim())
+      ? resume.coverLetter
+      : (resume.content ?? "");
+  const jobSimScore = company.jobDescription
+    ? await jobSimilarityScore(company.jobDescription, applicantText)
+    : null;
+  const jobSimilarity: { score: number | null; threshold: number; opinion: string | null } = {
+    score: jobSimScore,
+    threshold: 60,
+    opinion:
+      jobSimScore !== null && jobSimScore <= 60
+        ? `공고의 직무 내용과 지원자의 자기소개서(입사 후 포부 등)의 직무 관련성이 낮습니다 (유사도 ${jobSimScore}점). 지원 직무 이해도를 면접에서 확인해 보세요.`
+        : null,
+  };
 
   const orgFit = r3.organizationalFit as Record<string, unknown> | undefined;
   const salaryRaw = r3.salaryAnalysis as Record<string, unknown> | undefined;
@@ -431,6 +544,8 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
       weaknesses:     Array.isArray(motivRaw?.weaknesses)           ? motivRaw.weaknesses     : [],
       hasCoverLetter: typeof motivRaw?.hasCoverLetter === "boolean" ? motivRaw.hasCoverLetter : false,
     },
+    modelOpinions,
+    jobSimilarity,
   });
 
   await db.update(analysesTable).set({

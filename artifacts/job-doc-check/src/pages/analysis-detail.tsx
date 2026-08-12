@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   ChevronLeft, CheckCircle2, XCircle, AlertTriangle,
-  Link2, ExternalLink, TrendingUp, Banknote, Award, GraduationCap, Heart, RotateCcw,
+  Link2, ExternalLink, TrendingUp, Banknote, Award, GraduationCap, Heart, RotateCcw, Users,
 } from "lucide-react"
 
 // ── 타입 ──────────────────────────────────────────────────────────────────
@@ -64,6 +64,18 @@ interface RichAnalysis {
     highlights: string[]
     weaknesses: string[]
     hasCoverLetter: boolean
+  }
+  modelOpinions?: {
+    label: string
+    model: string
+    score: number
+    opinion: string
+    verdict: string
+  }[]
+  jobSimilarity?: {
+    score: number | null
+    threshold: number
+    opinion: string | null
   }
 }
 
@@ -453,6 +465,42 @@ export default function AnalysisDetail() {
             </Card>
           )}
 
+          {/* ── 심사 모델별 의견 ── */}
+          {rich?.modelOpinions && rich.modelOpinions.length > 0 && (
+            <Card className="rounded-2xl border border-slate-100 shadow-sm">
+              <CardHeader className="pb-2 pt-5 px-6">
+                <CardTitle className="text-base font-bold flex items-center gap-2">
+                  <Users className="w-4 h-4 text-indigo-600" />심사 모델별 의견
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="px-6 pb-5 space-y-3">
+                {rich.modelOpinions.map((op, i) => {
+                  const verdictStyle =
+                    op.verdict === "추천"
+                      ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                      : op.verdict === "비추천"
+                        ? "bg-red-50 text-red-600 ring-red-200"
+                        : "bg-amber-50 text-amber-700 ring-amber-200"
+                  return (
+                    <div key={i} className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-sm font-bold text-slate-800">{op.label}</span>
+                        <span className="text-xs text-slate-400 font-mono">{op.model}</span>
+                        <span className="ml-auto text-sm font-black font-mono text-slate-700">{op.score}점</span>
+                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${verdictStyle}`}>
+                          {op.verdict}
+                        </span>
+                      </div>
+                      {op.opinion && (
+                        <p className="text-sm text-slate-600 leading-relaxed">{op.opinion}</p>
+                      )}
+                    </div>
+                  )
+                })}
+              </CardContent>
+            </Card>
+          )}
+
           {/* ── 인성 검사 ── */}
           {rich?.personalityAnalysis && (
             <Card className="rounded-2xl border border-slate-100 shadow-sm">
@@ -590,8 +638,23 @@ export default function AnalysisDetail() {
                 <CardHeader className="pb-1 pt-4 px-5">
                   <CardTitle className="text-sm font-bold text-slate-700">채용공고 적합도</CardTitle>
                 </CardHeader>
-                <CardContent className="px-5 pb-4">
+                <CardContent className="px-5 pb-4 space-y-3">
                   <p className="text-sm text-slate-600 leading-relaxed">{analysis.jobMatchFeedback}</p>
+                  {rich?.jobSimilarity && rich.jobSimilarity.score !== null && (
+                    <div className="pt-2 border-t border-slate-100 space-y-2">
+                      <div className="flex items-center gap-3">
+                        <span className="shrink-0 text-xs font-semibold text-slate-500">직무 문장 유사도</span>
+                        <HBar score={rich.jobSimilarity.score} color={barColor(rich.jobSimilarity.score)} />
+                        <span className="w-8 text-right text-sm font-bold font-mono text-slate-700">{rich.jobSimilarity.score}</span>
+                      </div>
+                      {rich.jobSimilarity.opinion && (
+                        <div className="rounded-lg bg-amber-50 border border-amber-100 px-3 py-2.5 flex items-start gap-2">
+                          <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                          <p className="text-xs text-amber-800 leading-relaxed">{rich.jobSimilarity.opinion}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </CardContent>
               </Card>
             )}
