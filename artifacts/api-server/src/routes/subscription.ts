@@ -7,6 +7,14 @@ const router: IRouter = Router();
 
 const PLANS = [
   {
+    id: "free",
+    name: "무료",
+    price: 0,
+    analysesPerMonth: 1,
+    description: "부담 없이 먼저 경험해보세요",
+    features: ["기본 분석 리포트", "개선사항 제시"],
+  },
+  {
     id: "basic",
     name: "베이직",
     price: 9900,

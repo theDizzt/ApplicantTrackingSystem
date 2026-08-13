@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import {
   Compass, Loader2, AlertTriangle, Sparkles, Award, TrendingUp,
@@ -52,6 +53,7 @@ const outlookBadge = (score: number) => {
 export function CareerAnalysisPanel({ resumeId }: Props) {
   const [career, setCareer] = useState<CareerAnalysisState | null>(null)
   const [careerLoading, setCareerLoading] = useState(false)
+  const [showDetails, setShowDetails] = useState(false)
   const careerPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
   const careerLoadedRef = useRef<number | null>(null)
 
@@ -220,7 +222,32 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
             </div>
           </div>
         ) : (
-          <div className="space-y-8">
+          <>
+            <div className="space-y-5">
+              {result.resumeSummary && (
+                <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-2">
+                  <h3 className="text-sm font-bold text-indigo-800 flex items-center gap-2"><Sparkles className="w-4 h-4" />AI 요약</h3>
+                  <p className="text-sm text-slate-700 leading-relaxed">{result.resumeSummary}</p>
+                </div>
+              )}
+              <div className="space-y-2">
+                <h3 className="text-sm font-bold text-slate-700">추천 직업</h3>
+                <div className="flex flex-wrap gap-2">
+                  {result.recommendedJobs.slice(0, 3).map((job, i) => <Badge key={i} variant="outline" className="border-indigo-200 bg-indigo-50 text-indigo-700">{job.job} · {job.fitScore}</Badge>)}
+                </div>
+              </div>
+              {result.salaryGuide && (result.salaryGuide.min > 0 || result.salaryGuide.max > 0) && (
+                <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3.5 py-3 flex items-center justify-between gap-3">
+                  <span className="text-sm font-bold text-emerald-700 flex items-center gap-2"><Banknote className="w-4 h-4" />가이드 연봉</span>
+                  <span className="text-sm font-extrabold text-emerald-700">연 {result.salaryGuide.min.toLocaleString()}~{result.salaryGuide.max.toLocaleString()}만원</span>
+                </div>
+              )}
+              {(() => { const issueCount = (result.typoIssues?.length ?? 0) + (result.dateIssues?.length ?? 0); return <div className={`rounded-lg border px-3.5 py-3 flex items-center gap-2 text-sm font-medium ${issueCount ? "border-amber-200 bg-amber-50 text-amber-700" : "border-emerald-100 bg-emerald-50 text-emerald-700"}`}><SpellCheck className="w-4 h-4" />표기 점검: {issueCount ? `문제 ${issueCount}건` : "문제 없음"}</div> })()}
+              <Dialog open={showDetails} onOpenChange={setShowDetails}>
+                <Button variant="outline" onClick={() => setShowDetails(true)} className="w-full gap-2">세부 분석 보기 <Compass className="w-4 h-4" /></Button>
+                <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+                  <DialogHeader><DialogTitle className="flex items-center gap-2"><Compass className="w-5 h-5 text-indigo-600" />세부 커리어 분석</DialogTitle><DialogDescription>이력서에서 발견한 근거와 분석 결과를 자세히 확인하세요.</DialogDescription></DialogHeader>
+                  <div className="space-y-8 pt-2">
             {/* 강점 */}
             <div className="space-y-3">
               <h3 className="flex items-center gap-2 text-sm font-bold text-slate-700">
@@ -394,7 +421,12 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
               {careerLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
               다시 분석하기
             </Button>
-          </div>
+
+                  </div>
+                </DialogContent>
+              </Dialog>
+            </div>
+          </>
         )}
       </CardContent>
     </Card>
