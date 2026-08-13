@@ -1,35 +1,37 @@
+import { useEffect, useState } from "react"
 import { useListResumes, useDeleteResume, getListResumesQueryKey } from "@workspace/api-client-react"
 import { Link } from "wouter"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
-import { FileText, Trash2, Plus, Calendar } from "lucide-react"
+import { FileText, Trash2, Plus, Calendar, MousePointer2 } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useQueryClient } from "@tanstack/react-query"
 import { format } from "date-fns"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog"
+import { CareerAnalysisPanel } from "@/components/career-analysis-panel"
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 
 export default function ResumesPage() {
   const { data: resumes, isLoading } = useListResumes()
   const deleteResume = useDeleteResume()
   const queryClient = useQueryClient()
+  const [selectedId, setSelectedId] = useState<number | null>(null)
+
+  useEffect(() => {
+    if (resumes?.length && (!selectedId || !resumes.some((resume) => resume.id === selectedId))) {
+      setSelectedId(resumes[0].id)
+    }
+  }, [resumes, selectedId])
 
   const handleDelete = (id: number) => {
     deleteResume.mutate({ id }, {
       onSuccess: () => {
+        if (selectedId === id) setSelectedId(null)
         queryClient.invalidateQueries({ queryKey: getListResumesQueryKey() })
       }
     })
   }
+
+  const selectedResume = resumes?.find((resume) => resume.id === selectedId)
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -44,71 +46,41 @@ export default function ResumesPage() {
       </div>
 
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1,2,3].map(i => <Skeleton key={i} className="h-40 rounded-xl" />)}
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(320px,380px)_1fr] gap-6">
+          <div className="space-y-4">{[1, 2, 3].map((i) => <Skeleton key={i} className="h-40 rounded-xl" />)}</div>
+          <Skeleton className="h-[560px] rounded-xl" />
         </div>
       ) : resumes?.length === 0 ? (
         <Card className="border-dashed">
           <CardContent className="flex flex-col items-center justify-center py-16 text-center">
             <FileText className="w-12 h-12 text-muted-foreground/50 mb-4" />
             <h3 className="text-lg font-semibold">등록된 이력서가 없습니다</h3>
-            <p className="text-sm text-muted-foreground max-w-sm mt-2 mb-6">
-              첫 번째 이력서를 등록하고 AI 심사를 받아보세요.
-            </p>
-            <Link href="/resumes/new" className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">
-              첫 이력서 등록하기
-            </Link>
+            <p className="text-sm text-muted-foreground max-w-sm mt-2 mb-6">첫 번째 이력서를 등록하고 AI 심사를 받아보세요.</p>
+            <Link href="/resumes/new" className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">첫 이력서 등록하기</Link>
           </CardContent>
         </Card>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          {resumes?.map(resume => (
-            <Card key={resume.id} className="flex flex-col">
-              <CardHeader>
-                <CardTitle className="text-lg flex items-center gap-2">
-                  <FileText className="w-5 h-5 text-primary" />
-                  {resume.title}
-                </CardTitle>
-                <CardDescription className="flex items-center gap-1">
-                  <Calendar className="w-3 h-3" />
-                  {format(new Date(resume.createdAt), 'yyyy.MM.dd')}
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="flex-1">
-                <div className="text-sm text-muted-foreground line-clamp-3">
-                  {resume.content || resume.coverLetter ? 
-                    (resume.content || resume.coverLetter) : 
-                    <span className="italic">내용 없음</span>}
-                </div>
-              </CardContent>
-              <CardFooter className="flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50 py-3 border-t">
-                <Link href={`/resumes/${resume.id}`} className="text-sm font-medium text-primary hover:underline">
-                  이력서 보기
-                </Link>
-                <AlertDialog>
-                  <AlertDialogTrigger asChild>
-                    <Button variant="ghost" size="icon" className="text-destructive hover:text-destructive hover:bg-destructive/10">
-                      <Trash2 className="w-4 h-4" />
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>이력서를 삭제하시겠습니까?</AlertDialogTitle>
-                      <AlertDialogDescription>
-                        이 작업은 되돌릴 수 없습니다. 이력서가 영구적으로 삭제됩니다.
-                      </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel>취소</AlertDialogCancel>
-                      <AlertDialogAction onClick={() => handleDelete(resume.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
-                        삭제
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </CardFooter>
-            </Card>
-          ))}
+        <div className="grid grid-cols-1 lg:grid-cols-[minmax(320px,380px)_1fr] gap-6 lg:items-start">
+          <div className="space-y-4">
+            <div className="flex items-center gap-2 text-xs text-muted-foreground px-1"><MousePointer2 className="w-3.5 h-3.5" /> 분석할 이력서를 선택하세요</div>
+            {resumes?.map((resume) => {
+              const selected = resume.id === selectedId
+              return (
+                <Card key={resume.id} onClick={() => setSelectedId(resume.id)} className={`flex flex-col cursor-pointer transition-all ${selected ? "border-primary ring-2 ring-primary/15 shadow-md" : "hover:border-primary/40"}`}>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2"><FileText className="w-5 h-5 text-primary" />{resume.title}</CardTitle>
+                    <CardDescription className="flex items-center gap-1"><Calendar className="w-3 h-3" />{format(new Date(resume.createdAt), "yyyy.MM.dd")}</CardDescription>
+                  </CardHeader>
+                  <CardContent className="flex-1"><div className="text-sm text-muted-foreground line-clamp-3">{resume.content || resume.coverLetter || <span className="italic">내용 없음</span>}</div></CardContent>
+                  <CardFooter className="flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50 py-3 border-t">
+                    <Link href={`/resumes/${resume.id}`} onClick={(e) => e.stopPropagation()} className="text-sm font-medium text-primary hover:underline">이력서 보기</Link>
+                    <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()} className="text-destructive hover:text-destructive hover:bg-destructive/10"><Trash2 className="w-4 h-4" /></Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>이력서를 삭제하시겠습니까?</AlertDialogTitle><AlertDialogDescription>이 작업은 되돌릴 수 없습니다. 이력서가 영구적으로 삭제됩니다.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel><AlertDialogAction onClick={() => handleDelete(resume.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">삭제</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
+                  </CardFooter>
+                </Card>
+              )
+            })}
+          </div>
+          <div className="min-w-0">{selectedResume && <CareerAnalysisPanel resumeId={selectedResume.id} />}</div>
         </div>
       )}
     </div>
