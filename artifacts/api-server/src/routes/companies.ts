@@ -1,10 +1,10 @@
 import { Router, type IRouter } from "express";
-import { eq, and, inArray, sql } from "drizzle-orm";
+import { eq, and, inArray } from "drizzle-orm";
 import { db, companiesTable, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { getAI } from "../lib/openai";
 import { logger } from "../lib/logger";
-import { scrapeSaramin, buildKeyword, getJobkoreaSearchUrl, type ScrapedPosting } from "../lib/job-scrapers";
+import { scrapeSaramin, buildKeyword, getJobkoreaSearchUrl } from "../lib/job-scrapers";
 
 const router: IRouter = Router();
 

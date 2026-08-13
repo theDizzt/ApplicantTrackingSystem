@@ -7,6 +7,7 @@ import { getAI, getSecondaryAIs, checkAIHealth } from "../lib/openai";
 import { logger } from "../lib/logger";
 import { extractUrls, analyzeUrls, formatUrlAnalysisForPrompt } from "../lib/url-analyzer";
 import { jobSimilarityScore } from "../lib/similarity";
+import { consumeAnalysisQuota } from "../lib/subscription-limits";
 import type OpenAI from "openai";
 
 const router: IRouter = Router();
@@ -78,11 +79,19 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
     .where(and(eq(companiesTable.id, companyId), eq(companiesTable.userId, req.session.userId!)));
   if (!company) { res.status(400).json({ error: "회사를 찾을 수 없습니다." }); return; }
 
-  // AI 연결 사전 점검 — 로컬 LLM이 죽어 있으면 심사를 시작하지 않고 즉시 안내
+  // AI 연결 사전 점검 — AI 서버가 응답하지 않으면 심사를 시작하지 않고 즉시 안내
   const health = await checkAIHealth();
   if (!health.ok) {
     logger.error({ reason: health.error }, "AI health check failed before analysis");
     res.status(503).json({ error: health.error });
+    return;
+  }
+
+  // 구독 한도 확인 및 원자적 소비 — 입력 검증(이력서·회사·AI 헬스체크) 이후에 수행하여
+  // 잘못된 요청이나 일시적 장애로 한도를 소진하지 않도록 한다. 환불 로직은 없음.
+  const quota = await consumeAnalysisQuota(req.session.userId!);
+  if (!quota.ok) {
+    res.status(quota.status).json({ error: quota.error });
     return;
   }
 
@@ -107,6 +116,8 @@ router.post("/analyses", requireAuth, async (req, res): Promise<void> => {
   });
 });
 
+// 재시도는 구독 한도를 소비하지 않는다 — 최초 심사 시 이미 한도가 차감되었으므로,
+// 실패한 심사를 다시 시도하는 것은 추가 과금(횟수 차감) 없이 허용한다.
 router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> => {
   const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(rawId, 10);
@@ -129,7 +140,7 @@ router.post("/analyses/:id/retry", requireAuth, async (req, res): Promise<void> 
     .where(and(eq(companiesTable.id, analysis.companyId), eq(companiesTable.userId, req.session.userId!)));
   if (!company) { res.status(400).json({ error: "회사를 찾을 수 없습니다." }); return; }
 
-  // AI 연결 사전 점검 — 로컬 LLM이 죽어 있으면 심사를 시작하지 않고 즉시 안내
+  // AI 연결 사전 점검 — AI 서버가 응답하지 않으면 심사를 시작하지 않고 즉시 안내
   const health = await checkAIHealth();
   if (!health.ok) {
     logger.error({ reason: health.error }, "AI health check failed before analysis retry");

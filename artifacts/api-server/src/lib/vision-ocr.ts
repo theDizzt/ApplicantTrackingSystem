@@ -90,7 +90,7 @@ export async function ocrPdfBuffer(pdfBuffer: Buffer): Promise<string> {
         if (pages.length === 0) {
           throw new VisionOcrError(
             "AI 모델이 이미지 인식(비전)을 지원하지 않거나 호출에 실패했습니다. " +
-              "OpenAI 모델 또는 비전 지원 로컬 모델(예: qwen2.5-vl)을 설정하세요.",
+              "비전(이미지 인식)을 지원하는 모델을 설정하세요.",
             err,
           );
         }

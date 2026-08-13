@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
   ChevronLeft, CheckCircle2, XCircle, AlertTriangle,
-  Link2, ExternalLink, TrendingUp, Banknote, Award, GraduationCap, Heart, RotateCcw, Users,
+  Link2, ExternalLink, TrendingUp, Banknote, GraduationCap, Heart, RotateCcw, Users,
 } from "lucide-react"
 
 // ── 타입 ──────────────────────────────────────────────────────────────────

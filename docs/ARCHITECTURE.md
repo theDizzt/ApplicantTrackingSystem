@@ -29,18 +29,21 @@
                      │ /api/*  (쿠키 세션)
 ┌────────────────────▼─────────────────────────────────────┐
 │              Express 5 API 서버 (api-server)               │
-│  라우트: auth · resumes · companies · analyses ·           │
-│          interviews · subscription · dashboard ·           │
-│          spellcheck · health                               │
+│  라우트: auth · resumes · companies · company-posting ·    │
+│          analyses · career-analysis · interviews ·         │
+│          subscription · dashboard · spellcheck ·           │
+│          admin · health                                    │
 │  미들웨어: express-session · bcrypt · pino-http            │
 │  스케줄러: node-cron (매주 월요일 09:00 KST)               │
+│  OCR: pdftoppm(poppler-utils) + 비전 모델                  │
 └───────┬────────────────────────┬────────────────────────┘
-        │ Drizzle ORM            │ OpenAI API
+        │ Drizzle ORM            │ OpenAI 호환 API
         │                        │ (Replit AI Integrations Proxy)
 ┌───────▼────────┐    ┌──────────▼──────────────────────────┐
-│  PostgreSQL DB │    │        gpt-5.6-luna                  │
-│  (Replit 내장) │    │  서류 심사 / 면접 생성 / 기업 추천   │
-│                │    │  채용공고 보강 / 맞춤법 검토          │
+│  PostgreSQL DB │    │  주 모델 gpt-5.6-luna (+ 보조 2종)   │
+│  (Replit 내장) │    │  서류 심사 / 커리어 분석 / 면접 생성 │
+│                │    │  기업 추천 / 공고 수집 / 맞춤법 검토 │
+│                │    │  임베딩 유사도 / 스캔 PDF 비전 OCR   │
 └────────────────┘    └─────────────────────────────────────┘
 ```
 
@@ -78,11 +81,16 @@ workspace/
 | `src/app.ts` | Express 앱 설정, 미들웨어 등록 |
 | `src/scheduler.ts` | node-cron 주간 스케줄러 |
 | `src/routes/` | REST 라우트 핸들러 |
-| `src/lib/openai.ts` | OpenAI 클라이언트 싱글턴 |
+| `src/lib/openai.ts` | OpenAI 호환 클라이언트 싱글턴 (주 모델 + 보조 모델 ai2_*/ai3_*) |
+| `src/lib/vision-ocr.ts` | 스캔(이미지) PDF → pdftoppm PNG 변환 후 비전 모델 OCR 폴백 |
+| `src/lib/similarity.ts` | 임베딩 기반 직무↔자소서 문장 유사도(0~100) |
 | `src/lib/url-analyzer.ts` | GitHub API + URL 접근성 검사 |
 | `src/lib/job-scrapers.ts` | 사람인 스크래퍼 + 잡코리아 URL 생성 |
+| `src/lib/safe-fetch.ts` | SSRF 가드(사설/루프백/링크로컬 차단, DNS 핀닝, 바이트 파싱) |
+| `src/lib/ai-health-monitor.ts` | AI 서버 주기 헬스체크(관리자 배너용) |
 | `src/lib/logger.ts` | pino 로거 |
 | `src/middlewares/auth.ts` | 세션 인증 미들웨어 |
+| `src/middlewares/admin.ts` | 관리자 인증 미들웨어 |
 | `build.mjs` | esbuild 번들 스크립트 |
 
 ### `artifacts/job-doc-check`
@@ -94,6 +102,8 @@ workspace/
 | `src/components/layout/` | AppShell (사이드바·헤더) |
 | `src/components/auth-guard.tsx` | 인증 보호 래퍼 |
 | `src/components/rich-text-editor.tsx` | TipTap 에디터 래퍼 |
+| `src/components/career-analysis-panel.tsx` | 커리어 분석 결과 패널 |
+| `src/components/resume-print.tsx` | 이력서 PDF 출력용 컴포넌트(템플릿 3종, print CSS) |
 | `vite.config.ts` | Vite 설정, 프록시, 베이스 경로 |
 
 ### `lib/db`
@@ -150,6 +160,8 @@ users ──────< resumes
 | desired_salary | integer | 희망 연봉 (만원) |
 | photo_url | text | 사진 URL |
 | file_url | text | 첨부 파일 URL |
+| career_analysis_result | text | 커리어 분석 결과 (JSON string) |
+| career_analyzed_at | timestamptz | 커리어 분석 실행 시각 |
 
 #### `companies`
 | 컬럼 | 타입 | 설명 |
@@ -186,7 +198,7 @@ users ──────< resumes
 | job_match_feedback | text | 직무 적합도 피드백 |
 | improvement_suggestions | text | 개선 제안 |
 | url_analysis_result | text | URL 분석 결과 텍스트 |
-| rich_analysis_result | text | JSON: 기술스킬·성격·조직 적합도 |
+| rich_analysis_result | text | JSON: 기술스킬·성격·조직 적합도, `modelOpinions`(보조 모델 다중 심사 의견, UI는 모델명 미표기), `jobSimilarity`(임베딩 유사도 점수·의견) |
 
 #### `interviews`
 | 컬럼 | 타입 | 설명 |
@@ -223,8 +235,12 @@ users ──────< resumes
 | GET | `/resumes/:id` | 이력서 상세 🔒 |
 | PATCH | `/resumes/:id` | 이력서 수정 🔒 |
 | DELETE | `/resumes/:id` | 이력서 삭제 🔒 |
-| POST | `/resumes/upload` | 파일 업로드 → 텍스트 추출 🔒 |
+| POST | `/resumes/upload` | 파일 업로드 → 텍스트 추출 (스캔 PDF는 비전 OCR 폴백) 🔒 |
 | POST | `/resumes/:id/spellcheck` | 맞춤법·표현 검토 🔒 |
+| POST | `/resumes/:id/career-analysis` | 커리어 분석 실행(재실행 코얼레싱) 🔒 |
+| GET | `/resumes/:id/career-analysis` | 커리어 분석 상태·결과 조회 🔒 |
+
+> 이력서 PDF 다운로드는 별도 API가 아니라 프론트엔드에서 `resume-print.tsx`(템플릿 3종 + print CSS) 방식으로 처리합니다.
 
 ### Companies
 | 메서드 | 경로 | 설명 |
@@ -234,7 +250,8 @@ users ──────< resumes
 | GET | `/companies/:id` | 회사 상세 🔒 |
 | PATCH | `/companies/:id` | 회사 수정 🔒 |
 | DELETE | `/companies/:id` | 회사 삭제 🔒 |
-| POST | `/companies/fetch-postings` | 채용공고 자동 수집 🔒 |
+| POST | `/companies/fetch-postings` | 필터 기반 채용공고 자동 수집(사람인 스크래핑 + AI 보강) 🔒 |
+| POST | `/companies/fetch-posting` | 채용 공고 URL 1건 가져오기(SSRF 가드, 이미지 공고 OCR) 🔒 |
 | POST | `/companies/recommend` | AI 기업 추천 🔒 |
 
 ### Analyses
@@ -242,6 +259,7 @@ users ──────< resumes
 |---|---|---|
 | GET | `/analyses` | 심사 목록 🔒 |
 | POST | `/analyses` | 심사 생성 (AI 분석 시작) 🔒 |
+| POST | `/analyses/:id/retry` | 실패한 심사 재시도 🔒 |
 | GET | `/analyses/:id` | 심사 결과 상세 🔒 |
 
 ### Interviews
@@ -259,6 +277,18 @@ users ──────< resumes
 | GET | `/subscription/me` | 현재 구독 상태 🔒 |
 | POST | `/subscription/subscribe` | 구독 시작/변경 🔒 |
 | POST | `/subscription/cancel` | 구독 취소 🔒 |
+
+### Admin
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| POST | `/admin/login` · `/admin/logout` | 관리자 로그인/로그아웃 |
+| GET | `/admin/me` · `/admin/stats` · `/admin/users` | 관리자 세션·통계·사용자 |
+| GET/POST/PATCH/DELETE | `/admin/organizations…` | 조직 관리 🛡 |
+| GET/PUT | `/admin/settings/ai` | AI 공급자 설정 조회/저장(주·보조 모델 ai2_*/ai3_*) 🛡 |
+| GET | `/admin/settings/ai/health` · `/admin/settings/ai/health-status` | AI 헬스체크 🛡 |
+| POST | `/admin/settings/ai/test` | AI 연결 테스트 🛡 |
+
+> 🛡 = 관리자 인증 필요. 로컬 LLM(Ollama) 관련 관리 라우트는 전면 제거됨.
 
 ### 기타
 | 메서드 | 경로 | 설명 |
@@ -305,11 +335,40 @@ POST /analyses
     │      ├─ GitHub URL → GitHub REST API 호출 (언어·스타·리포 정보)
     │      └─ 기타 URL → HEAD 요청으로 접근 가능 여부 확인
     │
-    ├─ 3. OpenAI gpt-5.6-luna 호출
+    ├─ 3. 주 모델 gpt-5.6-luna 호출
     │      입력: 이력서 전문 + 직무설명 + URL 분석 결과 + 희망연봉
     │      출력: JSON (4개 점수 + 피드백 + 개선 제안 + 기술스킬·성격 평가)
     │
+    ├─ 3-1. 보조 심사 모델(ai2_*/ai3_*)이 설정돼 있으면 추가 심사 →
+    │        richAnalysisResult.modelOpinions 배열에 다중 의견 저장 (UI는 모델명 미표기)
+    │
+    ├─ 3-2. 직무↔자소서 임베딩 유사도(lib/similarity.ts) →
+    │        richAnalysisResult.jobSimilarity (60점 이하면 개선 의견 첨부)
+    │
     └─ 4. 결과 DB 저장 (status: completed)
+```
+
+### 파일 업로드 / 텍스트 추출 흐름
+```
+POST /resumes/upload
+    │
+    ├─ 1. 파일명·본문 NFD→NFC 정규화 (Mac 한글 자소 분리 대응)
+    │
+    ├─ 2. PDF: pdf-parse로 텍스트 추출 → 텍스트가 비면(스캔 이미지) 폴백:
+    │        pdftoppm(poppler-utils)로 페이지별 PNG 렌더 → 비전 모델 OCR
+    │
+    └─ 3. DOCX/DOC: mammoth로 텍스트 추출
+```
+
+### 커리어 분석 흐름
+```
+POST /resumes/:id/career-analysis  (이력서 등록·수정 시 자동 실행)
+    │
+    ├─ 진행 중 재요청은 코얼레싱(중복 실행 방지)
+    │
+    └─ 결과(JSON) 저장 → resumes.career_analysis_result / career_analyzed_at
+       필드: strengths · ncsCategories · recommendedJobs · salaryGuide ·
+             typoIssues · dateIssues · resumeSummary · summary
 ```
 
 ### 채용공고 수집 흐름
@@ -323,9 +382,22 @@ POST /companies/fetch-postings
     │
     ├─ 3. 잡코리아 검색 URL 생성 (getJobkoreaSearchUrl)
     │
-    └─ 4. OpenAI gpt-5.6-luna 호출
+    └─ 4. 주 모델 호출
            입력: 스크래핑 공고 + 잡코리아 URL + 필터 조건
            출력: JSON 배열 (6건 이하, 정규화된 공고 데이터)
+```
+
+### 채용 공고 URL 가져오기 흐름
+```
+POST /companies/fetch-posting  (공고 URL 1건)
+    │
+    ├─ 1. SSRF 가드(safe-fetch): 사설/루프백/링크로컬/예약 대역 차단, DNS 핀닝
+    │      사람인/잡코리아는 상세 페이지 추적
+    │
+    ├─ 2. 페이지 파싱(cheerio)으로 공고 텍스트 추출
+    │      이미지 공고는 비전 모델 OCR로 텍스트화
+    │
+    └─ 3. AI가 회사·직무 필드로 정규화해 반환
 ```
 
 ### OpenAI 파라미터 제약 (gpt-5.6-luna)
@@ -350,12 +422,17 @@ POST /companies/fetch-postings
 
 | 변수명 | 필수 | 설명 |
 |---|---|---|
-| `AI_INTEGRATIONS_OPENAI_API_KEY` | ✅ | OpenAI API 키 (Replit 제공) |
-| `AI_INTEGRATIONS_OPENAI_BASE_URL` | ✅ | OpenAI 프록시 URL (Replit 제공) |
+| `AI_INTEGRATIONS_OPENAI_API_KEY` | ✅ | 주 모델 API 키 (관리자 설정 미지정 시 폴백) |
+| `AI_INTEGRATIONS_OPENAI_BASE_URL` | ✅ | OpenAI 호환 API URL (관리자 설정 미지정 시 폴백) |
 | `SESSION_SECRET` | ✅ | express-session 서명 키 |
 | `DATABASE_URL` | ✅ | PostgreSQL 연결 문자열 (Replit DB 자동 제공) |
 | `PORT` | ✅ | 서버 포트 (Replit 자동 할당) |
 | `NODE_ENV` | — | `development` / `production` |
+
+> **AI 공급자 설정 우선순위**: 관리자 페이지(DB `settings` 테이블: `ai_api_key`/`ai_base_url`/`ai_model`)가 우선, 없으면 위 환경변수 폴백.
+> 보조 심사 모델은 DB 설정 키 `ai2_*` / `ai3_*`로만 등록하며 환경변수 폴백은 없습니다.
+>
+> **런타임 의존성**: 스캔(이미지) PDF OCR 폴백에 `pdftoppm`(poppler-utils)이 필요합니다. Docker 이미지·설치 스크립트에 포함되어 있습니다.
 
 ---
 
@@ -375,3 +452,9 @@ POST /companies/fetch-postings
 - 프론트엔드와 백엔드는 각각 다른 포트에서 실행
 - Vite devServer proxy: `/api/*` → 백엔드 포트 (`VITE_API_URL`)
 - 프론트엔드 베이스 경로: `/job-doc-check/` (Replit 경로 기반 라우팅)
+
+### Docker / 온프렘 배포
+- 런타임 베이스 이미지: `node:22-slim`(Debian). Nginx·tini·curl과 **`poppler-utils`(pdftoppm, 스캔 PDF OCR)** 를 설치
+- 세션 쿠키 `secure: "auto"` + `trust proxy` — HTTPS(`X-Forwarded-Proto: https`)면 자동으로 Secure 쿠키, 평문 HTTP면 미적용
+- 컨테이너 Nginx는 상위 프록시의 `X-Forwarded-Proto` 를 패스스루(없으면 `$scheme`)
+- 자세한 내용은 `docs/DOCKER.md` 참고

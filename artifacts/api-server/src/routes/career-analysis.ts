@@ -295,7 +295,7 @@ router.post("/resumes/:id/career-analysis", requireAuth, async (req, res): Promi
   }
   careerJobs.set(id, { inProgress: true, error: null });
 
-  // AI 연결 사전 점검 — 로컬 LLM이 죽어 있으면 시작하지 않고 즉시 안내
+  // AI 연결 사전 점검 — AI 서버가 응답하지 않으면 시작하지 않고 즉시 안내
   const health = await checkAIHealth();
   if (!health.ok) {
     careerJobs.delete(id); // 예약 해제

@@ -61,6 +61,8 @@ if [ "$NODE_MAJOR" -lt 20 ]; then
     brew link --overwrite node@22 2>/dev/null || true
 fi
 command -v pnpm >/dev/null 2>&1 || brew install pnpm
+# poppler(pdftoppm): 스캔(이미지) PDF 이력서 OCR 폴백에 필요
+command -v pdftoppm >/dev/null 2>&1 || brew install poppler
 echo -e "  node: ${GREEN}$(node -v)${NC}, pnpm: ${GREEN}$(pnpm -v)${NC}"
 echo ""
 

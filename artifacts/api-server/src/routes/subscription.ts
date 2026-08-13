@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { LIMITS, syncSubscription } from "../lib/subscription-limits";
 
 const router: IRouter = Router();
 
@@ -40,18 +41,18 @@ const PLANS = [
   },
 ];
 
-const LIMITS: Record<string, number> = { free: 1, basic: 5, premium: 20 };
-
 router.get("/subscription/plans", async (_req, res): Promise<void> => {
   res.json(PLANS);
 });
 
 router.get("/subscription/me", requireAuth, async (req, res): Promise<void> => {
-  const [user] = await db.select().from(usersTable).where(eq(usersTable.id, req.session.userId!));
-  if (!user) {
+  const [row] = await db.select().from(usersTable).where(eq(usersTable.id, req.session.userId!));
+  if (!row) {
     res.status(401).json({ error: "사용자를 찾을 수 없습니다." });
     return;
   }
+  // 만료 다운그레이드 + 월간 사용량 리셋을 반영(소비 없음)
+  const user = await syncSubscription(row);
   res.json({
     status: user.subscriptionStatus,
     planId: user.subscriptionPlanId ?? null,

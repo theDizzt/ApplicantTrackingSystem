@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useLocation } from "wouter"
 import {
   Users, Building2, Cpu, TrendingUp, LogOut, Plus, Pencil, Trash2,
-  Shield, RefreshCw, ChevronDown, ChevronUp, AlertCircle
+  Shield, RefreshCw, ChevronDown, AlertCircle
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"

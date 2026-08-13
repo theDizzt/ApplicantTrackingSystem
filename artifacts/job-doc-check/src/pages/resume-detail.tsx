@@ -22,12 +22,8 @@ import {
 } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
 import {
-  Card, CardContent, CardHeader, CardTitle,
-} from "@/components/ui/card"
-import {
   ChevronLeft, Save, Upload, Loader2, Banknote, FileDown,
-  CheckCircle2, AlertTriangle, SpellCheck, Sparkles, Compass,
-  TrendingUp, Award, RefreshCw,
+  CheckCircle2, AlertTriangle, SpellCheck, Sparkles,
 } from "lucide-react"
 
 import { RichTextEditor } from "@/components/rich-text-editor"
@@ -141,8 +137,7 @@ export default function ResumeDetail() {
   const [showPrintDialog, setShowPrintDialog] = useState(false)
 
   // 커리어 분석 상태
-  const [career,        setCareer]        = useState<CareerAnalysisState | null>(null)
-  const [careerLoading, setCareerLoading] = useState(false)
+  const [career, setCareer] = useState<CareerAnalysisState | null>(null)
   const careerPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   const form = useForm<ResumeFormValues>({
@@ -243,32 +238,6 @@ export default function ResumeDetail() {
     return () => stopCareerPoll()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isNew, resumeId])
-
-  const startCareerAnalysis = async () => {
-    if (isNew) return
-    setCareerLoading(true)
-    try {
-      const res = await fetch(`/api/resumes/${resumeId}/career-analysis`, {
-        method: "POST",
-        credentials: "include",
-      })
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(err.error || "커리어 분석 시작에 실패했습니다")
-      }
-      setCareer((prev) => ({
-        inProgress: true,
-        error: null,
-        analyzedAt: prev?.analyzedAt ?? null,
-        result: prev?.result ?? null,
-      }))
-      startCareerPoll()
-    } catch (err: unknown) {
-      toast.error(err instanceof Error ? err.message : "커리어 분석 시작에 실패했습니다")
-    } finally {
-      setCareerLoading(false)
-    }
-  }
 
   // ── 파일 업로드 핸들러 ──────────────────────────────────────────────────
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {

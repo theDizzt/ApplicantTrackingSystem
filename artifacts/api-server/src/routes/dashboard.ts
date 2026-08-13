@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and, count, avg, sql } from "drizzle-orm";
+import { eq, count, sql } from "drizzle-orm";
 import { db, resumesTable, companiesTable, analysesTable, interviewSessionsTable, interviewQuestionsTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 

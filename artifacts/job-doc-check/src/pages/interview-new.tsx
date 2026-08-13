@@ -2,7 +2,6 @@ import { useState } from "react"
 import { useLocation } from "wouter"
 import { useListResumes, useListCompanies, useCreateInterview } from "@workspace/api-client-react"
 import { toast } from "sonner"
-import { Card } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { FileText, Building2, Users } from "lucide-react"
 

@@ -1,5 +1,5 @@
 import { Link } from "wouter"
-import { ChevronRight, CheckCircle2, Building2, Users, Code, ArrowRight, Shield, Zap, BarChart3 } from "lucide-react"
+import { ChevronRight, CheckCircle2, Building2, Code, ArrowRight, Shield, Zap, BarChart3 } from "lucide-react"
 
 export default function LandingPage() {
   return (

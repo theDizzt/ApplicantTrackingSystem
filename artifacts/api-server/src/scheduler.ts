@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import { db, companiesTable } from "@workspace/db";
+import { db } from "@workspace/db";
 import { sql } from "drizzle-orm";
 import { logger } from "./lib/logger";
 import { runAIHealthCheck } from "./lib/ai-health-monitor";

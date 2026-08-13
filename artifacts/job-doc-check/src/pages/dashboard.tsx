@@ -1,10 +1,9 @@
 import { useGetDashboard } from "@workspace/api-client-react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { BrainCircuit, Building2, FileText, CheckCircle2, XCircle, Clock, Users } from "lucide-react"
+import { BrainCircuit, Building2, FileText, CheckCircle2, Clock, Users } from "lucide-react"
 import { Link } from "wouter"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
-import { format } from "date-fns"
 
 export default function Dashboard() {
   const { data: dashboard, isLoading } = useGetDashboard()

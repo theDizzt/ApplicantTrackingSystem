@@ -60,6 +60,9 @@ docker compose -f docker-compose.web.yml build
 
 빌드는 약 5~10분 소요됩니다 (pnpm install + Vite + esbuild).
 
+> **베이스 이미지**: 런타임은 `node:22-slim`(Debian) 기반입니다.
+> Nginx·tini·curl과 함께 **`poppler-utils`(pdftoppm)** 를 설치합니다 — 스캔(이미지) PDF 이력서 OCR 폴백에 필요합니다.
+
 ### 3단계 — DB 마이그레이션 (최초 1회)
 
 ```bash
@@ -137,6 +140,16 @@ docker compose -f docker-compose.web.yml run --rm migrate
 # 앱 시작
 docker compose -f docker-compose.web.yml up -d
 ```
+
+---
+
+## HTTPS / 리버스 프록시 구성
+
+- 앱은 `trust proxy`를 활성화하고 **세션 쿠키 `secure: "auto"`** 로 동작합니다.
+  - HTTP 접속(로컬·온프렘 평문): 쿠키 `Secure` 미적용 → 로그인 정상 동작
+  - HTTPS 접속(상위 LB/프록시에서 TLS 종료): `X-Forwarded-Proto: https` 를 신뢰해 자동으로 `Secure` 쿠키 적용
+- 컨테이너 내 Nginx는 상위 프록시가 보낸 **`X-Forwarded-Proto` 를 그대로 패스스루**하고, 없으면 자신의 `$scheme` 으로 설정합니다.
+- 따라서 앞단에 별도 TLS 종료 프록시(LB, Cloudflare 등)를 두는 구성에서도 세션·쿠키가 올바르게 동작합니다.
 
 ---
 

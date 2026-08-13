@@ -74,8 +74,9 @@ LABEL org.opencontainers.image.title="AI 서류 심사관 (ATS)" \
       org.opencontainers.image.version="1.0.0"
 
 # Install Nginx + tini (proper PID 1 / signal handling) + curl (healthcheck)
+# poppler-utils(pdftoppm): 스캔(이미지) PDF 이력서 OCR 폴백에 필요
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends nginx tini curl \
+    && apt-get install -y --no-install-recommends nginx tini curl poppler-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # ── API server ───────────────────────────────────────────────────────────────

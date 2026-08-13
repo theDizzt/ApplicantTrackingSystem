@@ -6,9 +6,9 @@ import { db, settingsTable } from "@workspace/db";
 // 없으면 환경변수로 폴백. (설치 시 키 입력을 생략하고 /admin에서 등록 가능)
 //
 // settings 키:
-//   ai_api_key  — API 키 (OpenAI 또는 로컬 LLM 서버용, 로컬은 아무 값이나 가능)
-//   ai_base_url — OpenAI 호환 API 주소 (예: https://api.openai.com/v1, http://localhost:11434/v1)
-//   ai_model    — 모델명 (예: gpt-5.6-luna, qwen2.5:14b)
+//   ai_api_key  — API 키
+//   ai_base_url — OpenAI 호환 API 주소 (예: https://api.openai.com/v1)
+//   ai_model    — 모델명 (예: gpt-5.6-luna)
 
 export const DEFAULT_MODEL = "gpt-5.6-luna";
 const CACHE_TTL_MS = 30_000;
