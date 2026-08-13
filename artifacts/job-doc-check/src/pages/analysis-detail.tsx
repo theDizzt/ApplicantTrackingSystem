@@ -465,12 +465,12 @@ export default function AnalysisDetail() {
             </Card>
           )}
 
-          {/* ── 심사 모델별 의견 ── */}
+          {/* ── AI 심사 의견 ── */}
           {rich?.modelOpinions && rich.modelOpinions.length > 0 && (
             <Card className="rounded-2xl border border-slate-100 shadow-sm">
               <CardHeader className="pb-2 pt-5 px-6">
                 <CardTitle className="text-base font-bold flex items-center gap-2">
-                  <Users className="w-4 h-4 text-indigo-600" />심사 모델별 의견
+                  <Users className="w-4 h-4 text-indigo-600" />AI 심사 의견
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-6 pb-5 space-y-3">
@@ -484,12 +484,13 @@ export default function AnalysisDetail() {
                   return (
                     <div key={i} className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-sm font-bold text-slate-800">{op.label}</span>
-                        <span className="text-xs text-slate-400 font-mono">{op.model}</span>
-                        <span className="ml-auto text-sm font-black font-mono text-slate-700">{op.score}점</span>
+                        {rich!.modelOpinions!.length > 1 && (
+                          <span className="text-sm font-bold text-slate-800">의견 {i + 1}</span>
+                        )}
                         <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${verdictStyle}`}>
                           {op.verdict}
                         </span>
+                        <span className="ml-auto text-sm font-black font-mono text-slate-700">{op.score}점</span>
                       </div>
                       {op.opinion && (
                         <p className="text-sm text-slate-600 leading-relaxed">{op.opinion}</p>

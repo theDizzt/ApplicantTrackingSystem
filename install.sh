@@ -385,233 +385,16 @@ EOF
 }
 
 # ----------------------------------------
-# 9. (선택) 로컬 LLM(Ollama) 설치
-# ----------------------------------------
-OLLAMA_INSTALLED=false
-OLLAMA_MODEL="${OLLAMA_MODEL:-qwen2.5:14b}"
-OLLAMA_PULL_RETRIES="${OLLAMA_PULL_RETRIES:-3}"
-OLLAMA_PULL_RETRY_DELAY="${OLLAMA_PULL_RETRY_DELAY:-10}"
-# Ollama 서비스가 실제 사용하는 모델 저장 경로 확정 (systemd Environment 우선)
-detect_ollama_models_dir() {
-    OLLAMA_MODELS_DIR=""
-    SVC_ENV=$($SUDO systemctl show ollama -p Environment --value 2>/dev/null || true)
-    for kv in $SVC_ENV; do
-        case "$kv" in
-            OLLAMA_MODELS=*) OLLAMA_MODELS_DIR="${kv#OLLAMA_MODELS=}" ;;
-        esac
-    done
-    if [ -z "$OLLAMA_MODELS_DIR" ]; then
-        # 공식 설치 스크립트 기본값: ollama 시스템 사용자의 홈
-        if id ollama &>/dev/null; then
-            OLLAMA_MODELS_DIR="/usr/share/ollama/.ollama/models"
-        else
-            OLLAMA_MODELS_DIR="${HOME}/.ollama/models"
-        fi
-    fi
-}
-
-# API 서버 실행 계정이 불완전(partial) blob을 삭제할 수 있도록 최소 권한 부여
-# (파일 unlink에는 상위 디렉터리 쓰기 권한이 필요함. Ollama 서비스는 보통
-#  ollama 계정으로 돌아 blobs 디렉터리가 ollama:ollama 소유이기 때문)
-grant_cleanup_permission() {
-    RUN_USER="${SUDO_USER:-$(whoami)}"
-    BLOBS_DIR="${OLLAMA_MODELS_DIR}/blobs"
-    # Ollama 서비스 실행 계정 확인 (디렉터리를 새로 만들 때 소유권을 이 계정에 줘야
-    # 서비스가 pull 시 blob을 기록할 수 있음. root 소유로 만들면 pull이 실패한다)
-    OLLAMA_SVC_USER=$($SUDO systemctl show ollama -p User --value 2>/dev/null || true)
-    if [ -z "$OLLAMA_SVC_USER" ]; then
-        if id ollama &>/dev/null; then OLLAMA_SVC_USER="ollama"; else OLLAMA_SVC_USER="$RUN_USER"; fi
-    fi
-    if [ ! -d "$BLOBS_DIR" ]; then
-        $SUDO mkdir -p "$BLOBS_DIR" 2>/dev/null || true
-        # 새로 만든 저장소는 반드시 Ollama 서비스 계정 소유로.
-        # 소유권 변경은 모델 저장소 자신에게만 적용 (상위 디렉터리는 절대 건드리지 않음)
-        $SUDO chown "${OLLAMA_SVC_USER}:${OLLAMA_SVC_USER}" "$OLLAMA_MODELS_DIR" "$BLOBS_DIR" 2>/dev/null || true
-    fi
-    [ -d "$BLOBS_DIR" ] || return 0
-    # 소유권 안전장치: 어떤 경로로든 root 소유가 됐다면 서비스 계정으로 복구 (저장소 범위로 한정)
-    if [ "$(stat -c %U "$BLOBS_DIR" 2>/dev/null)" = "root" ] && [ "$OLLAMA_SVC_USER" != "root" ]; then
-        $SUDO chown "${OLLAMA_SVC_USER}:${OLLAMA_SVC_USER}" "$OLLAMA_MODELS_DIR" "$BLOBS_DIR" 2>/dev/null || true
-    fi
-    # 이미 실행 계정 소유이면 권한 작업 불필요
-    [ "$(stat -c %U "$BLOBS_DIR" 2>/dev/null)" = "$RUN_USER" ] && return 0
-    GRANT_OK=false
-    if command -v setfacl &>/dev/null; then
-        # ACL: 해당 계정에게 이 디렉터리(rwx)와 기존 파일(rw)만 허용
-        if $SUDO setfacl -m "u:${RUN_USER}:rwx" "$OLLAMA_MODELS_DIR" "$BLOBS_DIR" 2>/dev/null; then
-            $SUDO setfacl -m "u:${RUN_USER}:rw" "$BLOBS_DIR"/* 2>/dev/null || true
-            # 새로 생성되는 blob에도 기본 ACL 적용 (이후 취소된 다운로드 파일 포함)
-            $SUDO setfacl -d -m "u:${RUN_USER}:rw" "$BLOBS_DIR" 2>/dev/null || true
-            GRANT_OK=true
-            echo -e "  임시 파일 정리 권한 부여(ACL): ${RUN_USER} → ${BLOBS_DIR}"
-        fi
-    fi
-    if [ "$GRANT_OK" = false ] && getent group ollama &>/dev/null; then
-        # ACL 미지원/실패 시: ollama 그룹 가입 + 그룹 쓰기 허용 (차선책)
-        # setgid(g+s)로 이후 생성되는 blob도 ollama 그룹 소유가 되게 해,
-        # 그룹 쓰기(디렉터리)만으로 새 partial 파일도 삭제 가능하게 유지한다.
-        # (unlink는 파일이 아니라 상위 디렉터리 쓰기 권한만 필요)
-        if $SUDO usermod -aG ollama "$RUN_USER" 2>/dev/null \
-            && $SUDO chgrp ollama "$OLLAMA_MODELS_DIR" "$BLOBS_DIR" 2>/dev/null \
-            && $SUDO chmod g+rwx "$OLLAMA_MODELS_DIR" 2>/dev/null \
-            && $SUDO chmod g+rwxs "$BLOBS_DIR" 2>/dev/null; then
-            GRANT_OK=true
-            echo -e "  임시 파일 정리 권한 부여(그룹): ${RUN_USER} → ollama 그룹 (setgid 적용)"
-        fi
-    fi
-    # 최종 검증: 실행 계정이 실제로 blobs 디렉터리의 파일을 삭제할 수 있는지 확인
-    if [ "$GRANT_OK" = true ] && command -v sudo &>/dev/null; then
-        PROBE="${BLOBS_DIR}/.cleanup-permission-probe"
-        $SUDO touch "$PROBE" 2>/dev/null || true
-        if sudo -u "$RUN_USER" rm "$PROBE" 2>/dev/null \
-            || sudo -u "$RUN_USER" -g ollama rm "$PROBE" 2>/dev/null; then
-            GRANT_OK=true
-        else
-            $SUDO rm -f "$PROBE" 2>/dev/null || true
-            GRANT_OK=false
-        fi
-    fi
-    if [ "$GRANT_OK" = false ]; then
-        echo -e "  ${YELLOW}경고: ${BLOBS_DIR}에 대한 삭제 권한을 부여하지 못했습니다. 관리자 화면의 '임시 파일 정리'가 동작하지 않을 수 있습니다.${NC}"
-    fi
-}
-
-# 확정된 모델 경로를 API 서버(.env.production)와 공유하고 서비스에 반영
-share_models_path_with_api() {
-    ENV_FILE="${INSTALL_DIR}/.env.production"
-    [ -f "$ENV_FILE" ] || return 0
-    if grep -q "^OLLAMA_MODELS=" "$ENV_FILE"; then
-        sed -i "s|^OLLAMA_MODELS=.*|OLLAMA_MODELS=${OLLAMA_MODELS_DIR}|" "$ENV_FILE"
-    else
-        echo "OLLAMA_MODELS=${OLLAMA_MODELS_DIR}" >> "$ENV_FILE"
-    fi
-    echo -e "  API 서버에 모델 경로 공유: OLLAMA_MODELS=${OLLAMA_MODELS_DIR}"
-    # API 서비스가 이미 실행 중이면 새 환경변수 반영
-    $SUDO systemctl restart ${APP_NAME}-api.service 2>/dev/null || true
-}
-
-install_ollama() {
-    echo -e "${CYAN}[선택] 로컬 LLM(Ollama) 설치${NC}"
-    if [ "$OLLAMA_ONLY" = true ]; then
-        echo -e "  ${YELLOW}--ollama 모드: 로컬 LLM 설치 단계만 실행합니다.${NC}"
-    else
-        read -p "  로컬 LLM(Ollama)을 설치하시겠습니까? (y/n): " INSTALL_LLM
-        if [ "$INSTALL_LLM" != "y" ] && [ "$INSTALL_LLM" != "Y" ]; then
-            echo -e "  ${YELLOW}건너뜁니다. (나중에 관리자 페이지에서 외부 API 또는 로컬 LLM을 설정할 수 있습니다)${NC}"
-            echo ""
-            return
-        fi
-    fi
-
-    # Ollama 설치 (이미 있으면 생략)
-    if command -v ollama &>/dev/null; then
-        echo -e "  Ollama 이미 설치됨: $(ollama --version 2>/dev/null | head -1)"
-    else
-        echo -e "  Ollama 설치 중..."
-        curl -fsSL https://ollama.com/install.sh | sh
-    fi
-
-    # systemd 등록 및 시작 (공식 스크립트가 등록하지만, WSL 등에서 누락될 수 있어 보강)
-    if [ ! -f /etc/systemd/system/ollama.service ] && [ ! -f /usr/lib/systemd/system/ollama.service ]; then
-        OLLAMA_BIN=$(command -v ollama)
-        $SUDO tee /etc/systemd/system/ollama.service > /dev/null <<EOF
-[Unit]
-Description=Ollama Service
-After=network-online.target
-
-[Service]
-ExecStart=${OLLAMA_BIN} serve
-Restart=always
-RestartSec=3
-Environment="OLLAMA_HOST=127.0.0.1:11434"
-
-[Install]
-WantedBy=multi-user.target
-EOF
-        $SUDO systemctl daemon-reload
-    fi
-    $SUDO systemctl enable --now ollama 2>/dev/null || true
-
-    # 서버 기동 대기
-    echo -e "  Ollama 서버 기동 대기 중..."
-    for i in $(seq 1 30); do
-        if curl -fsS http://localhost:11434/api/version &>/dev/null; then break; fi
-        sleep 1
-    done
-    if ! curl -fsS http://localhost:11434/api/version &>/dev/null; then
-        echo -e "  ${RED}Ollama 서버가 응답하지 않습니다. 수동 확인: systemctl status ollama${NC}"
-        echo ""
-        return
-    fi
-
-    # 모델 저장 경로 확정 + API 서버와 공유 + 정리 권한 부여
-    # (pull "이전"에 실행해, 다운로드가 어디로 가든 API가 정리할 수 있게 함)
-    detect_ollama_models_dir
-    grant_cleanup_permission
-    share_models_path_with_api
-
-    # 권장 모델 다운로드 (RAM 32GB 기준 qwen2.5:14b 권장)
-    # 네트워크가 끊겨도 자동 재시도 (Ollama pull은 이어받기를 지원하므로 재시도 시 이어서 받음)
-    # 주의: `ollama pull`은 CLI가 아니라 Ollama "서버"가 blob을 기록하므로,
-    #       저장 위치는 위에서 확정한 서비스의 OLLAMA_MODELS 경로다.
-    echo -e "  권장 모델 다운로드 중: ${GREEN}${OLLAMA_MODEL}${NC} (수 GB, 시간이 걸릴 수 있습니다)"
-    PULL_OK=false
-    for attempt in $(seq 1 "$OLLAMA_PULL_RETRIES"); do
-        if ollama pull "$OLLAMA_MODEL"; then
-            PULL_OK=true
-            break
-        fi
-        if [ "$attempt" -lt "$OLLAMA_PULL_RETRIES" ]; then
-            echo -e "  ${YELLOW}다운로드 실패 (시도 ${attempt}/${OLLAMA_PULL_RETRIES}). ${OLLAMA_PULL_RETRY_DELAY}초 후 이어서 재시도합니다...${NC}"
-            sleep "$OLLAMA_PULL_RETRY_DELAY"
-        fi
-    done
-
-    # pull 이후 재적용: pull이 새로 만든 디렉터리/파일까지 권한 보장
-    # (그룹 방식은 기본 ACL이 없어 새 파일에 그룹 쓰기 재부여가 필요)
-    grant_cleanup_permission
-
-    if [ "$PULL_OK" = true ]; then
-        OLLAMA_INSTALLED=true
-        echo -e "  ${GREEN}로컬 LLM 설치 완료${NC}"
-    else
-        echo -e "  ${RED}모델 다운로드가 ${OLLAMA_PULL_RETRIES}회 모두 실패했습니다.${NC}"
-        echo -e "  ${YELLOW}네트워크 복구 후 아래 명령으로 이 단계만 다시 실행하세요 (전체 설치 불필요):${NC}"
-        echo -e "      bash ${INSTALL_DIR}/install.sh --ollama"
-    fi
-    echo ""
-}
-
-# ----------------------------------------
 # 실행
 # ----------------------------------------
-# 옵션 파싱: --ollama → 로컬 LLM 설치 단계만 실행 (전체 설치 생략)
-OLLAMA_ONLY=false
 case "${1:-}" in
-    --ollama|--ollama-only)
-        OLLAMA_ONLY=true
-        ;;
     "") ;;
     *)
         echo -e "${RED}[오류] 알 수 없는 옵션: $1${NC}"
-        echo "  사용법: bash install.sh            # 전체 설치"
-        echo "          bash install.sh --ollama   # 로컬 LLM(Ollama) 단계만 재실행"
+        echo "  사용법: bash install.sh   # 전체 설치"
         exit 1
         ;;
 esac
-
-if [ "$OLLAMA_ONLY" = true ]; then
-    detect_os
-    install_ollama
-    if [ "$OLLAMA_INSTALLED" = true ]; then
-        echo -e "${GREEN}로컬 LLM(Ollama) 설치가 완료되었습니다.${NC}"
-        echo "  관리자 포털(/admin) → 'AI 설정' 탭에서 등록:"
-        echo "      Base URL: http://localhost:11434/v1"
-        echo "      API 키:   ollama"
-        echo "      모델:     ${OLLAMA_MODEL}"
-    fi
-    exit 0
-fi
 
 detect_os
 install_base_packages
@@ -621,7 +404,6 @@ setup_env
 build_app
 setup_systemd
 setup_nginx
-install_ollama
 
 HOST_IP=$(hostname -I 2>/dev/null | awk '{print $1}')
 [ -z "$HOST_IP" ] && HOST_IP="localhost"
@@ -643,15 +425,7 @@ echo "  Nginx 재시작:  sudo systemctl restart nginx"
 echo ""
 echo -e "${BLUE}[AI 설정 (필수)]${NC}"
 echo "  관리자 포털(/admin) 로그인 → 'AI 설정' 탭에서 등록:"
-if [ "$OLLAMA_INSTALLED" = true ]; then
-    echo "   ✔ 로컬 LLM(Ollama) 설치 완료 — 아래 값을 그대로 입력하세요:"
-    echo "      Base URL: http://localhost:11434/v1"
-    echo "      API 키:   ollama"
-    echo "      모델:     ${OLLAMA_MODEL}"
-else
-    echo "   - OpenAI 사용:  Base URL=https://api.openai.com/v1, API 키=sk-..., 모델=gpt-4o-mini 등"
-    echo "   - 로컬 LLM(Ollama): Base URL=http://localhost:11434/v1, API 키=ollama, 모델=qwen2.5:14b 등"
-fi
+echo "   - OpenAI 사용:  Base URL=https://api.openai.com/v1, API 키=sk-..., 모델=gpt-4o-mini 등"
 echo "  저장 후 '연결 테스트' 버튼으로 확인하세요."
 echo ""
 echo -e "${BLUE}[환경변수]${NC}"

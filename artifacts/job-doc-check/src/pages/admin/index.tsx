@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useLocation } from "wouter"
 import {
   Users, Building2, Cpu, TrendingUp, LogOut, Plus, Pencil, Trash2,
-  Shield, RefreshCw, ChevronDown, ChevronUp, X, Check, AlertCircle, Download
+  Shield, RefreshCw, ChevronDown, ChevronUp, AlertCircle
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -231,709 +231,6 @@ function OrgDialog({
 
 type Tab = "overview" | "users" | "organizations" | "ai"
 
-type LocalStatus = {
-  isLocal: boolean
-  baseUrl: string
-  serverUp: boolean
-  models: { name: string; sizeBytes: number; modifiedAt: string }[]
-  configuredModel: string
-  modelInstalled: boolean
-  error?: string
-}
-
-function formatGB(bytes: number) {
-  return bytes > 0 ? `${(bytes / 1024 / 1024 / 1024).toFixed(1)}GB` : ""
-}
-
-type DiskUsage = {
-  path: string
-  totalBytes: number
-  freeBytes: number
-  usedBytes: number
-  usedPercent: number
-}
-
-type PullProgress = {
-  status: string
-  percent: number | null
-  completedBytes: number
-  totalBytes: number
-}
-
-type RuntimeStatus = {
-  platformSupported: boolean
-  binaryInstalled: boolean
-  binaryPath: string | null
-  source: "managed" | "system" | null
-  serverUp: boolean
-  managedRunning: boolean
-  installState: {
-    inProgress: boolean
-    status: string
-    percent: number | null
-    completedBytes: number
-    totalBytes: number
-    error: string | null
-    done: boolean
-  } | null
-}
-
-function LocalLLMStatusCard() {
-  const [status, setStatus] = useState<LocalStatus | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [pulling, setPulling] = useState(false)
-  const [pullProgress, setPullProgress] = useState<PullProgress | null>(null)
-  const [switching, setSwitching] = useState<string | null>(null)
-  const [cancelling, setCancelling] = useState(false)
-  const [deleteTarget, setDeleteTarget] = useState<{ name: string; sizeBytes: number } | null>(null)
-  const [deleting, setDeleting] = useState(false)
-  const [cleaning, setCleaning] = useState(false)
-  const [disk, setDisk] = useState<DiskUsage | null>(null)
-  const [modelSize, setModelSize] = useState<{ model: string; sizeBytes: number | null; requiredBytes: number | null } | null>(null)
-  const [runtime, setRuntime] = useState<RuntimeStatus | null>(null)
-  const [installing, setInstalling] = useState(false)
-  const [installProgress, setInstallProgress] = useState<PullProgress | null>(null)
-  const [installCancelling, setInstallCancelling] = useState(false)
-  const [serverStarting, setServerStarting] = useState(false)
-  const [serverStopping, setServerStopping] = useState(false)
-  const [settingBaseUrl, setSettingBaseUrl] = useState(false)
-
-  const handleCleanup = useCallback(async () => {
-    setCleaning(true)
-    try {
-      const d = await api("/admin/settings/ai/local-cleanup", { method: "POST" })
-      const freed = Number(d.freedBytes ?? 0)
-      if (Number(d.deletedCount ?? 0) > 0) {
-        toast.success(`불완전 임시 파일 ${d.deletedCount}개를 정리했습니다 (${formatGB(freed) || "1GB 미만"} 확보).`)
-      } else {
-        toast.info("정리할 임시 파일이 없습니다.")
-      }
-      if (Array.isArray(d.errors) && d.errors.length > 0) {
-        toast.error(`일부 파일은 정리하지 못했습니다: ${d.errors[0]}`)
-      }
-    } catch (e: any) {
-      toast.error(`임시 파일 정리 실패: ${e.message}`)
-    } finally {
-      setCleaning(false)
-    }
-  }, [])
-
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    try {
-      const d = await api("/admin/settings/ai/local-status")
-      setStatus(d)
-    } catch (e: any) { toast.error(e.message) }
-    finally { setLoading(false) }
-    // 디스크 여유 공간은 부가 정보 — 실패해도 카드 자체는 동작
-    try {
-      setDisk(await api("/admin/settings/ai/disk-usage"))
-    } catch { setDisk(null) }
-    // 설정된 모델의 예상 다운로드 크기 — 조회 실패해도 카드 자체는 동작
-    try {
-      setModelSize(await api("/admin/settings/ai/model-size"))
-    } catch { setModelSize(null) }
-    // 로컬 런타임(설치/서버 실행) 상태 — 조회 실패해도 카드 자체는 동작
-    try {
-      setRuntime(await api("/admin/settings/ai/local-runtime"))
-    } catch { setRuntime(null) }
-  }, [])
-
-  // 서버의 pull 진행 상태를 폴링 — 완료/실패 시 종료
-  const pollPullStatus = useCallback(async (): Promise<void> => {
-    while (true) {
-      let d: any
-      try {
-        d = await api("/admin/settings/ai/local-pull/status")
-      } catch {
-        // 일시적 네트워크 오류는 무시하고 재시도
-        await new Promise((r) => setTimeout(r, 2000))
-        continue
-      }
-      if (!d.active) break
-      setPullProgress({
-        status: String(d.status ?? ""),
-        percent: d.percent ?? null,
-        completedBytes: Number(d.completedBytes ?? 0),
-        totalBytes: Number(d.totalBytes ?? 0),
-      })
-      if (!d.inProgress) {
-        if (d.cancelled) {
-          const freed = Number(d.cleanedFreedBytes ?? 0)
-          toast.info(
-            freed > 0
-              ? `모델 다운로드가 취소되었습니다. 임시 파일 ${formatGB(freed)}를 정리했습니다.`
-              : "모델 다운로드가 취소되었습니다."
-          )
-        }
-        else if (d.error) toast.error(`모델 다운로드 실패: ${d.error}`)
-        else if (d.done) toast.success("모델 다운로드가 완료되었습니다.")
-        break
-      }
-      await new Promise((r) => setTimeout(r, 1500))
-    }
-    setPulling(false)
-    setPullProgress(null)
-    refresh()
-  }, [refresh])
-
-  const handlePull = useCallback(async () => {
-    setPulling(true)
-    setPullProgress({ status: "요청 중...", percent: null, completedBytes: 0, totalBytes: 0 })
-    try {
-      await api("/admin/settings/ai/local-pull", { method: "POST" })
-      await pollPullStatus()
-    } catch (e: any) {
-      toast.error(`모델 다운로드 실패: ${e.message}`)
-      setPulling(false)
-      setPullProgress(null)
-    }
-  }, [pollPullStatus])
-
-  // 페이지 재진입 시 진행 중인 다운로드가 있으면 진행률 표시 재개
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const d: any = await api("/admin/settings/ai/local-pull/status")
-        if (!cancelled && d.active && d.inProgress) {
-          setPulling(true)
-          setPullProgress({
-            status: String(d.status ?? ""),
-            percent: d.percent ?? null,
-            completedBytes: Number(d.completedBytes ?? 0),
-            totalBytes: Number(d.totalBytes ?? 0),
-          })
-          pollPullStatus()
-        }
-      } catch { /* 무시 */ }
-    })()
-    return () => { cancelled = true }
-  }, [pollPullStatus])
-
-  const handleCancelPull = useCallback(async () => {
-    setCancelling(true)
-    try {
-      await api("/admin/settings/ai/local-pull/cancel", { method: "POST" })
-      // 이후 상태 정리는 pollPullStatus 가 !inProgress 를 감지하며 처리
-    } catch (e: any) {
-      toast.error(`다운로드 취소 실패: ${e.message}`)
-    } finally {
-      setCancelling(false)
-    }
-  }, [])
-
-  // 서버의 설치 진행 상태를 폴링 — 완료/실패/취소 시 종료
-  const pollInstallStatus = useCallback(async (): Promise<void> => {
-    while (true) {
-      let d: any
-      try {
-        d = await api("/admin/settings/ai/local-install/status")
-      } catch {
-        await new Promise((r) => setTimeout(r, 2000))
-        continue
-      }
-      if (!d.active) break
-      setInstallProgress({
-        status: String(d.status ?? ""),
-        percent: d.percent ?? null,
-        completedBytes: Number(d.completedBytes ?? 0),
-        totalBytes: Number(d.totalBytes ?? 0),
-      })
-      if (!d.inProgress) {
-        if (d.cancelled) toast.info("Ollama 설치가 취소되었습니다.")
-        else if (d.error) toast.error(`Ollama 설치 실패: ${d.error}`)
-        else if (d.done) toast.success("Ollama 설치가 완료되었습니다.")
-        break
-      }
-      await new Promise((r) => setTimeout(r, 1500))
-    }
-    setInstalling(false)
-    setInstallProgress(null)
-    refresh()
-  }, [refresh])
-
-  const handleInstall = useCallback(async () => {
-    setInstalling(true)
-    setInstallProgress({ status: "요청 중...", percent: null, completedBytes: 0, totalBytes: 0 })
-    try {
-      await api("/admin/settings/ai/local-install", { method: "POST" })
-      await pollInstallStatus()
-    } catch (e: any) {
-      toast.error(`Ollama 설치 실패: ${e.message}`)
-      setInstalling(false)
-      setInstallProgress(null)
-    }
-  }, [pollInstallStatus])
-
-  const handleCancelInstall = useCallback(async () => {
-    setInstallCancelling(true)
-    try {
-      await api("/admin/settings/ai/local-install/cancel", { method: "POST" })
-    } catch (e: any) {
-      toast.error(`설치 취소 실패: ${e.message}`)
-    } finally {
-      setInstallCancelling(false)
-    }
-  }, [])
-
-  // 페이지 재진입 시 진행 중인 설치가 있으면 진행률 표시 재개
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      try {
-        const d: any = await api("/admin/settings/ai/local-install/status")
-        if (!cancelled && d.active && d.inProgress) {
-          setInstalling(true)
-          setInstallProgress({
-            status: String(d.status ?? ""),
-            percent: d.percent ?? null,
-            completedBytes: Number(d.completedBytes ?? 0),
-            totalBytes: Number(d.totalBytes ?? 0),
-          })
-          pollInstallStatus()
-        }
-      } catch { /* 무시 */ }
-    })()
-    return () => { cancelled = true }
-  }, [pollInstallStatus])
-
-  const handleStartServer = useCallback(async () => {
-    setServerStarting(true)
-    try {
-      const d = await api("/admin/settings/ai/local-server/start", { method: "POST" })
-      if (d.alreadyUp) toast.info("로컬 AI 서버가 이미 실행 중입니다.")
-      else toast.success("로컬 AI 서버가 시작되었습니다.")
-      await refresh()
-    } catch (e: any) {
-      toast.error(`로컬 AI 서버 시작 실패: ${e.message}`)
-    } finally {
-      setServerStarting(false)
-    }
-  }, [refresh])
-
-  const handleStopServer = useCallback(async () => {
-    if (!window.confirm("로컬 AI 서버를 중지할까요? 심사 기능이 동작하지 않게 됩니다.")) return
-    setServerStopping(true)
-    try {
-      await api("/admin/settings/ai/local-server/stop", { method: "POST" })
-      toast.success("로컬 AI 서버가 중지되었습니다.")
-      await refresh()
-    } catch (e: any) {
-      toast.error(`로컬 AI 서버 중지 실패: ${e.message}`)
-    } finally {
-      setServerStopping(false)
-    }
-  }, [refresh])
-
-  const handleSetLocalBaseUrl = useCallback(async () => {
-    setSettingBaseUrl(true)
-    try {
-      let hasApiKey = false
-      try {
-        const cfg = await api("/admin/settings/ai")
-        hasApiKey = !!cfg.hasApiKey
-      } catch { /* 조회 실패 시 apiKey 함께 설정 */ }
-      await api("/admin/settings/ai", {
-        method: "PUT",
-        body: JSON.stringify({
-          baseUrl: "http://localhost:11434/v1",
-          ...(hasApiKey ? {} : { apiKey: "ollama" }),
-        }),
-      })
-      toast.success("Base URL이 로컬 Ollama로 설정되었습니다.")
-      await refresh()
-    } catch (e: any) {
-      toast.error(`Base URL 설정 실패: ${e.message}`)
-    } finally {
-      setSettingBaseUrl(false)
-    }
-  }, [refresh])
-
-  const handleUseModel = useCallback(async (name: string) => {
-    setSwitching(name)
-    try {
-      await api("/admin/settings/ai", { method: "PUT", body: JSON.stringify({ model: name }) })
-      toast.success(`사용 모델이 ${name}(으)로 변경되었습니다.`)
-      await refresh()
-    } catch (e: any) {
-      toast.error(`모델 전환 실패: ${e.message}`)
-    } finally {
-      setSwitching(null)
-    }
-  }, [refresh])
-
-  const handleDeleteModel = useCallback(async () => {
-    if (!deleteTarget) return
-    setDeleting(true)
-    try {
-      await api("/admin/settings/ai/local-models", {
-        method: "DELETE",
-        body: JSON.stringify({ model: deleteTarget.name }),
-      })
-      toast.success(`모델 ${deleteTarget.name}이(가) 삭제되었습니다.`)
-      setDeleteTarget(null)
-      await refresh()
-    } catch (e: any) {
-      toast.error(`모델 삭제 실패: ${e.message}`)
-    } finally {
-      setDeleting(false)
-    }
-  }, [deleteTarget, refresh])
-
-  useEffect(() => { refresh() }, [refresh])
-
-  // Ollama 태그 규칙: 태그 없는 이름은 ":latest"로 해석
-  const normalize = (name: string) => (name.includes(":") ? name : `${name}:latest`)
-
-  const badge = (ok: boolean, okText: string, failText: string) => (
-    <span className={`inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-0.5 ${ok ? "bg-emerald-950/60 text-emerald-300 border border-emerald-800" : "bg-red-950/60 text-red-300 border border-red-800"}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${ok ? "bg-emerald-400" : "bg-red-400"}`} />
-      {ok ? okText : failText}
-    </span>
-  )
-
-  return (
-    <Card className="bg-slate-900 border-slate-800 max-w-2xl">
-      <CardHeader>
-        <CardTitle className="text-white text-base flex items-center justify-between">
-          <span className="flex items-center gap-2"><Cpu className="h-4 w-4 text-primary" /> 로컬 AI(Ollama) 설치 상태</span>
-          <Button variant="outline" size="sm" onClick={refresh} disabled={loading} className="border-slate-700 text-slate-300">
-            {loading ? "확인 중..." : "새로고침"}
-          </Button>
-        </CardTitle>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* 관리형 Ollama 설치/실행 관리 — 항상 표시 */}
-        {runtime && (
-          <div className="rounded-md border border-slate-700 bg-slate-950 px-3 py-3 space-y-3">
-            {!runtime.platformSupported ? (
-              <p className="text-xs text-slate-500">
-                자동 설치는 Linux(x64) 서버에서만 지원됩니다.
-              </p>
-            ) : !runtime.binaryInstalled ? (
-              <div className="space-y-2">
-                <p className="text-xs text-slate-300">
-                  로컬 AI(Ollama)가 설치되어 있지 않습니다. 아래 버튼으로 서버에 자동 설치할 수 있습니다.
-                </p>
-                {installing && installProgress && (
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-[11px] text-slate-300">
-                      <span>{installProgress.status}</span>
-                      <span>
-                        {installProgress.percent !== null
-                          ? `${installProgress.percent}% (${formatGB(installProgress.completedBytes) || "0GB"} / ${formatGB(installProgress.totalBytes)})`
-                          : ""}
-                      </span>
-                    </div>
-                    <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
-                      <div
-                        className={`h-full rounded-full bg-primary transition-all ${installProgress.percent === null ? "w-1/3 animate-pulse" : ""}`}
-                        style={installProgress.percent !== null ? { width: `${installProgress.percent}%` } : undefined}
-                      />
-                    </div>
-                  </div>
-                )}
-                <div className="flex items-center gap-2">
-                  <Button size="sm" onClick={handleInstall} disabled={installing}>
-                    <Download className="h-3.5 w-3.5 mr-1.5" />
-                    {installing ? "설치 중..." : "Ollama 설치"}
-                  </Button>
-                  {installing && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="border-slate-700 text-slate-300"
-                      disabled={installCancelling}
-                      onClick={handleCancelInstall}
-                    >
-                      <X className="h-3.5 w-3.5 mr-1.5" />
-                      {installCancelling ? "취소 중..." : "취소"}
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <span className="text-xs text-slate-300">
-                    로컬 AI(Ollama) 설치됨
-                    {runtime.source === "system" && <span className="text-slate-500"> (시스템 설치)</span>}
-                  </span>
-                  {runtime.serverUp ? (
-                    runtime.managedRunning ? (
-                      <span className="inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-0.5 bg-emerald-950/60 text-emerald-300 border border-emerald-800">
-                        <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                        실행 중 (관리형)
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center gap-1.5 text-xs font-medium rounded-full px-2.5 py-0.5 bg-slate-800 text-slate-300 border border-slate-700">
-                        <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
-                        실행 중 (외부 프로세스)
-                      </span>
-                    )
-                  ) : null}
-                </div>
-                {!runtime.serverUp && (
-                  <Button size="sm" onClick={handleStartServer} disabled={serverStarting}>
-                    {serverStarting ? "시작 중..." : "로컬 AI 서버 시작"}
-                  </Button>
-                )}
-                {runtime.serverUp && runtime.managedRunning && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    className="border-slate-700 text-slate-300"
-                    disabled={serverStopping}
-                    onClick={handleStopServer}
-                  >
-                    {serverStopping ? "중지 중..." : "서버 중지"}
-                  </Button>
-                )}
-                {runtime.serverUp && status && !status.isLocal && (
-                  <div className="text-xs rounded-md border border-amber-800 bg-amber-950/50 text-amber-300 px-3 py-2 space-y-2">
-                    <p>로컬 AI 서버는 실행 중이지만, 심사에 사용할 Base URL이 로컬로 설정되어 있지 않습니다.</p>
-                    <Button size="sm" onClick={handleSetLocalBaseUrl} disabled={settingBaseUrl}>
-                      {settingBaseUrl ? "설정 중..." : "Base URL을 로컬로 설정"}
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-        {!status ? (
-          <div className="text-slate-400 text-sm">상태 확인 중...</div>
-        ) : (
-          !status.isLocal ? (
-            <div className="text-xs rounded-md border border-slate-700 bg-slate-950 text-slate-400 px-3 py-2 space-y-1">
-              <p>현재 로컬 AI(Ollama)가 설정되어 있지 않습니다{status.baseUrl ? <> — 설정된 Base URL: <code className="text-slate-300">{status.baseUrl}</code></> : ""}.</p>
-              {runtime && !runtime.platformSupported ? (
-                <p>이 서버는 자동 설치를 지원하지 않습니다. 서버에서 <code className="text-slate-200">bash install.sh --ollama</code>로 설치한 뒤, 아래 AI 공급자 설정에서 Base URL을 <code className="text-slate-200">http://localhost:11434/v1</code>로 지정하세요.</p>
-              ) : (
-                <p>위의 설치/서버 관리 버튼으로 로컬 AI를 설치·시작한 뒤, <code className="text-slate-200">Base URL을 로컬로 설정</code> 버튼으로 심사에 연결하세요.</p>
-              )}
-            </div>
-          ) : (
-          <>
-            <div className="flex flex-wrap items-center gap-2">
-              {badge(status.serverUp, "서버 응답 정상", "서버 응답 없음")}
-              {status.serverUp && badge(status.modelInstalled, `모델 설치됨 (${status.configuredModel})`, status.configuredModel ? `모델 없음 (${status.configuredModel})` : "설정된 모델 없음")}
-            </div>
-            {status.baseUrl && (
-              <p className="text-xs text-slate-500">확인 대상: <code className="text-slate-400">{status.baseUrl}</code></p>
-            )}
-            {disk && disk.totalBytes > 0 && (() => {
-              const lowSpace = disk.freeBytes < 10 * 1024 * 1024 * 1024 || disk.usedPercent >= 90
-              return (
-                <div className={`text-xs rounded-md border px-3 py-2 space-y-1.5 ${lowSpace ? "border-red-800 bg-red-950/50" : "border-slate-800 bg-slate-950"}`}>
-                  <div className="flex items-center justify-between">
-                    <span className={lowSpace ? "text-red-300 font-medium" : "text-slate-300"}>
-                      서버 디스크 여유 공간: {formatGB(disk.freeBytes) || "0GB"}
-                    </span>
-                    <span className="text-slate-500">
-                      {formatGB(disk.usedBytes) || "0GB"} / {formatGB(disk.totalBytes)} 사용 ({disk.usedPercent}%)
-                    </span>
-                  </div>
-                  <div className="h-1.5 w-full rounded-full bg-slate-800 overflow-hidden">
-                    <div
-                      className={`h-full rounded-full ${lowSpace ? "bg-red-400" : "bg-emerald-400"}`}
-                      style={{ width: `${Math.min(100, disk.usedPercent)}%` }}
-                    />
-                  </div>
-                  {lowSpace && (
-                    <p className="text-[11px] text-red-300">
-                      여유 공간이 부족합니다. 사용하지 않는 모델을 삭제하거나 임시 파일을 정리하세요.
-                    </p>
-                  )}
-                </div>
-              )
-            })()}
-            {!status.serverUp && (
-              <div className="text-xs rounded-md border border-red-800 bg-red-950/50 text-red-300 px-3 py-2 space-y-1">
-                <p>Ollama 서버에 연결할 수 없습니다{status.error ? ` — ${status.error}` : ""}.</p>
-                {runtime && !runtime.platformSupported ? (
-                  <>
-                    <p>터미널에서 아래 명령으로 로컬 AI를 (재)설치하세요:</p>
-                    <code className="block bg-slate-950 rounded px-2 py-1 text-slate-200">bash install.sh --ollama</code>
-                  </>
-                ) : (
-                  <p>위의 서버 관리 영역에서 <code className="text-red-200">로컬 AI 서버 시작</code> 버튼으로 서버를 실행하세요.</p>
-                )}
-              </div>
-            )}
-            {status.serverUp && !status.modelInstalled && (
-              <div className="text-xs rounded-md border border-amber-800 bg-amber-950/50 text-amber-300 px-3 py-2 space-y-2">
-                {status.models.length === 0 ? (
-                  <p>서버는 실행 중이지만 다운로드된 모델이 없습니다.</p>
-                ) : (
-                  <p>설정된 모델 <code className="text-amber-200">{status.configuredModel || "(없음)"}</code>이(가) 설치 목록에 없습니다.</p>
-                )}
-                {status.configuredModel ? (
-                  <>
-                    <p>아래 버튼으로 설정된 모델(<code className="text-amber-200">{status.configuredModel}</code>)을 바로 내려받을 수 있습니다.</p>
-                    {modelSize?.sizeBytes != null && (
-                      <p className="text-[11px] text-amber-200/90">
-                        예상 다운로드 크기: <span className="font-medium">{formatGB(modelSize.sizeBytes) || "1GB 미만"}</span>
-                        {disk && disk.totalBytes > 0 && <> · 현재 여유 공간: {formatGB(disk.freeBytes) || "0GB"}</>}
-                      </p>
-                    )}
-                    {(() => {
-                      // 여유 공간 부족 경고: 예상 크기+마진 대비, 조회 실패 시 10GB 폴백 기준
-                      if (!disk || disk.totalBytes <= 0) return null
-                      const required = modelSize?.requiredBytes ?? 10 * 1024 * 1024 * 1024
-                      if (disk.freeBytes >= required) return null
-                      return (
-                        <p className="text-[11px] text-red-300 font-medium">
-                          ⚠ 여유 공간이 부족합니다 (필요: 약 {formatGB(required)}, 여유: {formatGB(disk.freeBytes) || "0GB"}).
-                          사용하지 않는 모델을 삭제하거나 임시 파일을 정리한 뒤 시도하세요.
-                        </p>
-                      )
-                    })()}
-                    {pulling && pullProgress && (
-                      <div className="space-y-1">
-                        <div className="flex items-center justify-between text-[11px] text-amber-200">
-                          <span>{pullProgress.status}</span>
-                          <span>
-                            {pullProgress.percent !== null
-                              ? `${pullProgress.percent}% (${formatGB(pullProgress.completedBytes) || "0GB"} / ${formatGB(pullProgress.totalBytes)})`
-                              : ""}
-                          </span>
-                        </div>
-                        <div className="h-2 w-full rounded-full bg-slate-800 overflow-hidden">
-                          <div
-                            className={`h-full rounded-full bg-amber-400 transition-all ${pullProgress.percent === null ? "w-1/3 animate-pulse" : ""}`}
-                            style={pullProgress.percent !== null ? { width: `${pullProgress.percent}%` } : undefined}
-                          />
-                        </div>
-                      </div>
-                    )}
-                    <div className="flex items-center gap-2 mt-1">
-                      <Button size="sm" onClick={handlePull} disabled={pulling}>
-                        <Download className="h-3.5 w-3.5 mr-1.5" />
-                        {pulling ? "내려받는 중..." : "모델 내려받기"}
-                      </Button>
-                      {pulling && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="border-slate-700 text-slate-300"
-                          disabled={cancelling}
-                          onClick={handleCancelPull}
-                        >
-                          <X className="h-3.5 w-3.5 mr-1.5" />
-                          {cancelling ? "취소 중..." : "취소"}
-                        </Button>
-                      )}
-                    </div>
-                  </>
-                ) : (
-                  <p>AI 공급자 설정에서 모델명을 먼저 지정한 뒤 내려받을 수 있습니다.</p>
-                )}
-              </div>
-            )}
-            {status.isLocal && (
-              <div className="flex items-center justify-between gap-2 rounded border border-slate-800 bg-slate-950 px-2.5 py-1.5">
-                <p className="text-[11px] text-slate-500">
-                  취소된 다운로드가 남긴 불완전 임시 파일을 정리해 디스크 공간을 확보합니다.
-                </p>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-6 px-2 text-[11px] border-slate-700 text-slate-300 shrink-0"
-                  disabled={cleaning || pulling}
-                  onClick={handleCleanup}
-                >
-                  {cleaning ? "정리 중..." : "임시 파일 정리"}
-                </Button>
-              </div>
-            )}
-            {status.serverUp && status.models.length > 0 && (
-              <div className="space-y-1.5">
-                <Label className="text-slate-300 text-xs">다운로드된 모델 ({status.models.length}개)</Label>
-                <ul className="text-xs text-slate-300 space-y-1">
-                  {status.models.map((m) => {
-                    const inUse = !!status.configuredModel && normalize(m.name) === normalize(status.configuredModel)
-                    return (
-                      <li key={m.name} className="flex items-center justify-between gap-2 rounded border border-slate-800 bg-slate-950 px-2.5 py-1.5">
-                        <div className="flex items-center gap-2 min-w-0">
-                          <code className="truncate">{m.name}</code>
-                          <span className="text-slate-500 shrink-0">{formatGB(m.sizeBytes)}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          {inUse ? (
-                            <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-300">
-                              <Check className="h-3.5 w-3.5" /> 사용 중
-                            </span>
-                          ) : (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="h-6 px-2 text-[11px] border-slate-700 text-slate-300"
-                              disabled={switching !== null}
-                              onClick={() => handleUseModel(m.name)}
-                            >
-                              {switching === m.name ? "전환 중..." : "이 모델 사용"}
-                            </Button>
-                          )}
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="h-6 w-6 p-0 border-slate-700 text-slate-400 hover:text-red-300 hover:border-red-800"
-                            disabled={pulling || deleting}
-                            onClick={() => setDeleteTarget({ name: m.name, sizeBytes: m.sizeBytes })}
-                            title="모델 삭제"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </li>
-                    )
-                  })}
-                </ul>
-              </div>
-            )}
-          </>
-          )
-        )}
-        <Dialog open={deleteTarget !== null} onOpenChange={(v) => { if (!v && !deleting) setDeleteTarget(null) }}>
-          <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-md">
-            <DialogHeader>
-              <DialogTitle className="text-white flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 text-red-400" /> 모델 삭제
-              </DialogTitle>
-            </DialogHeader>
-            <div className="text-sm text-slate-300 space-y-2 py-1">
-              <p>
-                모델 <code className="text-white bg-slate-800 rounded px-1.5 py-0.5">{deleteTarget?.name}</code>
-                {deleteTarget && deleteTarget.sizeBytes > 0 ? ` (${formatGB(deleteTarget.sizeBytes)})` : ""}
-                을(를) 서버에서 삭제할까요?
-              </p>
-              <p className="text-xs text-slate-500">
-                모델이 차지하던 디스크 공간이 확보됩니다. 다시 사용하려면 모델을 새로 내려받아야 합니다.
-              </p>
-              {deleteTarget && status?.configuredModel && normalize(deleteTarget.name) === normalize(status.configuredModel) && (
-                <p className="text-xs text-amber-300 rounded border border-amber-800 bg-amber-950/50 px-2 py-1.5">
-                  현재 사용 중으로 설정된 모델입니다. 삭제하면 심사 기능이 동작하지 않으니, 삭제 후 다른 모델을 지정하거나 다시 내려받으세요.
-                </p>
-              )}
-            </div>
-            <DialogFooter>
-              <Button variant="ghost" onClick={() => setDeleteTarget(null)} disabled={deleting} className="text-slate-400 hover:text-white">
-                취소
-              </Button>
-              <Button variant="destructive" onClick={handleDeleteModel} disabled={deleting}>
-                <Trash2 className="h-3.5 w-3.5 mr-1.5" />
-                {deleting ? "삭제 중..." : "삭제"}
-              </Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
-      </CardContent>
-    </Card>
-  )
-}
-
 export function AISettingsTab() {
   const [loaded, setLoaded] = useState(false)
   const [apiKeyMasked, setApiKeyMasked] = useState("")
@@ -958,46 +255,6 @@ export function AISettingsTab() {
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null)
   const [health, setHealth] = useState<{ ok: boolean; code: string; error?: string } | null>(null)
   const [healthLoading, setHealthLoading] = useState(false)
-  // 입력 중인 모델의 예상 다운로드 크기 미리보기 (디바운스 조회)
-  const [sizePreview, setSizePreview] = useState<{
-    model: string
-    sizeBytes: number | null
-    requiredBytes: number | null
-    freeBytes: number | null
-    registryStatus: "found" | "not_found" | "unknown"
-  } | null>(null)
-  const [sizeLoading, setSizeLoading] = useState(false)
-
-  useEffect(() => {
-    const m = model.trim()
-    if (!m) { setSizePreview(null); setSizeLoading(false); return }
-    setSizeLoading(true)
-    let stale = false
-    const timer = setTimeout(async () => {
-      try {
-        const [size, disk] = await Promise.all([
-          api(`/admin/settings/ai/model-size?model=${encodeURIComponent(m)}`),
-          api("/admin/settings/ai/disk-usage").catch(() => null),
-        ])
-        if (stale) return
-        setSizePreview({
-          model: String(size.model ?? m),
-          sizeBytes: size.sizeBytes ?? null,
-          requiredBytes: size.requiredBytes ?? null,
-          freeBytes: disk ? Number(disk.freeBytes ?? 0) : null,
-          registryStatus:
-            size.registryStatus === "found" || size.registryStatus === "not_found"
-              ? size.registryStatus
-              : "unknown",
-        })
-      } catch {
-        if (!stale) setSizePreview(null)
-      } finally {
-        if (!stale) setSizeLoading(false)
-      }
-    }, 600)
-    return () => { stale = true; clearTimeout(timer) }
-  }, [model])
 
   const loadHealth = useCallback(async () => {
     setHealthLoading(true)
@@ -1034,10 +291,7 @@ export function AISettingsTab() {
 
   useEffect(() => { load() }, [load])
 
-  // 서버가 "레지스트리에 없는 모델" (409 model_not_found)로 거부했을 때 확인 다이얼로그 표시용
-  const [forceConfirm, setForceConfirm] = useState<string | null>(null)
-
-  const handleSave = async (force = false) => {
+  const handleSave = async () => {
     setSaving(true)
     setTestResult(null)
     try {
@@ -1053,10 +307,8 @@ export function AISettingsTab() {
           ...(apiKey3 ? { apiKey3 } : {}),
           baseUrl3,
           model3,
-          ...(force ? { force: true } : {}),
         }),
       })
-      setForceConfirm(null)
       toast.success("AI 설정이 저장되었습니다.")
       setApiKey("")
       setApiKey2("")
@@ -1064,11 +316,7 @@ export function AISettingsTab() {
       load()
       loadHealth()
     } catch (e: any) {
-      if (e.code === "model_not_found") {
-        setForceConfirm(e.message)
-      } else {
-        toast.error(e.message)
-      }
+      toast.error(e.message)
     }
     finally { setSaving(false) }
   }
@@ -1140,9 +388,8 @@ export function AISettingsTab() {
           </div>
         )}
         <p className="text-xs text-slate-400 leading-relaxed">
-          OpenAI 또는 OpenAI 호환 로컬 LLM 서버(Ollama, LM Studio 등)를 사용할 수 있습니다.
-          로컬 LLM 사용 시 Base URL을 <code className="text-slate-300">http://localhost:11434/v1</code> 형식으로,
-          API 키는 아무 값(예: <code className="text-slate-300">ollama</code>)으로 설정하세요.
+          OpenAI 또는 OpenAI 호환 API 서버를 사용할 수 있습니다.
+          API 키와 Base URL, 모델명을 입력한 뒤 저장하세요.
         </p>
         <div className="space-y-2">
           <Label className="text-slate-300">API 키</Label>
@@ -1150,7 +397,7 @@ export function AISettingsTab() {
             type="password"
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
-            placeholder={hasApiKey ? `현재: ${apiKeyMasked} (변경 시에만 입력)` : "sk-... 또는 ollama"}
+            placeholder={hasApiKey ? `현재: ${apiKeyMasked} (변경 시에만 입력)` : "sk-..."}
             className="bg-slate-950 border-slate-700 text-white"
           />
         </div>
@@ -1159,7 +406,7 @@ export function AISettingsTab() {
           <Input
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder="https://api.openai.com/v1 또는 http://localhost:11434/v1"
+            placeholder="https://api.openai.com/v1"
             className="bg-slate-950 border-slate-700 text-white"
           />
         </div>
@@ -1168,43 +415,9 @@ export function AISettingsTab() {
           <Input
             value={model}
             onChange={(e) => setModel(e.target.value)}
-            placeholder="gpt-5.6-luna 또는 qwen2.5:14b"
+            placeholder="gpt-5.6-luna"
             className="bg-slate-950 border-slate-700 text-white"
           />
-          {model.trim() && (
-            sizeLoading ? (
-              <p className="text-[11px] text-slate-500">예상 다운로드 크기 확인 중...</p>
-            ) : sizePreview && sizePreview.sizeBytes !== null ? (() => {
-              const insufficient =
-                sizePreview.freeBytes !== null &&
-                sizePreview.requiredBytes !== null &&
-                sizePreview.freeBytes < sizePreview.requiredBytes
-              return (
-                <div className={`text-[11px] rounded-md border px-2.5 py-1.5 space-y-0.5 ${insufficient ? "border-red-800 bg-red-950/50 text-red-300" : "border-slate-800 bg-slate-950 text-slate-400"}`}>
-                  <p>
-                    예상 다운로드 크기: <span className={insufficient ? "font-medium" : "text-slate-300"}>{formatGB(sizePreview.sizeBytes)}</span>
-                    {sizePreview.requiredBytes !== null && <> (여유 공간 포함 약 {formatGB(sizePreview.requiredBytes)} 필요)</>}
-                    {sizePreview.freeBytes !== null && <> · 서버 여유 공간: {formatGB(sizePreview.freeBytes) || "0GB"}</>}
-                  </p>
-                  {insufficient && (
-                    <p className="font-medium">서버 디스크 공간이 부족합니다. 저장 전에 공간을 확보하거나 더 작은 모델을 선택하세요.</p>
-                  )}
-                </div>
-              )
-            })() : sizePreview?.registryStatus === "not_found" ? (
-              <div className="text-[11px] rounded-md border border-red-800 bg-red-950/50 text-red-300 px-2.5 py-1.5 flex items-start gap-1.5">
-                <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-px" />
-                <p>
-                  <span className="font-medium">레지스트리에 없는 모델입니다.</span>{" "}
-                  모델명에 오타가 없는지 확인하세요 (예: <code className="text-red-200">qwen2.5:14b</code>).
-                </p>
-              </div>
-            ) : sizePreview ? (
-              <p className="text-[11px] text-slate-500">
-                이 모델의 예상 크기를 확인할 수 없습니다 (Ollama 공식 레지스트리 모델만 조회 가능).
-              </p>
-            ) : null
-          )}
         </div>
         {/* ── 보조 심사 모델 (선택) ── */}
         <div className="border-t border-slate-800 pt-4">
@@ -1231,7 +444,7 @@ export function AISettingsTab() {
                     type="password"
                     value={apiKey2}
                     onChange={(e) => setApiKey2(e.target.value)}
-                    placeholder={hasApiKey2 ? `현재: ${apiKey2Masked} (변경 시에만 입력)` : "sk-... 또는 ollama"}
+                    placeholder={hasApiKey2 ? `현재: ${apiKey2Masked} (변경 시에만 입력)` : "sk-..."}
                     className="bg-slate-950 border-slate-700 text-white"
                   />
                 </div>
@@ -1240,7 +453,7 @@ export function AISettingsTab() {
                   <Input
                     value={baseUrl2}
                     onChange={(e) => setBaseUrl2(e.target.value)}
-                    placeholder="https://api.openai.com/v1 또는 http://localhost:11434/v1"
+                    placeholder="https://api.openai.com/v1"
                     className="bg-slate-950 border-slate-700 text-white"
                   />
                 </div>
@@ -1249,7 +462,7 @@ export function AISettingsTab() {
                   <Input
                     value={model2}
                     onChange={(e) => setModel2(e.target.value)}
-                    placeholder="gpt-5.6-luna 또는 qwen2.5:14b"
+                    placeholder="gpt-5.6-luna"
                     className="bg-slate-950 border-slate-700 text-white"
                   />
                 </div>
@@ -1263,7 +476,7 @@ export function AISettingsTab() {
                     type="password"
                     value={apiKey3}
                     onChange={(e) => setApiKey3(e.target.value)}
-                    placeholder={hasApiKey3 ? `현재: ${apiKey3Masked} (변경 시에만 입력)` : "sk-... 또는 ollama"}
+                    placeholder={hasApiKey3 ? `현재: ${apiKey3Masked} (변경 시에만 입력)` : "sk-..."}
                     className="bg-slate-950 border-slate-700 text-white"
                   />
                 </div>
@@ -1272,7 +485,7 @@ export function AISettingsTab() {
                   <Input
                     value={baseUrl3}
                     onChange={(e) => setBaseUrl3(e.target.value)}
-                    placeholder="https://api.openai.com/v1 또는 http://localhost:11434/v1"
+                    placeholder="https://api.openai.com/v1"
                     className="bg-slate-950 border-slate-700 text-white"
                   />
                 </div>
@@ -1281,7 +494,7 @@ export function AISettingsTab() {
                   <Input
                     value={model3}
                     onChange={(e) => setModel3(e.target.value)}
-                    placeholder="gpt-5.6-luna 또는 qwen2.5:14b"
+                    placeholder="gpt-5.6-luna"
                     className="bg-slate-950 border-slate-700 text-white"
                   />
                 </div>
@@ -1303,29 +516,6 @@ export function AISettingsTab() {
           </Button>
         </div>
       </CardContent>
-      <Dialog open={forceConfirm !== null} onOpenChange={(v) => !v && setForceConfirm(null)}>
-        <DialogContent className="bg-slate-900 border-slate-800 text-slate-100 max-w-md">
-          <DialogHeader>
-            <DialogTitle className="text-white flex items-center gap-2">
-              <AlertCircle className="h-4 w-4 text-amber-400" /> 레지스트리에 없는 모델
-            </DialogTitle>
-          </DialogHeader>
-          <div className="text-sm text-slate-300 space-y-2 py-1">
-            <p>{forceConfirm}</p>
-            <p className="text-xs text-slate-400">
-              잘못된 모델명을 저장하면 AI 분석이 동작하지 않을 수 있습니다. 그래도 저장하시겠습니까?
-            </p>
-          </div>
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setForceConfirm(null)} className="text-slate-400 hover:text-white">
-              취소
-            </Button>
-            <Button variant="destructive" onClick={() => handleSave(true)} disabled={saving}>
-              {saving ? "저장 중..." : "그래도 저장"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </Card>
   )
 }
@@ -1729,7 +919,6 @@ export default function AdminPage() {
         {/* ── AI Settings Tab ── */}
         {tab === "ai" && (
           <div className="space-y-6">
-            <LocalLLMStatusCard />
             <AISettingsTab />
           </div>
         )}

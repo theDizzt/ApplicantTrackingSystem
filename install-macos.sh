@@ -36,7 +36,7 @@ fi
 # ----------------------------------------
 # 1. Homebrew
 # ----------------------------------------
-echo -e "${CYAN}[1/6] Homebrew 확인${NC}"
+echo -e "${CYAN}[1/5] Homebrew 확인${NC}"
 if ! command -v brew >/dev/null 2>&1; then
     echo -e "${YELLOW}  Homebrew가 없습니다. 설치를 시작합니다...${NC}"
     /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
@@ -51,7 +51,7 @@ echo ""
 # ----------------------------------------
 # 2. Node.js 20+ / pnpm
 # ----------------------------------------
-echo -e "${CYAN}[2/6] Node.js / pnpm 설치${NC}"
+echo -e "${CYAN}[2/5] Node.js / pnpm 설치${NC}"
 NODE_MAJOR=0
 if command -v node >/dev/null 2>&1; then
     NODE_MAJOR=$(node -v | sed 's/v\([0-9]*\).*/\1/')
@@ -67,7 +67,7 @@ echo ""
 # ----------------------------------------
 # 3. PostgreSQL
 # ----------------------------------------
-echo -e "${CYAN}[3/6] PostgreSQL 설치 및 시작${NC}"
+echo -e "${CYAN}[3/5] PostgreSQL 설치 및 시작${NC}"
 if ! brew list "postgresql@${PG_VERSION}" >/dev/null 2>&1; then
     brew install "postgresql@${PG_VERSION}"
 fi
@@ -100,7 +100,7 @@ echo ""
 # ----------------------------------------
 # 4. 환경변수 파일 (.env.development)
 # ----------------------------------------
-echo -e "${CYAN}[4/6] 환경변수 설정${NC}"
+echo -e "${CYAN}[4/5] 환경변수 설정${NC}"
 if [ -f "$ENV_FILE" ]; then
     echo -e "  ${YELLOW}기존 ${ENV_FILE} 발견 — 재사용합니다.${NC}"
     grep -q "^DATABASE_URL=" "$ENV_FILE" || echo "DATABASE_URL=${DATABASE_URL}" >> "$ENV_FILE"
@@ -121,30 +121,11 @@ echo ""
 # ----------------------------------------
 # 5. 의존성 설치 + DB 스키마 반영
 # ----------------------------------------
-echo -e "${CYAN}[5/6] 의존성 설치 및 DB 스키마 적용${NC}"
+echo -e "${CYAN}[5/5] 의존성 설치 및 DB 스키마 적용${NC}"
 cd "$INSTALL_DIR"
 pnpm install
 DATABASE_URL="$DATABASE_URL" pnpm --filter @workspace/db run push
 echo -e "  ${GREEN}완료${NC}"
-echo ""
-
-# ----------------------------------------
-# 6. (선택) Ollama 로컬 LLM
-# ----------------------------------------
-echo -e "${CYAN}[6/6] Ollama (로컬 LLM, 선택 사항)${NC}"
-if command -v ollama >/dev/null 2>&1; then
-    echo -e "  ${GREEN}Ollama 이미 설치됨${NC}"
-else
-    read -p "  Ollama(로컬 LLM)를 설치할까요? OpenAI API만 쓸 거면 건너뛰세요 [y/N]: " INSTALL_OLLAMA
-    if [[ "${INSTALL_OLLAMA:-N}" =~ ^[Yy]$ ]]; then
-        brew install ollama
-        brew services start ollama
-        echo -e "  ${GREEN}Ollama 설치 완료${NC} — 모델 다운로드는 관리자 페이지에서 진행하세요."
-        echo -e "  (Apple Silicon은 Metal GPU 가속이 자동 적용됩니다)"
-    else
-        echo -e "  건너뜀"
-    fi
-fi
 echo ""
 
 echo -e "${GREEN}=========================================${NC}"

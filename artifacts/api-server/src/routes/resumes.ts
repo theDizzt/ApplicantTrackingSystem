@@ -2,6 +2,8 @@ import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
 import { db, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
+import { logger } from "../lib/logger";
+import { startCareerAnalysis } from "./career-analysis";
 
 const router: IRouter = Router();
 
@@ -42,6 +44,11 @@ router.post("/resumes", requireAuth, async (req, res): Promise<void> => {
     })
     .returning();
   res.status(201).json(serializeResume(resume));
+
+  // 생성 후 자동 커리어 분석 (fire-and-forget)
+  startCareerAnalysis(resume.id).catch((err) => {
+    logger.error({ err, resumeId: resume.id }, "Auto career analysis trigger failed");
+  });
 });
 
 router.get("/resumes/:id", requireAuth, async (req, res): Promise<void> => {
@@ -74,6 +81,14 @@ router.patch("/resumes/:id", requireAuth, async (req, res): Promise<void> => {
     .returning();
   if (!resume) { res.status(404).json({ error: "이력서를 찾을 수 없습니다." }); return; }
   res.json(serializeResume(resume));
+
+  // 제목·본문·자기소개서가 수정된 경우 자동 커리어 분석 재실행 (fire-and-forget)
+  // (프롬프트가 title도 사용하므로 title 변경 시에도 재분석한다)
+  if (title !== undefined || content !== undefined || coverLetter !== undefined) {
+    startCareerAnalysis(resume.id).catch((err) => {
+      logger.error({ err, resumeId: resume.id }, "Auto career analysis trigger failed");
+    });
+  }
 });
 
 router.delete("/resumes/:id", requireAuth, async (req, res): Promise<void> => {

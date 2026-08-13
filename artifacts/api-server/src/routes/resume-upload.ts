@@ -10,6 +10,7 @@ import { requireAuth } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import { getAI } from "../lib/openai";
 import { ocrPdfBuffer, VisionOcrError } from "../lib/vision-ocr";
+import { startCareerAnalysis } from "./career-analysis";
 
 const execFileAsync = promisify(execFile);
 const router: IRouter = Router();
@@ -175,6 +176,11 @@ router.post("/resumes/upload", requireAuth, upload.single("file"), async (req, r
     photoUrl:    resume.photoUrl    ?? null,
     fileUrl:     resume.fileUrl     ?? null,
     createdAt:   resume.createdAt.toISOString(),
+  });
+
+  // 업로드 성공 후 자동 커리어 분석 (fire-and-forget)
+  startCareerAnalysis(resume.id).catch((err) => {
+    logger.error({ err, resumeId: resume.id }, "Auto career analysis trigger failed");
   });
 });
 

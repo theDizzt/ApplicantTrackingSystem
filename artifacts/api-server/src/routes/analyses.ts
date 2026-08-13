@@ -257,7 +257,7 @@ async function callModelOpinion(
       { role: "user", content: userContent },
     ],
     response_format: { type: "json_object" },
-    max_completion_tokens: 800,
+    max_completion_tokens: 4000,
   });
   const raw = response.choices[0]?.message?.content ?? "{}";
   let data: Record<string, unknown> = {};

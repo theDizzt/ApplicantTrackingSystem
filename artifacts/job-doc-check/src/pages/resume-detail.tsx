@@ -31,6 +31,7 @@ import {
 } from "lucide-react"
 
 import { RichTextEditor } from "@/components/rich-text-editor"
+import { ResumePrintDialog } from "@/components/resume-print"
 
 // ── 폼 스키마 ──────────────────────────────────────────────────────────────
 const resumeSchema = z.object({
@@ -66,11 +67,18 @@ interface CareerRecommendedJob {
   outlook: string
   outlookScore: number
 }
+interface CareerSalaryGuide { min: number; max: number; basis: string }
+interface CareerTypoIssue { found: string; suggestion: string; note: string }
+interface CareerDateIssue { found: string; issue: string; suggestion: string }
 interface CareerAnalysisResult {
   strengths: CareerStrength[]
   ncsCategories: CareerNcsCategory[]
   recommendedJobs: CareerRecommendedJob[]
   summary: string
+  resumeSummary?: string
+  salaryGuide?: CareerSalaryGuide
+  typoIssues?: CareerTypoIssue[]
+  dateIssues?: CareerDateIssue[]
 }
 interface CareerAnalysisState {
   inProgress: boolean
@@ -103,82 +111,6 @@ function textToHtml(text: string): string {
     .join("")
 }
 
-// ── PDF 다운로드 (print 방식, 한글 완벽 지원) ─────────────────────────────
-function downloadPdf(title: string, content: string, coverLetter: string) {
-  const fontUrl =
-    "https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;700&display=swap"
-
-  const html = `<!DOCTYPE html>
-<html lang="ko">
-<head>
-  <meta charset="UTF-8" />
-  <title>${title}</title>
-  <link rel="preconnect" href="https://fonts.googleapis.com" />
-  <link href="${fontUrl}" rel="stylesheet" />
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
-      font-size: 10.5pt;
-      line-height: 1.8;
-      color: #1a1a1a;
-      padding: 30mm 20mm 24mm;
-      word-break: keep-all;
-    }
-    h1.doc-title {
-      font-size: 18pt;
-      font-weight: 700;
-      text-align: center;
-      margin-bottom: 10mm;
-      padding-bottom: 4mm;
-      border-bottom: 2px solid #2563eb;
-      color: #1e3a8a;
-    }
-    h2 { font-size: 13pt; font-weight: 700; margin: 7mm 0 3mm; color: #1e3a8a;
-         border-bottom: 1px solid #bfdbfe; padding-bottom: 1.5mm; }
-    h3 { font-size: 11pt; font-weight: 600; margin: 5mm 0 2mm; color: #1d4ed8; }
-    p  { margin: 0 0 2mm; }
-    ul, ol { margin: 0 0 3mm 5mm; }
-    li { margin-bottom: 1mm; }
-    strong { font-weight: 700; }
-    em     { font-style: italic; }
-    u      { text-decoration: underline; }
-    hr     { border: none; border-top: 1px solid #e5e7eb; margin: 5mm 0; }
-    section + section { margin-top: 8mm; }
-    .section-title {
-      font-size: 14pt;
-      font-weight: 700;
-      color: #1e3a8a;
-      margin: 8mm 0 3mm;
-      border-bottom: 2px solid #2563eb;
-      padding-bottom: 1.5mm;
-    }
-    @media print {
-      @page { size: A4; margin: 0; }
-      body { padding: 20mm 18mm 18mm; }
-    }
-  </style>
-</head>
-<body>
-  <h1 class="doc-title">${title}</h1>
-  ${content ? `<div class="section-title">이력서</div><section>${content}</section>` : ""}
-  ${coverLetter ? `<div class="section-title">자기소개서</div><section>${coverLetter}</section>` : ""}
-  <script>
-    // 폰트 로드 후 인쇄
-    document.fonts.ready.then(() => { window.print(); });
-  </script>
-</body>
-</html>`
-
-  const win = window.open("", "_blank")
-  if (!win) {
-    toast.error("팝업이 차단되었습니다. 팝업 허용 후 다시 시도하세요.")
-    return
-  }
-  win.document.write(html)
-  win.document.close()
-}
-
 // ── 메인 컴포넌트 ──────────────────────────────────────────────────────────
 export default function ResumeDetail() {
   const params = useParams()
@@ -204,6 +136,9 @@ export default function ResumeDetail() {
   const [isChecking,      setIsChecking]      = useState(false)
   const [spellResult,     setSpellResult]     = useState<SpellcheckResult | null>(null)
   const [showSpellDialog, setShowSpellDialog] = useState(false)
+
+  // PDF 다운로드(템플릿 선택) 다이얼로그
+  const [showPrintDialog, setShowPrintDialog] = useState(false)
 
   // 커리어 분석 상태
   const [career,        setCareer]        = useState<CareerAnalysisState | null>(null)
@@ -466,8 +401,14 @@ export default function ResumeDetail() {
   // ── PDF 다운로드 ─────────────────────────────────────────────────────────
   const handleDownloadPdf = () => {
     const values = form.getValues()
-    const title  = values.title || resume?.title || "이력서"
-    downloadPdf(title, values.content || "", values.coverLetter || "")
+    const hasContent =
+      htmlToText(values.content || "").length > 0 ||
+      htmlToText(values.coverLetter || "").length > 0
+    if (!hasContent) {
+      toast.error("다운로드할 이력서 내용이 없습니다.")
+      return
+    }
+    setShowPrintDialog(true)
   }
 
   const isPending = createResume.isPending || updateResume.isPending
@@ -565,8 +506,10 @@ export default function ResumeDetail() {
 
         {/* 액션 버튼 */}
         <div className="flex flex-wrap items-center justify-between gap-3 pt-4 border-t">
-          {/* PDF 다운로드 버튼 */}
-          {!isNew && (
+          {/* PDF 다운로드 버튼 (내용이 있을 때만) */}
+          {!isNew &&
+            (htmlToText(form.watch("content") || "").length > 0 ||
+              htmlToText(form.watch("coverLetter") || "").length > 0) && (
             <Button
               type="button"
               variant="outline"
@@ -574,7 +517,7 @@ export default function ResumeDetail() {
               className="gap-2 text-blue-700 border-blue-200 hover:bg-blue-50"
             >
               <FileDown className="w-4 h-4" />
-              PDF 다운로드
+              이력서 PDF 다운로드
             </Button>
           )}
 
@@ -735,6 +678,73 @@ export default function ResumeDetail() {
                 </div>
               </div>
 
+              {/* 가이드 연봉 */}
+              {result.salaryGuide && (result.salaryGuide.min > 0 || result.salaryGuide.max > 0) && (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-4 space-y-2">
+                  <h3 className="flex items-center gap-2 text-sm font-bold text-emerald-700">
+                    <Banknote className="w-4 h-4" />가이드 연봉
+                  </h3>
+                  <div className="text-2xl font-extrabold text-emerald-700 tracking-tight">
+                    연 {result.salaryGuide.min.toLocaleString()}만원 ~ {result.salaryGuide.max.toLocaleString()}만원
+                  </div>
+                  {result.salaryGuide.basis && (
+                    <p className="text-sm text-slate-600 leading-relaxed">{result.salaryGuide.basis}</p>
+                  )}
+                </div>
+              )}
+
+              {/* 표기 점검 (오탈자·날짜) */}
+              <div className="rounded-xl border border-slate-200 p-4 space-y-3">
+                <h3 className="flex items-center gap-2 text-sm font-bold text-slate-700">
+                  <SpellCheck className="w-4 h-4 text-amber-500" />표기 점검
+                </h3>
+                {(result.typoIssues?.length ?? 0) === 0 && (result.dateIssues?.length ?? 0) === 0 ? (
+                  <div className="flex items-center gap-2 text-sm text-emerald-600">
+                    <CheckCircle2 className="w-4 h-4" />
+                    표기 문제가 발견되지 않았습니다.
+                  </div>
+                ) : (
+                  <div className="space-y-4">
+                    {(result.typoIssues?.length ?? 0) > 0 && (
+                      <div className="space-y-2">
+                        <div className="text-xs font-semibold text-slate-500">용어 오탈자</div>
+                        <ul className="space-y-2">
+                          {result.typoIssues!.map((t, i) => (
+                            <li key={i} className="rounded-lg border border-amber-100 bg-amber-50/60 p-3 space-y-1">
+                              <div className="flex items-center gap-2 text-sm">
+                                <span className="text-red-600 line-through break-words">{t.found}</span>
+                                <span className="text-slate-400">→</span>
+                                <span className="text-emerald-700 font-semibold break-words">{t.suggestion}</span>
+                              </div>
+                              {t.note && <p className="text-xs text-slate-500">{t.note}</p>}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                    {(result.dateIssues?.length ?? 0) > 0 && (
+                      <div className="space-y-2">
+                        <div className="text-xs font-semibold text-slate-500">날짜·기간 표기</div>
+                        <ul className="space-y-2">
+                          {result.dateIssues!.map((d, i) => (
+                            <li key={i} className="rounded-lg border border-amber-200 bg-amber-50/60 p-3 space-y-1">
+                              <div className="flex items-start gap-2 text-sm text-amber-800">
+                                <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
+                                <span className="font-semibold break-words">{d.found}</span>
+                              </div>
+                              {d.issue && <p className="text-xs text-slate-600">{d.issue}</p>}
+                              {d.suggestion && (
+                                <p className="text-xs text-emerald-700">제안: {d.suggestion}</p>
+                              )}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
               {/* 종합 조언 */}
               {result.summary && (
                 <div className="rounded-xl bg-indigo-50/60 border border-indigo-100 p-4">
@@ -776,6 +786,17 @@ export default function ResumeDetail() {
             {isNew ? "새 이력서 등록" : "이력서 수정"}
           </h1>
         </div>
+
+        {/* ── AI 요약 (커리어 분석 결과 존재 시) ─────────────────────────── */}
+        {!isNew && career?.result?.resumeSummary && (
+          <div className="rounded-xl border border-indigo-200 bg-gradient-to-r from-indigo-50 to-violet-50 px-5 py-4 flex items-start gap-3">
+            <Sparkles className="w-5 h-5 text-indigo-600 mt-0.5 shrink-0" />
+            <div>
+              <div className="text-xs font-bold text-indigo-700 mb-1">AI 요약</div>
+              <p className="text-sm text-slate-700 leading-relaxed">{career.result.resumeSummary}</p>
+            </div>
+          </div>
+        )}
 
         {isNew ? (
           <Tabs defaultValue="upload">
@@ -836,6 +857,18 @@ export default function ResumeDetail() {
         {/* ── 커리어 분석 ─────────────────────────────────────────────── */}
         {!isNew && <CareerAnalysisSection />}
       </div>
+
+      {/* ── PDF 다운로드: 템플릿 선택 + 인쇄 뷰 ────────────────────────── */}
+      <ResumePrintDialog
+        open={showPrintDialog}
+        onOpenChange={setShowPrintDialog}
+        data={{
+          title:       form.getValues("title") || resume?.title || "이력서",
+          content:     form.getValues("content") || "",
+          coverLetter: form.getValues("coverLetter") || "",
+          aiSummary:   career?.result?.resumeSummary ?? null,
+        }}
+      />
 
       {/* ── 맞춤법 검사 결과 다이얼로그 ────────────────────────────────── */}
       <Dialog open={showSpellDialog} onOpenChange={setShowSpellDialog}>
