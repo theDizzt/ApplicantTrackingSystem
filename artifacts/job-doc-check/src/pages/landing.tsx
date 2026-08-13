@@ -58,11 +58,11 @@ export default function LandingPage() {
 
             {/* stats row */}
             <div className="flex flex-wrap items-center justify-center gap-6 text-sm text-slate-400 mb-12">
-              <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-blue-400" />4가지 정밀 채점</span>
+              <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-blue-400" />채용 공고 URL 자동 수집</span>
               <span className="w-px h-4 bg-slate-700 hidden sm:block" />
-              <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-blue-400" />GitHub 기술 스택 분석</span>
+              <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-blue-400" />이력서 자동 커리어 분석</span>
               <span className="w-px h-4 bg-slate-700 hidden sm:block" />
-              <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-blue-400" />AI 면접 질문 생성</span>
+              <span className="flex items-center gap-1.5"><CheckCircle2 className="w-4 h-4 text-blue-400" />이중 AI 서류 심사</span>
             </div>
 
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
@@ -119,20 +119,20 @@ export default function LandingPage() {
               {
                 step: "01",
                 icon: <Building2 className="w-7 h-7 text-blue-600" />,
-                title: "회사 정보 등록",
-                desc: "지원 회사의 채용공고, 인재상, JD를 입력하세요. AI가 맞춤 기준을 설정합니다.",
+                title: "지원 공고 자동 수집",
+                desc: "채용 공고 URL만 입력하세요. 텍스트는 물론 이미지 공고(OCR)까지 분석하여 맞춤 기준을 세웁니다.",
               },
               {
                 step: "02",
                 icon: <Zap className="w-7 h-7 text-blue-600" />,
-                title: "AI 서류 심사",
-                desc: "이력서·자기소개서를 업로드하면 국어 품질, 직무 적합도, AI 작성 여부, GitHub 분석까지 자동으로 채점합니다.",
+                title: "이력서 분석 및 교정",
+                desc: "PDF 스캔본도 완벽히 인식하며, 등록 즉시 내 이력서의 강점, 추천 직업, 가이드 연봉, 오탈자를 점검합니다.",
               },
               {
                 step: "03",
                 icon: <BarChart3 className="w-7 h-7 text-blue-600" />,
-                title: "결과 확인 & 면접 준비",
-                desc: "통과/불합격 판정과 함께 핵심 개선사항을 받고, AI 면접 질문으로 실전 연습까지 완성하세요.",
+                title: "이중 AI 심사 및 다운로드",
+                desc: "인성·역량 평가관의 이중 심사와 복수 AI 의견을 확인하고, 완성된 이력서를 3종의 PDF 템플릿으로 다운로드하세요.",
               },
             ].map((item) => (
               <div key={item.step} className="group relative rounded-2xl border border-slate-100 bg-white p-8 shadow-sm hover:shadow-md hover:border-blue-100 transition-all">
@@ -160,23 +160,23 @@ export default function LandingPage() {
               {[
                 {
                   icon: <Shield className="w-6 h-6 text-blue-600" />,
-                  title: "AI 작성 탐지",
-                  desc: "ChatGPT 등으로 작성된 이력서를 판별합니다. 진정성 점수로 리스크를 사전 파악하세요.",
+                  title: "AI 커리어 종합 분석",
+                  desc: "이력서 등록 시 강점, NCS 직업군, 미래 전망, 가이드 연봉, 오탈자 및 날짜 표기를 자동으로 점검하고 요약합니다.",
                 },
                 {
                   icon: <CheckCircle2 className="w-6 h-6 text-blue-600" />,
-                  title: "국어 품질 채점",
-                  desc: "문법, 맞춤법, 논리 흐름, 설득력을 정밀 평가합니다.",
+                  title: "공고 URL 및 OCR 수집",
+                  desc: "채용 공고 링크만 넣으면 텍스트는 물론 이미지 공고까지 OCR 기술로 추출해 맞춤 심사 기준을 세웁니다.",
                 },
                 {
                   icon: <Building2 className="w-6 h-6 text-blue-600" />,
-                  title: "직무 적합도 분석",
-                  desc: "JD와 인재상 기반으로 이력서 내용의 일치도를 수치화합니다.",
+                  title: "이중 AI 및 복수 심사",
+                  desc: "인성 평가관과 역량 평가관 2개의 역할이 교차 검증하며, 유료 플랜에서는 다각도의 복수 AI 의견을 제공합니다.",
                 },
                 {
                   icon: <Code className="w-6 h-6 text-blue-600" />,
-                  title: "GitHub 기술 분석",
-                  desc: "이력서의 GitHub 링크를 실시간 접속 확인 후 언어, 프로젝트, 스타 수를 분석합니다.",
+                  title: "PDF 다운로드 (3종)",
+                  desc: "분석과 교정이 끝난 이력서를 깔끔한 3가지 디자인 템플릿의 PDF로 즉시 다운로드하여 지원에 활용하세요.",
                 },
               ].map((f) => (
                 <div key={f.title} className="bg-white rounded-2xl border border-slate-100 p-6 shadow-sm hover:border-blue-100 hover:shadow-md transition-all">
@@ -210,7 +210,7 @@ export default function LandingPage() {
                 <p className="text-sm text-slate-500 mt-1">부담 없이 먼저 경험해보세요</p>
               </div>
               <ul className="space-y-3 text-sm mb-8">
-                {["월 1회 AI 서류 심사", "기본 분석 리포트", "개선사항 제시"].map((f) => (
+                {["월 1회 AI 서류 심사", "인성·역량 이중 심사", "직무 유사도 검토"].map((f) => (
                   <li key={f} className="flex items-start gap-2.5">
                     <CheckCircle2 className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
                     <span className="text-slate-600">{f}</span>
@@ -236,7 +236,7 @@ export default function LandingPage() {
                 <p className="text-sm text-slate-500 mt-1">본격적인 취업 준비를 위해</p>
               </div>
               <ul className="space-y-3 text-sm mb-8">
-                {["월 5회 AI 서류 심사", "4가지 항목 정밀 분석", "GitHub/포트폴리오 분석", "면접 시뮬레이션", "개선사항 상세 제시"].map((f) => (
+                {["월 5회 AI 서류 심사", "복수 AI 심사 의견", "직무 유사도 검토", "GitHub/포트폴리오 분석", "면접 시뮬레이션"].map((f) => (
                   <li key={f} className="flex items-start gap-2.5">
                     <CheckCircle2 className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
                     <span className="text-slate-700 font-medium">{f}</span>
@@ -259,7 +259,7 @@ export default function LandingPage() {
                 <p className="text-sm text-slate-500 mt-1">집중적인 취업 시즌에 적합</p>
               </div>
               <ul className="space-y-3 text-sm mb-8">
-                {["월 20회 AI 서류 심사", "4가지 항목 정밀 분석", "GitHub/포트폴리오 분석", "무제한 면접 시뮬레이션", "우선 지원 처리"].map((f) => (
+                {["월 20회 AI 서류 심사", "복수 AI 심사 의견", "직무 유사도 검토", "무제한 면접 시뮬레이션", "우선 지원 처리"].map((f) => (
                   <li key={f} className="flex items-start gap-2.5">
                     <CheckCircle2 className="w-4 h-4 text-slate-400 shrink-0 mt-0.5" />
                     <span className="text-slate-600">{f}</span>

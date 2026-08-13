@@ -82,7 +82,8 @@ workspace/
 | `src/scheduler.ts` | node-cron 주간 스케줄러 |
 | `src/routes/` | REST 라우트 핸들러 |
 | `src/lib/openai.ts` | OpenAI 호환 클라이언트 싱글턴 (주 모델 + 보조 모델 ai2_*/ai3_*) |
-| `src/lib/vision-ocr.ts` | 스캔(이미지) PDF → pdftoppm PNG 변환 후 비전 모델 OCR 폴백 |
+| `src/lib/vision-ocr.ts` | 스캔(이미지) PDF·이미지 OCR. `MISTRAL_API_KEY` 있으면 Mistral OCR 우선, 없으면 pdftoppm PNG 변환 후 비전 모델 OCR |
+| `src/lib/mistral-ocr.ts` | Mistral OCR API 래퍼 (선택). `MISTRAL_API_KEY` 설정 시 활성화, 실패 시 비전 OCR로 폴백 |
 | `src/lib/similarity.ts` | 임베딩 기반 직무↔자소서 문장 유사도(0~100) |
 | `src/lib/url-analyzer.ts` | GitHub API + URL 접근성 검사 |
 | `src/lib/job-scrapers.ts` | 사람인 스크래퍼 + 잡코리아 URL 생성 |
@@ -427,12 +428,15 @@ POST /companies/fetch-posting  (공고 URL 1건)
 | `SESSION_SECRET` | ✅ | express-session 서명 키 |
 | `DATABASE_URL` | ✅ | PostgreSQL 연결 문자열 (Replit DB 자동 제공) |
 | `PORT` | ✅ | 서버 포트 (Replit 자동 할당) |
+| `MISTRAL_API_KEY` | — | 선택 사항. 설정 시 스캔·이미지 문서 OCR에 Mistral OCR을 우선 사용 (미설정·실패 시 비전 모델 OCR로 폴백) |
 | `NODE_ENV` | — | `development` / `production` |
 
 > **AI 공급자 설정 우선순위**: 관리자 페이지(DB `settings` 테이블: `ai_api_key`/`ai_base_url`/`ai_model`)가 우선, 없으면 위 환경변수 폴백.
 > 보조 심사 모델은 DB 설정 키 `ai2_*` / `ai3_*`로만 등록하며 환경변수 폴백은 없습니다.
 >
 > **런타임 의존성**: 스캔(이미지) PDF OCR 폴백에 `pdftoppm`(poppler-utils)이 필요합니다. Docker 이미지·설치 스크립트에 포함되어 있습니다.
+>
+> **OCR 엔진 우선순위**: `MISTRAL_API_KEY`가 설정되어 있으면 Mistral OCR(전용 OCR API)을 우선 사용합니다. PDF는 문서 전체를 한 번에 처리하여 `pdftoppm` 렌더링이 불필요하며, 이미지는 그대로 전송합니다. 키가 없거나 호출이 실패·결과가 너무 짧으면(30자 미만) 기존 `pdftoppm`+비전 모델 OCR 경로로 자동 폴백합니다.
 
 ---
 

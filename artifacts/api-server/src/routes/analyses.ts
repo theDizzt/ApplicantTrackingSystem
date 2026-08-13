@@ -1,13 +1,13 @@
 import { Router, type IRouter } from "express";
 import { eq, and } from "drizzle-orm";
-import { db, analysesTable, resumesTable, companiesTable } from "@workspace/db";
+import { db, analysesTable, resumesTable, companiesTable, usersTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { getAI, getSecondaryAIs, checkAIHealth } from "../lib/openai";
 import { logger } from "../lib/logger";
 import { extractUrls, analyzeUrls, formatUrlAnalysisForPrompt } from "../lib/url-analyzer";
 import { jobSimilarityScore } from "../lib/similarity";
-import { consumeAnalysisQuota } from "../lib/subscription-limits";
+import { consumeAnalysisQuota, syncSubscription } from "../lib/subscription-limits";
 import type OpenAI from "openai";
 
 const router: IRouter = Router();
@@ -226,12 +226,25 @@ async function callAI(messages: ChatCompletionMessageParam[]): Promise<AIResult>
 const MODEL_OPINION_SYSTEM =
   '당신은 채용 서류 심사관입니다. 이력서와 지원 회사 정보를 보고 JSON만 반환하세요: {"score": 0-100, "opinion": "종합 심사 의견 (한국어 4~6문장)", "verdict": "추천" | "보류" | "비추천"}';
 
+// 무료 플랜 이중 심사관 페르소나 — 동일한 주 모델을 서로 다른 관점으로 두 번 호출한다.
+const PERSONA_CHARACTER =
+  "당신은 채용 인성·조직적합성 평가 전문가입니다. 지원자의 자기소개서·지원 동기·태도·커뮤니케이션·조직 적합성 관점을 중심으로 심사하세요. " +
+  "전체 맥락(이력서·회사 정보)을 참고하되, 인성과 자기소개서의 진정성·동기·조직 적합성에 비중을 두어 평가하세요. " +
+  'JSON만 반환하세요: {"score": 0-100, "opinion": "인성·조직적합성 관점의 심사 의견 (한국어 4~6문장)", "verdict": "추천" | "보류" | "비추천"}';
+
+const PERSONA_COMPETENCE =
+  "당신은 기술·경력 심사 전문가입니다. 지원자의 기술 스택, 학력, 경력·경험, 직무 요건 부합 관점을 중심으로 심사하세요. " +
+  "전체 맥락(이력서·회사 정보)을 참고하되, 실증된 기술 역량과 경력이 직무 요건에 얼마나 부합하는지에 비중을 두어 평가하세요. " +
+  'JSON만 반환하세요: {"score": 0-100, "opinion": "기술·경력 관점의 심사 의견 (한국어 4~6문장)", "verdict": "추천" | "보류" | "비추천"}';
+
 interface ModelOpinion {
   label: string;
   model: string;
   score: number;
   opinion: string;
   verdict: string;
+  // 무료 플랜 이중 심사관에서 사용하는 역할 라벨(예: 인성 평가관/역량 평가관). 없으면 undefined.
+  roleLabel?: string;
 }
 
 interface OpinionRaw {
@@ -244,6 +257,7 @@ function sanitizeOpinion(
   data: Record<string, unknown>,
   label: string,
   model: string,
+  roleLabel?: string,
 ): ModelOpinion {
   const rawScore = typeof data.score === "number" ? data.score : 0;
   const score = Math.max(0, Math.min(100, Math.round(rawScore)));
@@ -252,7 +266,7 @@ function sanitizeOpinion(
     data.verdict === "추천" || data.verdict === "보류" || data.verdict === "비추천"
       ? data.verdict
       : "보류";
-  return { label, model, score, opinion, verdict };
+  return { label, model, score, opinion, verdict, ...(roleLabel ? { roleLabel } : {}) };
 }
 
 async function callModelOpinion(
@@ -260,11 +274,12 @@ async function callModelOpinion(
   model: string,
   label: string,
   userContent: string,
+  options?: { systemPrompt?: string; roleLabel?: string },
 ): Promise<OpinionRaw> {
   const response = await client.chat.completions.create({
     model,
     messages: [
-      { role: "system", content: MODEL_OPINION_SYSTEM },
+      { role: "system", content: options?.systemPrompt ?? MODEL_OPINION_SYSTEM },
       { role: "user", content: userContent },
     ],
     response_format: { type: "json_object" },
@@ -278,7 +293,7 @@ async function callModelOpinion(
     /* ignore */
   }
   return {
-    opinion: sanitizeOpinion(data, label, model),
+    opinion: sanitizeOpinion(data, label, model, options?.roleLabel),
     inputTokens: response.usage?.prompt_tokens ?? 0,
     outputTokens: response.usage?.completion_tokens ?? 0,
   };
@@ -438,34 +453,70 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
   const overallScoreNum = typeof r3.overallScore === "number" ? r3.overallScore : 0;
 
   // ── 모델별 의견 (Task3) ──────────────────────────────────────────────────
-  // 주 모델(모델 1)에도 동일한 단일 프롬프트를 실행하여 의견을 확보한다.
-  // (이 함수에는 주 모델용 단일 스칼라 종합 피드백이 없으므로 별도 호출)
+  // 지원자의 구독 상태를 확인한다(한도 소비 없음). 무료 플랜은 보조 모델이 없으므로
+  // 동일한 주 모델을 서로 다른 페르소나(인성 평가관·역량 평가관)로 두 번 호출한다.
   const primaryAI = await getAI();
-  const secondaryAIs = await getSecondaryAIs();
 
-  const opinionResults = await Promise.allSettled([
-    callModelOpinion(primaryAI.openai, primaryAI.model, "모델 1(주 모델)", userContent),
-    ...secondaryAIs.map((s) =>
-      callModelOpinion(s.openai, s.model, s.label, userContent),
-    ),
-  ]);
+  let isFreeUser = false;
+  try {
+    const [user] = await db.select().from(usersTable).where(eq(usersTable.id, resume.userId));
+    if (user) {
+      const synced = await syncSubscription(user);
+      isFreeUser = synced.subscriptionStatus === "free";
+    }
+  } catch (err) {
+    // 구독 상태 조회 실패는 심사를 막지 않는다 — 기본(비무료) 동작으로 진행한다.
+    logger.warn({ analysisId, err }, "Failed to load subscription status (falling back to default opinion flow)");
+  }
 
   const modelOpinions: ModelOpinion[] = [];
-  opinionResults.forEach((r, idx) => {
-    if (r.status === "fulfilled") {
-      totalInputTokens += r.value.inputTokens;
-      totalOutputTokens += r.value.outputTokens;
-      const op = r.value.opinion;
-      if (idx === 0) {
-        // 주 모델: score는 overallScore로, opinion은 확보된 종합 의견 사용
-        modelOpinions.push({ ...op, score: Math.max(0, Math.min(100, Math.round(overallScoreNum))) });
+
+  if (isFreeUser) {
+    // 무료 플랜: 주 모델을 두 페르소나로 병렬 실행. 각 심사관은 자기 점수를 유지한다.
+    const opinionResults = await Promise.allSettled([
+      callModelOpinion(primaryAI.openai, primaryAI.model, "모델 1(주 모델)", userContent, {
+        systemPrompt: PERSONA_CHARACTER,
+        roleLabel: "인성 평가관",
+      }),
+      callModelOpinion(primaryAI.openai, primaryAI.model, "모델 1(주 모델)", userContent, {
+        systemPrompt: PERSONA_COMPETENCE,
+        roleLabel: "역량 평가관",
+      }),
+    ]);
+    opinionResults.forEach((r) => {
+      if (r.status === "fulfilled") {
+        totalInputTokens += r.value.inputTokens;
+        totalOutputTokens += r.value.outputTokens;
+        modelOpinions.push(r.value.opinion);
       } else {
-        modelOpinions.push(op);
+        logger.warn({ analysisId, err: r.reason }, "Model opinion failed (tolerated)");
       }
-    } else {
-      logger.warn({ analysisId, err: r.reason }, "Model opinion failed (tolerated)");
-    }
-  });
+    });
+  } else {
+    // 비무료 플랜: 기존 동작 유지 — 주 모델 종합 의견(overallScore로 대체) + 보조 모델 의견.
+    const secondaryAIs = await getSecondaryAIs();
+    const opinionResults = await Promise.allSettled([
+      callModelOpinion(primaryAI.openai, primaryAI.model, "모델 1(주 모델)", userContent),
+      ...secondaryAIs.map((s) =>
+        callModelOpinion(s.openai, s.model, s.label, userContent),
+      ),
+    ]);
+    opinionResults.forEach((r, idx) => {
+      if (r.status === "fulfilled") {
+        totalInputTokens += r.value.inputTokens;
+        totalOutputTokens += r.value.outputTokens;
+        const op = r.value.opinion;
+        if (idx === 0) {
+          // 주 모델: score는 overallScore로, opinion은 확보된 종합 의견 사용
+          modelOpinions.push({ ...op, score: Math.max(0, Math.min(100, Math.round(overallScoreNum))) });
+        } else {
+          modelOpinions.push(op);
+        }
+      } else {
+        logger.warn({ analysisId, err: r.reason }, "Model opinion failed (tolerated)");
+      }
+    });
+  }
 
   // ── 직무 문장 유사도 (Task4) ─────────────────────────────────────────────
   const applicantText =

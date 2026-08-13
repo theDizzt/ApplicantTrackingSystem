@@ -48,6 +48,9 @@ vi .env
 - `SESSION_SECRET` — 최소 32자 랜덤 문자열 (`openssl rand -hex 32`)
 - `AI_INTEGRATIONS_OPENAI_API_KEY` — OpenAI API 키
 
+선택 항목:
+- `MISTRAL_API_KEY` — 선택 사항. 설정 시 스캔·이미지 문서 OCR에 Mistral OCR을 우선 사용합니다(미설정 시 비전 모델 OCR 폴백).
+
 ### 2단계 — 이미지 빌드
 
 ```bash
@@ -128,6 +131,9 @@ DATABASE_URL=postgresql://ats_user:your_strong_password@<DB VM 내부망 IP>:543
 SESSION_SECRET=your_32char_random_string
 AI_INTEGRATIONS_OPENAI_API_KEY=sk-proj-xxx
 AI_INTEGRATIONS_OPENAI_BASE_URL=https://api.openai.com/v1
+
+# 선택 사항 — 설정 시 Mistral OCR 우선 사용 (미설정 시 비전 모델 OCR 폴백)
+# MISTRAL_API_KEY=xxx
 
 APP_PORT=80
 ```

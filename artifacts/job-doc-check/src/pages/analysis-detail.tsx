@@ -71,6 +71,7 @@ interface RichAnalysis {
     score: number
     opinion: string
     verdict: string
+    roleLabel?: string
   }[]
   jobSimilarity?: {
     score: number | null
@@ -484,8 +485,12 @@ export default function AnalysisDetail() {
                   return (
                     <div key={i} className="rounded-xl border border-slate-100 bg-slate-50/60 px-4 py-3 space-y-2">
                       <div className="flex flex-wrap items-center gap-2">
-                        {rich!.modelOpinions!.length > 1 && (
-                          <span className="text-sm font-bold text-slate-800">의견 {i + 1}</span>
+                        {op.roleLabel ? (
+                          <span className="text-sm font-bold text-slate-800">{op.roleLabel}</span>
+                        ) : (
+                          rich!.modelOpinions!.length > 1 && (
+                            <span className="text-sm font-bold text-slate-800">의견 {i + 1}</span>
+                          )
                         )}
                         <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-bold ring-1 ${verdictStyle}`}>
                           {op.verdict}
