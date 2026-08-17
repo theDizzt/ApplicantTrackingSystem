@@ -6,3 +6,10 @@ id = "sBpJzNJxQ8VyI3WHv95PS"
 uri = "file://.local/outputs/Resume-Reviewer.pptx"
 type = "slides"
 title = "Resume Reviewer.pptx"
+
+[[outputs]]
+id = "bqyfsaizIjFRVB32044OV"
+uri = "file://attached_assets/%EA%B4%91%EC%9A%B4%EB%8C%80_%EC%B0%BD%EC%97%85%EC%A4%80%EB%B9%84%EC%95%84%EC%B9%B4%EB%8D%B0%EB%AF%B8_%EC%82%AC%EC%97%85%EA%B3%84%ED%9A%8D%EC%84%9C%EC%B4%88%EC%95%88_MyATS.docx"
+type = "word_document"
+title = "광운대 창업 준비 아카데미 사업계획서 초안 (My ATS)"
+description = "P-S-S 양식(문제 인식·실현가능성·성장전략)에 맞춰 My ATS를 창업 아이템으로 작성한 신청서 초안 DOCX"
