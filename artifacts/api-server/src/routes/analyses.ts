@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, desc } from "drizzle-orm";
 import { db, analysesTable, resumesTable, companiesTable, usersTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
@@ -50,7 +50,7 @@ function serializeAnalysis(
 router.get("/analyses", requireAuth, async (req, res): Promise<void> => {
   const analyses = await db.select().from(analysesTable)
     .where(eq(analysesTable.userId, req.session.userId!))
-    .orderBy(analysesTable.createdAt);
+    .orderBy(desc(analysesTable.createdAt), desc(analysesTable.id));
 
   const resumeIds  = [...new Set(analyses.map(a => a.resumeId))];
   const companyIds = [...new Set(analyses.map(a => a.companyId))];
@@ -191,8 +191,10 @@ router.get("/analyses/:id", requireAuth, async (req, res): Promise<void> => {
     .where(and(eq(analysesTable.id, id), eq(analysesTable.userId, req.session.userId!)));
   if (!analysis) { res.status(404).json({ error: "분석을 찾을 수 없습니다." }); return; }
 
-  const [resume]  = await db.select({ title: resumesTable.title  }).from(resumesTable).where(eq(resumesTable.id,   analysis.resumeId));
-  const [company] = await db.select({ name:  companiesTable.name  }).from(companiesTable).where(eq(companiesTable.id, analysis.companyId));
+  const [resume] = await db.select({ title: resumesTable.title }).from(resumesTable)
+    .where(and(eq(resumesTable.id, analysis.resumeId), eq(resumesTable.userId, req.session.userId!)));
+  const [company] = await db.select({ name: companiesTable.name }).from(companiesTable)
+    .where(and(eq(companiesTable.id, analysis.companyId), eq(companiesTable.userId, req.session.userId!)));
 
   res.json(serializeAnalysis(analysis, resume?.title, company?.name));
 });

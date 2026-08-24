@@ -12,6 +12,7 @@ interface FakeUser {
   subscriptionStatus: string;
   subscriptionPlanId: string | null;
   subscriptionExpiresAt: Date | null;
+  hasUnlimitedAnalyses: boolean;
   analysesUsedThisMonth: number;
   usageResetAt: Date | null;
 }
@@ -24,7 +25,28 @@ type Cond =
   | { kind: "other" };
 
 // vi.mock 팩토리는 파일 최상단으로 호이스트되므로, 공유 상태도 vi.hoisted로 끌어올린다.
-const { store } = vi.hoisted(() => ({ store: new Map<number, FakeUser>() }));
+const { store, resetTransactionQueue, runTransaction } = vi.hoisted(() => {
+  let transactionTail = Promise.resolve();
+  return {
+    store: new Map<number, FakeUser>(),
+    resetTransactionQueue: () => {
+      transactionTail = Promise.resolve();
+    },
+    runTransaction: async <T>(callback: (tx: unknown) => Promise<T>, tx: unknown): Promise<T> => {
+      const previous = transactionTail;
+      let release!: () => void;
+      transactionTail = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      await previous;
+      try {
+        return await callback(tx);
+      } finally {
+        release();
+      }
+    },
+  };
+});
 
 vi.mock("drizzle-orm", () => ({
   eq: (col: unknown, val: unknown): Cond => {
@@ -61,7 +83,8 @@ vi.mock("@workspace/db", () => {
             (p): p is Extract<Cond, { kind: "idEq" }> => p.kind === "idEq",
           );
           const u = idPart ? store.get(idPart.id) : undefined;
-          return u ? [{ ...u }] : [];
+          const rows = u ? [{ ...u }] : [];
+          return Object.assign(rows, { for: () => rows });
         },
       }),
     }),
@@ -89,6 +112,8 @@ vi.mock("@workspace/db", () => {
         },
       }),
     }),
+    transaction: async <T>(callback: (tx: unknown) => Promise<T>): Promise<T> =>
+      runTransaction(callback, dbMock),
   };
   return {
     db: dbMock,
@@ -103,6 +128,7 @@ function seed(u: Partial<FakeUser> & { id: number }): FakeUser {
     subscriptionStatus: "free",
     subscriptionPlanId: null,
     subscriptionExpiresAt: null,
+    hasUnlimitedAnalyses: false,
     analysesUsedThisMonth: 0,
     usageResetAt: new Date(),
     ...u,
@@ -112,7 +138,10 @@ function seed(u: Partial<FakeUser> & { id: number }): FakeUser {
 }
 
 describe("consumeAnalysisQuota", () => {
-  beforeEach(() => store.clear());
+  beforeEach(() => {
+    store.clear();
+    resetTransactionQueue();
+  });
 
   it("free 사용자의 2번째 심사는 402로 차단된다", async () => {
     seed({ id: 1, subscriptionStatus: "free", analysesUsedThisMonth: 0 });
@@ -138,6 +167,46 @@ describe("consumeAnalysisQuota", () => {
     expect(r.ok).toBe(true);
     const blocked = await consumeAnalysisQuota(2);
     expect(blocked.ok).toBe(false);
+  });
+
+  it("normal 플랜은 각각의 월간 한도를 원자적으로 적용한다", async () => {
+    seed({ id: 20, subscriptionStatus: "basic", analysesUsedThisMonth: 4 });
+    seed({ id: 21, subscriptionStatus: "premium", analysesUsedThisMonth: 20 });
+
+    expect((await consumeAnalysisQuota(20)).ok).toBe(true);
+    expect(store.get(20)!.analysesUsedThisMonth).toBe(5);
+    expect((await consumeAnalysisQuota(20)).ok).toBe(false);
+    expect((await consumeAnalysisQuota(21)).ok).toBe(false);
+    expect(store.get(21)!.analysesUsedThisMonth).toBe(20);
+  });
+
+  it("서버 관리 unlimited entitlement는 기존 사용량과 관계없이 소비하지 않고 허용된다", async () => {
+    seed({
+      id: 22,
+      subscriptionStatus: "free",
+      hasUnlimitedAnalyses: true,
+      analysesUsedThisMonth: 999,
+    });
+
+    expect(await consumeAnalysisQuota(22)).toEqual({ ok: true });
+    expect(await consumeAnalysisQuota(22)).toEqual({ ok: true });
+    expect(store.get(22)!.analysesUsedThisMonth).toBe(999);
+  });
+
+  it("동시 stale 월 리셋 요청 두 건은 각각 소비되어 사용량이 2가 된다", async () => {
+    const lastMonth = new Date();
+    lastMonth.setMonth(lastMonth.getMonth() - 1);
+    seed({
+      id: 23,
+      subscriptionStatus: "premium",
+      analysesUsedThisMonth: 18,
+      usageResetAt: lastMonth,
+    });
+
+    const [first, second] = await Promise.all([consumeAnalysisQuota(23), consumeAnalysisQuota(23)]);
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(store.get(23)!.analysesUsedThisMonth).toBe(2);
   });
 
   it("만료된 basic 구독은 free로 다운그레이드된 뒤 한도가 적용된다", async () => {
@@ -169,7 +238,10 @@ describe("consumeAnalysisQuota", () => {
 });
 
 describe("syncSubscription", () => {
-  beforeEach(() => store.clear());
+  beforeEach(() => {
+    store.clear();
+    resetTransactionQueue();
+  });
 
   it("이전 달 usageResetAt이면 사용량을 0으로 리셋한다", async () => {
     const lastMonth = new Date();
@@ -184,5 +256,19 @@ describe("syncSubscription", () => {
     const u = seed({ id: 11, analysesUsedThisMonth: 3, usageResetAt: new Date() });
     const synced = await syncSubscription(u as never);
     expect(synced.analysesUsedThisMonth).toBe(3);
+  });
+
+  it("영속된 unlimited entitlement는 만료된 유료 상태에서도 보존된다", async () => {
+    const u = seed({
+      id: 12,
+      subscriptionStatus: "premium",
+      subscriptionExpiresAt: new Date(Date.now() - 86_400_000),
+      hasUnlimitedAnalyses: true,
+    });
+
+    const synced = await syncSubscription(u as never);
+    expect(synced.subscriptionStatus).toBe("premium");
+    expect(synced.hasUnlimitedAnalyses).toBe(true);
+    expect(store.get(12)!.hasUnlimitedAnalyses).toBe(true);
   });
 });

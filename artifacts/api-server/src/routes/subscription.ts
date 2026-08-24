@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
-import { LIMITS, syncSubscription } from "../lib/subscription-limits";
+import { LIMITS, hasUnlimitedAnalyses, syncSubscription } from "../lib/subscription-limits";
 
 const router: IRouter = Router();
 
@@ -57,7 +57,7 @@ router.get("/subscription/me", requireAuth, async (req, res): Promise<void> => {
     status: user.subscriptionStatus,
     planId: user.subscriptionPlanId ?? null,
     analysesUsed: user.analysesUsedThisMonth,
-    analysesLimit: LIMITS[user.subscriptionStatus] ?? 1,
+    analysesLimit: hasUnlimitedAnalyses(user) ? -1 : (LIMITS[user.subscriptionStatus] ?? 1),
     expiresAt: user.subscriptionExpiresAt ? user.subscriptionExpiresAt.toISOString() : null,
   });
 });
@@ -87,7 +87,7 @@ router.post("/subscription/subscribe", requireAuth, async (req, res): Promise<vo
     status: user.subscriptionStatus,
     planId: user.subscriptionPlanId ?? null,
     analysesUsed: user.analysesUsedThisMonth,
-    analysesLimit: LIMITS[user.subscriptionStatus] ?? 1,
+    analysesLimit: hasUnlimitedAnalyses(user) ? -1 : (LIMITS[user.subscriptionStatus] ?? 1),
     expiresAt: user.subscriptionExpiresAt ? user.subscriptionExpiresAt.toISOString() : null,
   });
 });

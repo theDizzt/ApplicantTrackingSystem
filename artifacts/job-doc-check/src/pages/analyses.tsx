@@ -77,15 +77,21 @@ export default function AnalysesPage() {
         </Card>
       ) : (
         <div className="space-y-4">
-          {analyses?.map(analysis => (
+          {analyses?.map((analysis, index) => (
             <Link key={analysis.id} href={`/analyses/${analysis.id}`} className="block">
               <Card className="hover:border-primary/50 transition-colors">
                 <CardContent className="p-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
                   <div className="space-y-1">
-                    <div className="flex items-center gap-2">
-                      <h3 className="font-semibold text-lg">{analysis.resumeTitle || "제목 없음"}</h3>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 className="font-semibold text-lg">
+                        {analysis.resumeTitle || `이력관리 #${analysis.resumeId}`}
+                      </h3>
+                      {index === 0 && <Badge variant="secondary">최근 심사한 이력서</Badge>}
+                      {!analysis.resumeTitle && <Badge variant="outline">원본 이력서 연결 없음</Badge>}
                     </div>
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                      <span>이력관리 #{analysis.resumeId}</span>
+                      <span>•</span>
                       <span className="flex items-center gap-1"><Building2 className="w-4 h-4" /> {analysis.companyName || "회사 미등록"}</span>
                       <span>•</span>
                       <span>{format(new Date(analysis.createdAt), 'yyyy.MM.dd HH:mm')}</span>

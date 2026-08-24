@@ -8,3 +8,4 @@
 - [SSRF 가드 패턴](ssrf-guard-pattern.md) — 사용자 URL fetch는 safe-fetch.ts 재사용; 16진 IPv4-매핑 IPv6·DNS 리바인딩까지 막아야 리뷰 통과
 - [채용 사이트 공고 본문 수집](job-portal-detail-pages.md) — 사람인/잡코리아 본문은 별도 상세 URL에 있음; 겉 페이지 내비 텍스트가 길이 휴리스틱을 속이므로 상세 페이지를 무조건 우선할 것
 - [api-server 통합 테스트 패턴](api-server-test-mocks.md) — admin 라우터를 vitest에서 직접 띄우는 법: db/미들웨어/openai 모듈 mock + 가짜 Ollama(11434) + 레지스트리 fetch stub
+- [심사 한도·특권 안전성](analysis-quota-entitlements.md) — 무제한 권한은 구독과 분리하고, 월 리셋·차감은 행 잠금 단일 트랜잭션으로 처리
