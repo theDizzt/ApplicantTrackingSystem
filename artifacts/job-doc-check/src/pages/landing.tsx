@@ -1,5 +1,5 @@
 import { Link } from "wouter"
-import { ChevronRight, CheckCircle2, Building2, Code, ArrowRight, Shield, Zap, BarChart3 } from "lucide-react"
+import { ChevronRight, CheckCircle2, Building2, Code, ArrowRight, Shield, Zap, BarChart3, Mic, BriefcaseBusiness, BookOpenCheck } from "lucide-react"
 
 export default function LandingPage() {
   return (
@@ -188,6 +188,46 @@ export default function LandingPage() {
                 </div>
               ))}
             </div>
+          </div>
+        </section>
+
+        {/* ── Latest improvements ── */}
+        <section className="max-w-6xl mx-auto px-6 py-24">
+          <div className="text-center mb-14">
+            <div className="inline-flex items-center rounded-full bg-blue-50 px-3 py-1 text-xs font-bold text-blue-700 mb-4">
+              새로워진 기능
+            </div>
+            <h2 className="text-3xl md:text-4xl font-extrabold tracking-tight">취업 준비가 더 구체적이고 간편해졌습니다</h2>
+            <p className="text-slate-500 mt-4 max-w-2xl mx-auto leading-relaxed">
+              말로 경험을 정리하고, 직무 기준과 연구 성과까지 한 번에 점검하세요.
+            </p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-6">
+            {[
+              {
+                icon: <Mic className="w-7 h-7 text-blue-600" />,
+                title: "말하면 완성되는 자기소개서",
+                desc: "직접 녹음하거나 오디오 파일을 올리면 AI가 음성을 글로 바꾸고 자기소개서를 작성합니다. 완성된 글은 원하는 내 이력서에 바로 반영할 수 있습니다.",
+              },
+              {
+                icon: <BriefcaseBusiness className="w-7 h-7 text-violet-600" />,
+                title: "직무별 연봉과 NCS 수준",
+                desc: "추천 직업마다 가이드 연봉을 확인하고, 내 경력과 역량이 NCS 1~8수준 중 어디에 해당하는지 구체적으로 파악할 수 있습니다.",
+              },
+              {
+                icon: <BookOpenCheck className="w-7 h-7 text-emerald-600" />,
+                title: "논문 검증과 맞춤 면접 질문",
+                desc: "논문 제목·저자순·학회 및 저널 정보를 국내외 공식 기록과 대조하고, 실제 Abstract 내용을 바탕으로 연구 경험 면접 질문도 준비합니다.",
+              },
+            ].map((item) => (
+              <div key={item.title} className="rounded-2xl border border-slate-200 bg-white p-7 shadow-sm hover:-translate-y-1 hover:border-blue-200 hover:shadow-lg transition-all">
+                <div className="w-14 h-14 rounded-2xl bg-slate-50 flex items-center justify-center mb-6">
+                  {item.icon}
+                </div>
+                <h3 className="text-lg font-bold text-slate-900 mb-3">{item.title}</h3>
+                <p className="text-sm text-slate-500 leading-relaxed">{item.desc}</p>
+              </div>
+            ))}
           </div>
         </section>
 
