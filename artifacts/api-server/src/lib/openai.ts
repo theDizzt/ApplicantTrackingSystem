@@ -9,8 +9,10 @@ import { db, settingsTable } from "@workspace/db";
 //   ai_api_key  — API 키
 //   ai_base_url — OpenAI 호환 API 주소 (예: https://api.openai.com/v1)
 //   ai_model    — 모델명 (예: gpt-5.6-luna)
+//   ai_stt_model — 음성인식 모델명 (예: gpt-4o-mini-transcribe)
 
 export const DEFAULT_MODEL = "gpt-5.6-luna";
+export const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const CACHE_TTL_MS = 30_000;
 
 export interface AIConfig {

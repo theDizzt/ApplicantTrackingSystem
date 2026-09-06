@@ -3,7 +3,7 @@ import bcrypt from "bcrypt";
 import { eq, count, sum, gte } from "drizzle-orm";
 import { db, usersTable, analysesTable, organizationsTable } from "@workspace/db";
 import { requireAdmin } from "../middlewares/admin";
-import { getAI, getAIConfig, getSetting, saveSetting, invalidateAICache, checkAIHealth } from "../lib/openai";
+import { DEFAULT_STT_MODEL, getAI, getAIConfig, getSetting, saveSetting, invalidateAICache, checkAIHealth } from "../lib/openai";
 import { getAIHealthStatus } from "../lib/ai-health-monitor";
 
 // Admin credentials (hardcoded — change in production via env vars)
@@ -221,7 +221,8 @@ function maskApiKey(key: string): string {
 
 router.get("/admin/settings/ai", requireAdmin, async (_req, res): Promise<void> => {
   const config = await getAIConfig();
-  const [apiKey2, baseUrl2, model2, apiKey3, baseUrl3, model3] = await Promise.all([
+  const [sttModel, apiKey2, baseUrl2, model2, apiKey3, baseUrl3, model3] = await Promise.all([
+    getSetting("ai_stt_model"),
     getSetting("ai2_api_key"),
     getSetting("ai2_base_url"),
     getSetting("ai2_model"),
@@ -234,6 +235,7 @@ router.get("/admin/settings/ai", requireAdmin, async (_req, res): Promise<void> 
     hasApiKey: !!config.apiKey,
     baseUrl: config.baseUrl ?? "",
     model: config.model,
+    sttModel: sttModel?.trim() || DEFAULT_STT_MODEL,
     // 보조 심사 모델 (선택)
     apiKey2Masked: maskApiKey(apiKey2 ?? ""),
     hasApiKey2: !!(apiKey2 ?? ""),
@@ -247,11 +249,12 @@ router.get("/admin/settings/ai", requireAdmin, async (_req, res): Promise<void> 
 });
 
 router.put("/admin/settings/ai", requireAdmin, async (req, res): Promise<void> => {
-  const { apiKey, baseUrl, model, apiKey2, baseUrl2, model2, apiKey3, baseUrl3, model3 } =
+  const { apiKey, baseUrl, model, sttModel, apiKey2, baseUrl2, model2, apiKey3, baseUrl3, model3 } =
     req.body as {
       apiKey?: string;
       baseUrl?: string;
       model?: string;
+      sttModel?: string;
       apiKey2?: string;
       baseUrl2?: string;
       model2?: string;
@@ -267,6 +270,9 @@ router.put("/admin/settings/ai", requireAdmin, async (req, res): Promise<void> =
   }
   if (model !== undefined) {
     await saveSetting("ai_model", model.trim());
+  }
+  if (sttModel !== undefined) {
+    await saveSetting("ai_stt_model", sttModel.trim() || DEFAULT_STT_MODEL);
   }
   // 보조 심사 모델 — 레지스트리 검증 없이 저장. 빈 문자열은 설정 해제.
   if (apiKey2 !== undefined && apiKey2 !== "") {

@@ -7,7 +7,7 @@ import { Router, type IRouter, type RequestHandler } from "express";
 import multer from "multer";
 import OpenAI, { toFile } from "openai";
 import { requireAuth } from "../middlewares/auth";
-import { getAI } from "../lib/openai";
+import { DEFAULT_STT_MODEL, getAI, getSetting } from "../lib/openai";
 
 const execFileAsync = promisify(execFile);
 const router: IRouter = Router();
@@ -96,9 +96,10 @@ router.post(
     try {
       const wav = await convertToWav(req.file.buffer, req.file.originalname);
       const transcriptionClient = getTranscriptionClient();
+      const sttModel = (await getSetting("ai_stt_model"))?.trim() || DEFAULT_STT_MODEL;
       const transcription = await transcriptionClient.audio.transcriptions.create({
         file: await toFile(wav, "recording.wav", { type: "audio/wav" }),
-        model: "gpt-4o-mini-transcribe",
+        model: sttModel,
         language: "ko",
         response_format: "json",
       });

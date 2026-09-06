@@ -238,6 +238,7 @@ export function AISettingsTab() {
   const [apiKey, setApiKey] = useState("")
   const [baseUrl, setBaseUrl] = useState("")
   const [model, setModel] = useState("")
+  const [sttModel, setSttModel] = useState("")
   // 보조 심사 모델 (선택)
   const [apiKey2Masked, setApiKey2Masked] = useState("")
   const [hasApiKey2, setHasApiKey2] = useState(false)
@@ -276,6 +277,7 @@ export function AISettingsTab() {
       setHasApiKey(d.hasApiKey)
       setBaseUrl(d.baseUrl)
       setModel(d.model)
+      setSttModel(d.sttModel ?? "gpt-4o-mini-transcribe")
       setApiKey2Masked(d.apiKey2Masked ?? "")
       setHasApiKey2(!!d.hasApiKey2)
       setBaseUrl2(d.baseUrl2 ?? "")
@@ -301,6 +303,7 @@ export function AISettingsTab() {
           ...(apiKey ? { apiKey } : {}),
           baseUrl,
           model,
+          sttModel,
           ...(apiKey2 ? { apiKey2 } : {}),
           baseUrl2,
           model2,
@@ -418,6 +421,19 @@ export function AISettingsTab() {
             placeholder="gpt-5.6-luna"
             className="bg-slate-950 border-slate-700 text-white"
           />
+        </div>
+        <div className="space-y-2">
+          <Label className="text-slate-300">음성인식 모델 (STT)</Label>
+          <Input
+            value={sttModel}
+            onChange={(e) => setSttModel(e.target.value)}
+            placeholder="gpt-4o-mini-transcribe"
+            className="bg-slate-950 border-slate-700 text-white"
+            data-testid="input-stt-model"
+          />
+          <p className="text-xs text-slate-500 leading-relaxed">
+            음성 자기소개서의 녹음·오디오 파일을 텍스트로 변환할 때 사용하는 모델입니다.
+          </p>
         </div>
         {/* ── 보조 심사 모델 (선택) ── */}
         <div className="border-t border-slate-800 pt-4">
