@@ -10,6 +10,13 @@ import { format } from "date-fns"
 import { CareerAnalysisPanel } from "@/components/career-analysis-panel"
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from "@/components/ui/alert-dialog"
 
+function plainText(value: string | null | undefined) {
+  if (!value) return ""
+  const node = document.createElement("div")
+  node.innerHTML = value
+  return (node.textContent || node.innerText || "").replace(/\s+/g, " ").trim()
+}
+
 export default function ResumesPage() {
   const { data: resumes, isLoading } = useListResumes()
   const deleteResume = useDeleteResume()
@@ -71,7 +78,7 @@ export default function ResumesPage() {
                     <CardTitle className="text-lg flex items-center gap-2"><FileText className="w-5 h-5 text-primary" />{resume.title}</CardTitle>
                     <CardDescription className="flex items-center gap-1"><Calendar className="w-3 h-3" />{format(new Date(resume.createdAt), "yyyy.MM.dd")}</CardDescription>
                   </CardHeader>
-                  <CardContent className="flex-1"><div className="text-sm text-muted-foreground line-clamp-3">{resume.content || resume.coverLetter || <span className="italic">내용 없음</span>}</div></CardContent>
+                  <CardContent className="flex-1"><div className="text-sm text-muted-foreground line-clamp-3">{plainText(resume.content || resume.coverLetter) || <span className="italic">내용 없음</span>}</div></CardContent>
                   <CardFooter className="flex justify-between items-center bg-slate-50/50 dark:bg-slate-900/50 py-3 border-t">
                     <Link href={`/resumes/${resume.id}`} onClick={(e) => e.stopPropagation()} className="text-sm font-medium text-primary hover:underline">이력서 보기</Link>
                     <AlertDialog><AlertDialogTrigger asChild><Button variant="ghost" size="icon" onClick={(e) => e.stopPropagation()} className="text-destructive hover:text-destructive hover:bg-destructive/10"><Trash2 className="w-4 h-4" /></Button></AlertDialogTrigger><AlertDialogContent><AlertDialogHeader><AlertDialogTitle>이력서를 삭제하시겠습니까?</AlertDialogTitle><AlertDialogDescription>이 작업은 되돌릴 수 없습니다. 이력서가 영구적으로 삭제됩니다.</AlertDialogDescription></AlertDialogHeader><AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel><AlertDialogAction onClick={() => handleDelete(resume.id)} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">삭제</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>

@@ -4,6 +4,7 @@ import { db, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { getAI, checkAIHealth } from "../lib/openai";
 import { logger } from "../lib/logger";
+import { resumeHtmlToText } from "../lib/resume-text";
 
 const router: IRouter = Router();
 
@@ -48,7 +49,25 @@ interface CareerStrength {
 interface CareerNcsCategory {
   major: string;
   middle: string;
+  level: number;
   fitReason: string;
+}
+interface PaperVerification {
+  status: "verified" | "unverified";
+  source: "Crossref" | "";
+  title: string;
+  authors: string[];
+  venue: string;
+  doi: string;
+}
+interface CareerPaper {
+  title: string;
+  authors: string[];
+  applicantAuthorOrder: number;
+  venue: string;
+  abstract: string;
+  issues: string[];
+  verification: PaperVerification;
 }
 interface CareerRecommendedJob {
   job: string;
@@ -57,6 +76,7 @@ interface CareerRecommendedJob {
   reason: string;
   outlook: string;
   outlookScore: number;
+  salaryGuide: CareerSalaryGuide;
 }
 interface CareerSalaryGuide {
   min: number;
@@ -82,13 +102,14 @@ interface CareerAnalysisResult {
   salaryGuide: CareerSalaryGuide;
   typoIssues: CareerTypoIssue[];
   dateIssues: CareerDateIssue[];
+  papers: CareerPaper[];
 }
 
 const FIELD_MAX = 1000; // 일반 텍스트 필드 상한
 const ISSUE_FIELD_MAX = 300; // 표기 점검 필드 상한
 const MAX_ISSUES = 10; // typo/date 이슈 최대 개수
 
-function sanitizeCareer(data: Record<string, unknown>): CareerAnalysisResult {
+export function sanitizeCareer(data: Record<string, unknown>): CareerAnalysisResult {
   const strengths: CareerStrength[] = (Array.isArray(data.strengths)
     ? (data.strengths as unknown[]).map((s) => {
         const o = (s ?? {}) as Record<string, unknown>;
@@ -100,7 +121,9 @@ function sanitizeCareer(data: Record<string, unknown>): CareerAnalysisResult {
   const ncsCategories: CareerNcsCategory[] = (Array.isArray(data.ncsCategories)
     ? (data.ncsCategories as unknown[]).map((c) => {
         const o = (c ?? {}) as Record<string, unknown>;
-        return { major: capStr(o.major, FIELD_MAX), middle: capStr(o.middle, FIELD_MAX), fitReason: capStr(o.fitReason, FIELD_MAX) };
+        const rawLevel = typeof o.level === "number" ? Math.round(o.level) : 0;
+        const level = rawLevel >= 1 && rawLevel <= 8 ? rawLevel : 0;
+        return { major: capStr(o.major, FIELD_MAX), middle: capStr(o.middle, FIELD_MAX), level, fitReason: capStr(o.fitReason, FIELD_MAX) };
       })
     : []
   ).slice(0, 3);
@@ -108,6 +131,10 @@ function sanitizeCareer(data: Record<string, unknown>): CareerAnalysisResult {
   const recommendedJobs: CareerRecommendedJob[] = (Array.isArray(data.recommendedJobs)
     ? (data.recommendedJobs as unknown[]).map((j) => {
         const o = (j ?? {}) as Record<string, unknown>;
+        const salary = (o.salaryGuide ?? {}) as Record<string, unknown>;
+        let min = clampSalary(salary.min);
+        let max = clampSalary(salary.max);
+        if (min > max) [min, max] = [max, min];
         return {
           job: capStr(o.job, FIELD_MAX),
           ncsCategory: capStr(o.ncsCategory, FIELD_MAX),
@@ -115,6 +142,7 @@ function sanitizeCareer(data: Record<string, unknown>): CareerAnalysisResult {
           reason: capStr(o.reason, FIELD_MAX),
           outlook: capStr(o.outlook, FIELD_MAX),
           outlookScore: clampScore(o.outlookScore),
+          salaryGuide: { min, max, basis: capStr(salary.basis, FIELD_MAX) },
         };
       })
     : []
@@ -146,6 +174,25 @@ function sanitizeCareer(data: Record<string, unknown>): CareerAnalysisResult {
     : []
   ).slice(0, MAX_ISSUES);
 
+  const papers: CareerPaper[] = (Array.isArray(data.papers)
+    ? (data.papers as unknown[]).map((paper) => {
+        const o = (paper ?? {}) as Record<string, unknown>;
+        const strings = (value: unknown, max: number) => Array.isArray(value)
+          ? value.filter((item): item is string => typeof item === "string").map((item) => capStr(item, max)).slice(0, 30)
+          : [];
+        return {
+          title: capStr(o.title, FIELD_MAX),
+          authors: strings(o.authors, ISSUE_FIELD_MAX),
+          applicantAuthorOrder: Math.max(0, Math.min(30, Math.round(typeof o.applicantAuthorOrder === "number" ? o.applicantAuthorOrder : 0))),
+          venue: capStr(o.venue, FIELD_MAX),
+          abstract: capStr(o.abstract, 5000),
+          issues: strings(o.issues, FIELD_MAX).slice(0, 10),
+          verification: { status: "unverified" as const, source: "" as const, title: "", authors: [], venue: "", doi: "" },
+        };
+      })
+    : []
+  ).slice(0, 10);
+
   return {
     strengths,
     ncsCategories,
@@ -155,6 +202,7 @@ function sanitizeCareer(data: Record<string, unknown>): CareerAnalysisResult {
     salaryGuide,
     typoIssues,
     dateIssues,
+    papers,
   };
 }
 
@@ -162,21 +210,100 @@ function sanitizeCareer(data: Record<string, unknown>): CareerAnalysisResult {
 const CAREER_SYSTEM = `당신은 국가직무능력표준(NCS) 기반 커리어 컨설턴트입니다. 이력서를 분석해 오직 JSON만 반환하세요:
 {
   "strengths": [{"title": "강점명", "evidence": "이력서 근거 (한국어 1~2문장)"}, ...] (3~5개),
-  "ncsCategories": [{"major": "NCS 대분류(예: 20. 정보통신)", "middle": "중분류", "fitReason": "적합 이유 1~2문장"}, ...] (1~3개),
-  "recommendedJobs": [{"job": "직업명", "ncsCategory": "해당 NCS 분류", "fitScore": 0-100, "reason": "추천 이유 2~3문장", "outlook": "해당 직업·직업군의 미래 전망 (시장 성장성·자동화 영향·수요 전망 포함, 한국어 3~4문장)", "outlookScore": 0-100 (높을수록 전망 밝음)}, ...] (3개),
+  "ncsCategories": [{"major": "NCS 대분류(예: 20. 정보통신)", "middle": "중분류", "level": NCS 능력단위 수준 1-8 정수, "fitReason": "적합 이유 1~2문장"}, ...] (1~3개),
+  "recommendedJobs": [{"job": "직업명", "ncsCategory": "해당 NCS 분류", "fitScore": 0-100, "reason": "추천 이유 2~3문장", "outlook": "미래 전망 3~4문장", "outlookScore": 0-100, "salaryGuide": {"min": 만원 단위 하한, "max": 만원 단위 상한, "basis": "해당 직업의 경력·시장 기준"}}, ...] (3개),
   "summary": "종합 커리어 조언 (한국어 4~6문장)",
   "resumeSummary": "이력서 핵심 요약 (100자 이내, 한국어)",
   "salaryGuide": {"min": 만원 단위 연봉 하한(숫자), "max": 만원 단위 연봉 상한(숫자), "basis": "산정 근거 — 경력 수준·직무 시장 현황 반영 (한국어 2~3문장)"},
   "typoIssues": [{"found": "이력서 표기", "suggestion": "올바른 표기", "note": "설명 1문장"}, ...] (직무에서 흔히 쓰는 기술·직무 용어의 오탈자만, 없으면 빈 배열),
-  "dateIssues": [{"found": "문제 구간 표기", "issue": "설명 — 예: 시작일이 종료일보다 늦음", "suggestion": "수정 제안"}, ...] (기간 표기(FROM-TO)에서 시작일/종료일이 뒤바뀐 경우·기간 중복·비상식적 연도 등, 없으면 빈 배열)
+  "dateIssues": [{"found": "문제 구간 표기", "issue": "설명", "suggestion": "수정 제안"}, ...],
+  "papers": [{"title": "이력서 원문 논문명", "authors": ["원문 저자 순서"], "applicantAuthorOrder": 지원자 저자순(1부터, 확인 불가 0), "venue": "제출·게재 학회/저널", "abstract": "이력서에 기재된 초록 또는 요약", "issues": ["이력서 내부에서 발견한 논문명·저자명·저자순·학회 표기 오류/불확실성"]}, ...] (논문이 없으면 빈 배열)
 }
-NCS 대분류는 실제 NCS 24개 대분류 체계(예: 01. 사업관리, 02. 경영·회계·사무, 20. 정보통신 등)를 따르도록 하세요.`;
+NCS 대분류는 실제 NCS 24개 대분류 체계를 따르세요. NCS level은 직무 수행의 복잡성·자율성에 따른 1~8 수준입니다.
+논문 정보는 이력서에 있는 근거만 사용하고 추측하지 마세요. 저자 배열은 반드시 기재 순서를 보존하세요. 외부 학술 메타데이터 대조는 서버에서 별도로 수행합니다.`;
+
+function normalizeBibliography(value: string): string {
+  return value.normalize("NFKC").toLocaleLowerCase().replace(/[^\p{L}\p{N}]/gu, "");
+}
+
+function titleMatches(a: string, b: string): boolean {
+  const left = normalizeBibliography(a);
+  const right = normalizeBibliography(b);
+  if (!left || !right) return false;
+  if (left === right) return true;
+  const shorter = left.length <= right.length ? left : right;
+  const longer = left.length > right.length ? left : right;
+  return shorter.length >= 12 && longer.includes(shorter);
+}
+
+interface CrossrefItem {
+  title?: string[];
+  author?: Array<{ given?: string; family?: string }>;
+  "container-title"?: string[];
+  event?: { name?: string };
+  DOI?: string;
+}
+
+async function verifyPaperWithCrossref(paper: CareerPaper): Promise<CareerPaper> {
+  if (!paper.title.trim()) return paper;
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const url = new URL("https://api.crossref.org/works");
+    url.searchParams.set("query.title", paper.title);
+    url.searchParams.set("rows", "3");
+    url.searchParams.set("select", "title,author,container-title,event,DOI");
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "AI-Resume-Reviewer/1.0 (bibliographic verification)" },
+    }).finally(() => clearTimeout(timeout));
+    if (!response.ok) return paper;
+    const payload = await response.json() as { message?: { items?: CrossrefItem[] } };
+    const match = payload.message?.items?.find((item) => titleMatches(paper.title, item.title?.[0] ?? ""));
+    if (!match) {
+      return {
+        ...paper,
+        issues: [...paper.issues, "Crossref에서 제목이 일치하는 공개 기록을 찾지 못했습니다. 학회·저널 원문 확인이 필요합니다."].slice(0, 10),
+      };
+    }
+    const verifiedAuthors = (match.author ?? [])
+      .map((author) => [author.given, author.family].filter(Boolean).join(" ").trim())
+      .filter(Boolean);
+    const verifiedTitle = match.title?.[0] ?? "";
+    const verifiedVenue = match["container-title"]?.[0] ?? match.event?.name ?? "";
+    const issues = [...paper.issues];
+    if (paper.authors.length && verifiedAuthors.length) {
+      const listed = paper.authors.map(normalizeBibliography);
+      const verified = verifiedAuthors.map(normalizeBibliography);
+      if (listed.length !== verified.length || listed.some((name, index) => name !== verified[index])) {
+        issues.push("이력서의 저자명 또는 저자순이 Crossref 공개 기록과 다릅니다.");
+      }
+    }
+    if (paper.venue && verifiedVenue && normalizeBibliography(paper.venue) !== normalizeBibliography(verifiedVenue)) {
+      issues.push("이력서의 제출·게재 학회/저널 표기가 Crossref 공개 기록과 다릅니다.");
+    }
+    return {
+      ...paper,
+      issues: issues.slice(0, 10),
+      verification: {
+        status: "verified",
+        source: "Crossref",
+        title: verifiedTitle,
+        authors: verifiedAuthors,
+        venue: verifiedVenue,
+        doi: match.DOI ?? "",
+      },
+    };
+  } catch {
+    return paper;
+  }
+}
 
 async function runCareerAnalysis(resume: typeof resumesTable.$inferSelect): Promise<CareerAnalysisResult> {
   const resumeText = [
     resume.title,
-    resume.content ? `[이력서 내용]\n${resume.content}` : "",
-    resume.coverLetter ? `[자기소개서]\n${resume.coverLetter}` : "",
+    resume.content ? `[이력서 내용]\n${resumeHtmlToText(resume.content)}` : "",
+    resume.coverLetter ? `[자기소개서]\n${resumeHtmlToText(resume.coverLetter)}` : "",
   ].filter(Boolean).join("\n\n");
 
   const ai = await getAI();
@@ -200,6 +327,7 @@ async function runCareerAnalysis(resume: typeof resumesTable.$inferSelect): Prom
   }
 
   const result = sanitizeCareer(data);
+  result.papers = await Promise.all(result.papers.map(verifyPaperWithCrossref));
 
   // 최소 구조 검증 — 강점·추천 직업·종합 조언이 모두 채워져야 유효
   if (

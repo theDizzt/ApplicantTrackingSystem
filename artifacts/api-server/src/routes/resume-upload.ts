@@ -11,6 +11,7 @@ import { logger } from "../lib/logger";
 import { getAI } from "../lib/openai";
 import { ocrPdfBuffer, VisionOcrError } from "../lib/vision-ocr";
 import { startCareerAnalysis } from "./career-analysis";
+import { resumeHtmlToText } from "../lib/resume-text";
 
 const execFileAsync = promisify(execFile);
 const router: IRouter = Router();
@@ -84,12 +85,12 @@ async function splitAndFormatWithAI(
     const raw = response.choices[0]?.message?.content ?? "{}";
     const result = JSON.parse(raw);
     return {
-      resumeContent: typeof result.resumeContent === "string" ? result.resumeContent.trim() : rawText,
-      coverLetter:   typeof result.coverLetter   === "string" ? result.coverLetter.trim()   : "",
+      resumeContent: typeof result.resumeContent === "string" ? resumeHtmlToText(result.resumeContent) : resumeHtmlToText(rawText),
+      coverLetter:   typeof result.coverLetter   === "string" ? resumeHtmlToText(result.coverLetter)   : "",
     };
   } catch (err) {
     logger.warn({ err }, "AI split failed – using raw text as-is");
-    return { resumeContent: rawText, coverLetter: "" };
+    return { resumeContent: resumeHtmlToText(rawText), coverLetter: "" };
   }
 }
 

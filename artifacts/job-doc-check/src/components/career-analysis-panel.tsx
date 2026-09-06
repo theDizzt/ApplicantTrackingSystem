@@ -11,7 +11,8 @@ import {
 
 // ── 커리어 분석 타입 ────────────────────────────────────────────────────────
 interface CareerStrength { title: string; evidence: string }
-interface CareerNcsCategory { major: string; middle: string; fitReason: string }
+interface CareerNcsCategory { major: string; middle: string; level?: number; fitReason: string }
+interface CareerSalaryGuide { min: number; max: number; basis: string }
 interface CareerRecommendedJob {
   job: string
   ncsCategory: string
@@ -19,8 +20,17 @@ interface CareerRecommendedJob {
   reason: string
   outlook: string
   outlookScore: number
+  salaryGuide?: CareerSalaryGuide
 }
-interface CareerSalaryGuide { min: number; max: number; basis: string }
+interface CareerPaper {
+  title: string
+  authors: string[]
+  applicantAuthorOrder: number
+  venue: string
+  abstract: string
+  issues: string[]
+  verification?: { status: "verified" | "unverified"; source: string; title: string; authors: string[]; venue: string; doi: string }
+}
 interface CareerTypoIssue { found: string; suggestion: string; note: string }
 interface CareerDateIssue { found: string; issue: string; suggestion: string }
 export interface CareerAnalysisResult {
@@ -32,6 +42,7 @@ export interface CareerAnalysisResult {
   salaryGuide?: CareerSalaryGuide
   typoIssues?: CareerTypoIssue[]
   dateIssues?: CareerDateIssue[]
+  papers?: CareerPaper[]
 }
 export interface CareerAnalysisState {
   inProgress: boolean
@@ -278,6 +289,7 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
                           {c.middle}
                         </Badge>
                       )}
+                      {c.level && <Badge variant="outline" className="text-xs py-0.5 border-violet-200 text-violet-700 bg-white">NCS {c.level}수준</Badge>}
                     </div>
                     <p className="text-sm text-slate-600 leading-relaxed">{c.fitReason}</p>
                   </div>
@@ -315,6 +327,12 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
                       </div>
 
                       <p className="text-sm text-slate-600 leading-relaxed">{j.reason}</p>
+                      {j.salaryGuide && (j.salaryGuide.min > 0 || j.salaryGuide.max > 0) && (
+                        <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
+                          <div className="text-sm font-bold text-emerald-700 flex items-center gap-1.5"><Banknote className="w-4 h-4" />가이드 연봉 · 연 {j.salaryGuide.min.toLocaleString()}~{j.salaryGuide.max.toLocaleString()}만원</div>
+                          {j.salaryGuide.basis && <p className="mt-1 text-xs text-slate-500">{j.salaryGuide.basis}</p>}
+                        </div>
+                      )}
 
                       {/* 미래 전망 박스 */}
                       <div className="rounded-lg bg-slate-50 border border-slate-100 p-3.5 space-y-2 mt-auto">
@@ -346,6 +364,34 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
                 {result.salaryGuide.basis && (
                   <p className="text-sm text-slate-600 leading-relaxed">{result.salaryGuide.basis}</p>
                 )}
+              </div>
+            )}
+
+            {/* 표기 점검 (오탈자·날짜) */}
+            {(result.papers?.length ?? 0) > 0 && (
+              <div className="rounded-xl border border-violet-200 bg-violet-50/40 p-5 space-y-4">
+                <h3 className="text-sm font-bold text-violet-800">논문 정보 점검</h3>
+                {result.papers!.map((paper, i) => (
+                  <div key={i} className="rounded-lg bg-white border border-violet-100 p-4 space-y-2">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="font-bold text-slate-800">{paper.title}</div>
+                      <Badge variant="outline" className={paper.verification?.status === "verified" ? "border-emerald-200 text-emerald-700" : "border-amber-200 text-amber-700"}>
+                        {paper.verification?.status === "verified" ? "Crossref 확인" : "외부 확인 필요"}
+                      </Badge>
+                    </div>
+                    <div className="text-xs text-slate-600">저자순: {paper.authors.join(", ") || "확인 필요"}{paper.applicantAuthorOrder > 0 ? ` · 지원자 ${paper.applicantAuthorOrder}저자` : ""}</div>
+                    <div className="text-xs text-slate-600">제출·게재 학회/저널: {paper.venue || "확인 필요"}</div>
+                    {paper.verification?.status === "verified" && (
+                      <div className="rounded-md bg-emerald-50 border border-emerald-100 p-2.5 text-xs text-emerald-800 space-y-1">
+                        <div>확인 제목: {paper.verification.title}</div>
+                        <div>확인 저자순: {paper.verification.authors.join(", ") || "기록 없음"}</div>
+                        <div>확인 학회/저널: {paper.verification.venue || "기록 없음"}</div>
+                        {paper.verification.doi && <a className="underline" href={`https://doi.org/${paper.verification.doi}`} target="_blank" rel="noreferrer">DOI 원문 확인</a>}
+                      </div>
+                    )}
+                    {paper.issues?.length > 0 && <ul className="text-xs text-amber-700 list-disc pl-4">{paper.issues.map((issue, j) => <li key={j}>{issue}</li>)}</ul>}
+                  </div>
+                ))}
               </div>
             )}
 

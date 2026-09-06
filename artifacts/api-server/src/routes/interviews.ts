@@ -15,6 +15,7 @@ import {
 import { db, interviewSessionsTable, interviewQuestionsTable, resumesTable, companiesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { getAI } from "../lib/openai";
+import { resumeHtmlToText } from "../lib/resume-text";
 
 const router: IRouter = Router();
 
@@ -85,6 +86,11 @@ function companyContext(company: { name: string; talentProfile: string | null; j
   ].join("\n");
 }
 
+function abstractQuestion(paper: { title?: string; abstract?: string }): string {
+  const evidence = resumeHtmlToText(paper.abstract).replace(/\s+/g, " ").slice(0, 180);
+  return `"${paper.title || "해당 논문"}"의 Abstract에 기재된 “${evidence}${evidence.length === 180 ? "…" : ""}” 내용을 바탕으로, 연구 문제와 본인의 구체적인 기여를 설명해 주세요.`;
+}
+
 router.get("/interviews", requireAuth, async (req, res): Promise<void> => {
   const sessions = await db.select().from(interviewSessionsTable)
     .where(eq(interviewSessionsTable.userId, req.session.userId!))
@@ -118,7 +124,16 @@ router.post("/interviews", requireAuth, async (req, res): Promise<void> => {
     .values({ userId, resumeId, companyId, status: "pending" })
     .returning();
 
-  const resumeText = [resume.content, resume.coverLetter].filter(Boolean).join("\n\n");
+  const resumeText = [resume.content, resume.coverLetter].map(resumeHtmlToText).filter(Boolean).join("\n\n");
+  let papers: Array<{ title?: string; authors?: string[]; venue?: string; abstract?: string }> = [];
+  try {
+    const career = JSON.parse(resume.careerAnalysisResult ?? "{}") as { papers?: unknown };
+    if (Array.isArray(career.papers)) papers = career.papers.slice(0, 10);
+  } catch { papers = []; }
+  const paperWithAbstract = papers.find((paper) => typeof paper.abstract === "string" && paper.abstract.trim().length > 0);
+  const paperContext = papers.length > 0
+    ? `\n\n논문 정보:\n${papers.map((paper, index) => `${index + 1}. 제목: ${paper.title || "(미상)"}\n저자순: ${(paper.authors || []).join(", ") || "(미상)"}\n학회/저널: ${paper.venue || "(미상)"}\nAbstract: ${paper.abstract || "(기재 없음)"}`).join("\n\n")}`
+    : "";
   const gradYear = detectGraduationYear(resumeText);
   const currentYear = new Date().getFullYear();
   const gapInstruction = gradYear !== null && currentYear - gradYear >= 3
@@ -132,20 +147,38 @@ router.post("/interviews", requireAuth, async (req, res): Promise<void> => {
       messages: [
         {
           role: "system",
-          content: `당신은 채용 면접관입니다. 반드시 아래에 제공된 정확한 회사명, 인재상, 채용공고/직무기술서에 맞춰 이력서 기반 면접 질문 5개를 생성하세요. 다른 회사나 일반적인 회사로 바꾸지 마세요.${gapInstruction}
-JSON 형식으로만 반환: { "questions": ["질문1", "질문2", "질문3", "질문4", "질문5"] }`,
+          content: `당신은 채용 면접관입니다. 반드시 아래에 제공된 정확한 회사명, 인재상, 채용공고/직무기술서에 맞춰 이력서 기반 면접 질문 5개를 생성하세요. 다른 회사나 일반적인 회사로 바꾸지 마세요.${gapInstruction}${paperWithAbstract ? "\n논문 Abstract가 제공된 경우 그 연구 내용·방법·기여를 직접 확인하는 질문을 1개 포함하고 source를 paper_abstract로 지정하세요." : ""}
+JSON 형식으로만 반환: { "questions": [{ "question": "질문", "source": "resume|company|paper_abstract" }] }`,
         },
-        { role: "user", content: `이력서:\n${resumeText || "(내용 없음)"}\n\n지원 회사 정보:\n${companyContext(company)}` },
+        { role: "user", content: `이력서:\n${resumeText || "(내용 없음)"}${paperContext}\n\n지원 회사 정보:\n${companyContext(company)}` },
       ],
       response_format: { type: "json_object" },
     });
-    const parsed = JSON.parse(response.choices[0]?.message?.content ?? "{}") as { questions?: unknown };
-    const questions = Array.isArray(parsed.questions)
-      ? parsed.questions.filter((question): question is string => typeof question === "string" && question.trim().length > 0).slice(0, 5)
-      : [];
+    const parsed = JSON.parse(response.choices[0]?.message?.content ?? "{}") as { questions?: unknown[] };
+    const items = Array.isArray(parsed.questions) ? parsed.questions : [];
+    let questions = items.map((item) => typeof item === "string"
+      ? { question: item, source: "" }
+      : { question: typeof (item as { question?: unknown })?.question === "string" ? (item as { question: string }).question : "", source: (item as { source?: unknown })?.source })
+      .filter((item) => item.question.trim().length > 0);
+    if (paperWithAbstract) {
+      questions = questions.filter((item) => item.source !== "paper_abstract");
+      questions.unshift({ question: abstractQuestion(paperWithAbstract), source: "paper_abstract" });
+    }
+    questions = [...new Map(questions.map((item) => [item.question.trim(), item])).values()].slice(0, 5);
+    const fallbackQuestions = [
+      `${company.name}의 지원 직무에서 가장 먼저 기여할 수 있는 본인의 경험을 설명해 주세요.`,
+      "이력서에 기재한 성과 중 가장 어려운 문제를 해결한 과정을 구체적으로 설명해 주세요.",
+      "협업 중 의견 충돌을 조정하고 결과를 만든 경험을 설명해 주세요.",
+      "지원 직무 역량을 최근까지 발전시키기 위해 어떤 노력을 했는지 설명해 주세요.",
+      `${company.name}의 인재상과 본인이 부합한다고 생각하는 근거를 사례로 설명해 주세요.`,
+    ];
+    for (const fallback of fallbackQuestions) {
+      if (questions.length >= 5) break;
+      if (!questions.some((item) => item.question === fallback)) questions.push({ question: fallback, source: "resume" });
+    }
     if (questions.length > 0) {
       await db.insert(interviewQuestionsTable).values(
-        questions.map((question, index) => ({ sessionId: session.id, question, order: index + 1 })),
+        questions.map((item, index) => ({ sessionId: session.id, question: item.question.trim(), order: index + 1 })),
       );
       await db.update(interviewSessionsTable).set({ status: "questions_generated" })
         .where(and(eq(interviewSessionsTable.id, session.id), eq(interviewSessionsTable.userId, userId)));

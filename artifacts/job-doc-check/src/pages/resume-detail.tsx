@@ -57,7 +57,7 @@ interface SpellcheckResult {
 
 // ── 커리어 분석 타입 ────────────────────────────────────────────────────────
 interface CareerStrength { title: string; evidence: string }
-interface CareerNcsCategory { major: string; middle: string; fitReason: string }
+interface CareerNcsCategory { major: string; middle: string; level?: number; fitReason: string }
 interface CareerRecommendedJob {
   job: string
   ncsCategory: string
@@ -65,6 +65,7 @@ interface CareerRecommendedJob {
   reason: string
   outlook: string
   outlookScore: number
+  salaryGuide?: CareerSalaryGuide
 }
 interface CareerSalaryGuide { min: number; max: number; basis: string }
 interface CareerTypoIssue { found: string; suggestion: string; note: string }

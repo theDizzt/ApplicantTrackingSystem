@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   selectResults: [] as unknown[][],
   insertResults: [] as unknown[][],
   aiCreate: vi.fn(),
+  insertedValues: [] as unknown[],
 }));
 
 function query(result: unknown) {
@@ -17,7 +18,10 @@ function query(result: unknown) {
     from: vi.fn(() => chain),
     where: vi.fn(() => chain),
     orderBy: vi.fn(() => chain),
-    values: vi.fn(() => chain),
+    values: vi.fn((values: unknown) => {
+      mocks.insertedValues.push(values);
+      return chain;
+    }),
     set: vi.fn(() => chain),
     returning: vi.fn(() => promise),
     then: promise.then.bind(promise),
@@ -92,6 +96,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   mocks.selectResults.splice(0);
   mocks.insertResults.splice(0);
+  mocks.insertedValues.splice(0);
   mocks.select.mockImplementation(() => query(mocks.selectResults.shift() ?? []));
   mocks.insert.mockImplementation(() => query(mocks.insertResults.shift() ?? []));
   mocks.update.mockImplementation(() => query([]));
@@ -137,6 +142,47 @@ describe("interview routes", () => {
     expect(prompt).toContain("정확한 회사");
     expect(prompt).toContain("주도적으로 협업하는 인재");
     expect(prompt).toContain("Node.js API를 개발합니다");
+  });
+
+  it("adds one abstract-grounded question and strips HTML from the prompt", async () => {
+    mocks.insertResults.push([session]);
+    mocks.aiCreate.mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({
+        questions: [
+          { question: "직무 경험을 설명해 주세요.", source: "resume" },
+          { question: "협업 경험은 무엇인가요?", source: "company" },
+        ],
+      }) } }],
+    });
+    setSelectResults([
+      [{
+        id: 21,
+        userId: 1,
+        title: "연구 이력서",
+        content: "<p>머신러닝 연구</p>",
+        coverLetter: null,
+        careerAnalysisResult: JSON.stringify({
+          papers: [{
+            title: "추천 시스템 연구",
+            authors: ["홍길동", "김연구"],
+            venue: "한국정보과학회",
+            abstract: "사용자 행동 시퀀스로 추천 정확도를 개선했다.",
+          }],
+        }),
+      }],
+      [company],
+      [session], [{ title: "연구 이력서" }], [company], [],
+    ]);
+
+    const response = await request(makeApp()).post("/interviews").set("x-user-id", "1").send({ resumeId: 21, companyId: 31 });
+    expect(response.status).toBe(201);
+    const prompt = mocks.aiCreate.mock.calls[0][0].messages.map((message: { content: string }) => message.content).join("\n");
+    expect(prompt).toContain("사용자 행동 시퀀스로 추천 정확도를 개선했다.");
+    expect(prompt).not.toContain("<p>");
+    const insertedQuestions = mocks.insertedValues.find((value) => Array.isArray(value)) as Array<{ question: string }> | undefined;
+    const abstractItem = insertedQuestions?.find((item) => item.question.includes("Abstract"));
+    expect(abstractItem?.question).toContain("사용자 행동 시퀀스로 추천 정확도를 개선했다.");
+    expect(insertedQuestions).toHaveLength(5);
   });
 
   it("grounds evaluation in company context and does not evaluate another user's session", async () => {
