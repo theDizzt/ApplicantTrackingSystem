@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link, useLocation } from "wouter"
-import { FileText, Building2, Users, CreditCard, LogOut, LayoutDashboard, BrainCircuit, Menu, X } from "lucide-react"
+import { FileText, Building2, Users, CreditCard, LogOut, LayoutDashboard, BrainCircuit, Menu, X, Mic } from "lucide-react"
 import { useGetMe, useLogout, getGetMeQueryKey } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
@@ -35,6 +35,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     { href: "/companies", label: "지원 회사", icon: Building2 },
     { href: "/analyses", label: "AI 서류 심사", icon: BrainCircuit },
     { href: "/interviews", label: "면접 연습", icon: Users },
+    { href: "/cover-letter", label: "음성 자소서", icon: Mic },
     { href: "/subscription", label: "구독 관리", icon: CreditCard },
   ]
 

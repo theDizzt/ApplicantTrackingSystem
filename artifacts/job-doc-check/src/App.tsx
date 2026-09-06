@@ -25,6 +25,7 @@ import AnalysisDetail from '@/pages/analysis-detail';
 import InterviewsPage from '@/pages/interviews';
 import NewInterviewPage from '@/pages/interview-new';
 import InterviewDetail from '@/pages/interview-detail';
+import CoverLetterPage from '@/pages/cover-letter';
 import SubscriptionPage from '@/pages/subscription';
 
 const queryClient = new QueryClient();
@@ -54,21 +55,23 @@ function Router() {
 
       {/* Protected Routes */}
       <ProtectedRoute path="/dashboard" component={Dashboard} />
-      
+
       <ProtectedRoute path="/companies" component={CompaniesPage} />
       <ProtectedRoute path="/companies/:id" component={CompanyDetail} />
-      
+
       <ProtectedRoute path="/resumes" component={ResumesPage} />
       <ProtectedRoute path="/resumes/:id" component={ResumeDetail} />
-      
+
       <ProtectedRoute path="/analyses" component={AnalysesPage} />
       <ProtectedRoute path="/analyses/new" component={NewAnalysisPage} />
       <ProtectedRoute path="/analyses/:id" component={AnalysisDetail} />
-      
+
       <ProtectedRoute path="/interviews" component={InterviewsPage} />
       <ProtectedRoute path="/interviews/new" component={NewInterviewPage} />
       <ProtectedRoute path="/interviews/:id" component={InterviewDetail} />
-      
+
+      <ProtectedRoute path="/cover-letter" component={CoverLetterPage} />
+
       <ProtectedRoute path="/subscription" component={SubscriptionPage} />
 
       <Route component={NotFound} />

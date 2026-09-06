@@ -12,6 +12,7 @@ import interviewsRouter from "./interviews";
 import dashboardRouter from "./dashboard";
 import spellcheckRouter from "./spellcheck";
 import adminRouter from "./admin";
+import coverLetterRouter from "./cover-letter";
 
 const router: IRouter = Router();
 
@@ -28,5 +29,6 @@ router.use(interviewsRouter);
 router.use(dashboardRouter);
 router.use(spellcheckRouter);
 router.use(adminRouter);
+router.use(coverLetterRouter);
 
 export default router;

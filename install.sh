@@ -90,12 +90,12 @@ psql_as_postgres() {
 # ----------------------------------------
 install_base_packages() {
     echo -e "${CYAN}[2/8] 기본 패키지 설치${NC}"
-    # poppler-utils(pdftoppm): 스캔(이미지) PDF 이력서 OCR 폴백에 필요
+    # poppler-utils: 스캔 PDF OCR, ffmpeg: 음성 자기소개서 오디오 정규화
     if [ "$OS_FAMILY" = "debian" ]; then
         $SUDO apt-get update -y
-        $SUDO apt-get install -y curl ca-certificates gnupg git build-essential openssl acl zstd poppler-utils
+        $SUDO apt-get install -y curl ca-certificates gnupg git build-essential openssl acl zstd poppler-utils ffmpeg
     else
-        $SUDO $PKG install -y curl ca-certificates git gcc-c++ make openssl acl zstd poppler-utils
+        $SUDO $PKG install -y curl ca-certificates git gcc-c++ make openssl acl zstd poppler-utils ffmpeg
     fi
     echo -e "  ${GREEN}완료${NC}"
     echo ""
