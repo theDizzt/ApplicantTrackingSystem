@@ -2,8 +2,12 @@ import { useState, useRef, useEffect, type ChangeEvent } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Mic, Square, UploadCloud, Copy, RefreshCw, AlertCircle, CheckCircle2, Loader2 } from 'lucide-react';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Mic, Square, UploadCloud, Copy, RefreshCw, AlertCircle, CheckCircle2, Loader2, Save } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
+import { getGetResumeQueryKey, getListResumesQueryKey, useListResumes, useUpdateResume } from '@workspace/api-client-react';
+import { useQueryClient } from '@tanstack/react-query';
+import { useLocation } from 'wouter';
 
 const getSupportedMimeType = () => {
   const types = ['audio/webm', 'audio/mp4', 'audio/ogg'];
@@ -22,8 +26,45 @@ const formatTime = (seconds: number) => {
 };
 const MAX_RECORDING_SECONDS = 10 * 60;
 
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;');
+}
+
+function coverLetterToHtml(value: string) {
+  const html: string[] = [];
+  let paragraph: string[] = [];
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    html.push(`<p>${paragraph.map(escapeHtml).join('<br>')}</p>`);
+    paragraph = [];
+  };
+
+  for (const line of value.split(/\r?\n/)) {
+    const text = line.trim();
+    if (text.startsWith('## ')) {
+      flushParagraph();
+      html.push(`<h2>${escapeHtml(text.slice(3))}</h2>`);
+    } else if (!text) {
+      flushParagraph();
+    } else {
+      paragraph.push(text);
+    }
+  }
+  flushParagraph();
+  return html.join('');
+}
+
 export default function CoverLetterPage() {
   const { toast } = useToast();
+  const queryClient = useQueryClient();
+  const [, setLocation] = useLocation();
+  const { data: resumes, isLoading: resumesLoading } = useListResumes();
+  const updateResume = useUpdateResume();
   
   const [recording, setRecording] = useState(false);
   const [acquiringMic, setAcquiringMic] = useState(false);
@@ -34,6 +75,7 @@ export default function CoverLetterPage() {
   const [transcript, setTranscript] = useState('');
   const [coverLetter, setCoverLetter] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
+  const [selectedResumeId, setSelectedResumeId] = useState('');
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -62,6 +104,12 @@ export default function CoverLetterPage() {
       if (url) URL.revokeObjectURL(url);
     };
   }, [audioFile?.url]);
+
+  useEffect(() => {
+    if (resumes?.length && !resumes.some(resume => String(resume.id) === selectedResumeId)) {
+      setSelectedResumeId(String(resumes[0].id));
+    }
+  }, [resumes, selectedResumeId]);
 
   const startRecording = async () => {
     if (acquiringMic || recording) return;
@@ -239,6 +287,33 @@ export default function CoverLetterPage() {
         variant: "destructive"
       });
     }
+  };
+
+  const applyToResume = () => {
+    const resumeId = Number(selectedResumeId);
+    if (!resumeId || !coverLetter) return;
+
+    updateResume.mutate(
+      { id: resumeId, data: { coverLetter: coverLetterToHtml(coverLetter) } },
+      {
+        onSuccess: updated => {
+          queryClient.setQueryData(getGetResumeQueryKey(resumeId), updated);
+          queryClient.invalidateQueries({ queryKey: getListResumesQueryKey() });
+          toast({
+            title: "이력서 반영 완료",
+            description: "생성된 자기소개서가 선택한 이력서에 저장되었습니다.",
+          });
+          setLocation(`/resumes/${resumeId}`);
+        },
+        onError: () => {
+          toast({
+            title: "이력서 반영 실패",
+            description: "자기소개서를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.",
+            variant: "destructive",
+          });
+        },
+      },
+    );
   };
 
   return (
@@ -428,6 +503,36 @@ export default function CoverLetterPage() {
                   {coverLetter || "생성된 자기소개서가 없습니다."}
                 </div>
               </CardContent>
+              <div className="border-t bg-slate-50/50 p-5 space-y-3">
+                <div className="flex flex-col sm:flex-row gap-3">
+                  <Select value={selectedResumeId} onValueChange={setSelectedResumeId} disabled={resumesLoading || !resumes?.length}>
+                    <SelectTrigger className="flex-1 bg-white" data-testid="select-resume">
+                      <SelectValue placeholder={resumesLoading ? "이력서를 불러오는 중..." : "반영할 이력서를 선택하세요"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {resumes?.map(resume => (
+                        <SelectItem key={resume.id} value={String(resume.id)}>
+                          {resume.title}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <Button
+                    onClick={applyToResume}
+                    disabled={!selectedResumeId || updateResume.isPending}
+                    data-testid="button-apply-to-resume"
+                    className="sm:min-w-44"
+                  >
+                    {updateResume.isPending ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Save className="w-4 h-4 mr-2" />}
+                    이력서에 반영하기
+                  </Button>
+                </div>
+                <p className="text-xs text-slate-500">
+                  {resumes?.length
+                    ? "선택한 이력서에 기존 자기소개서가 있으면 새 내용으로 교체됩니다."
+                    : "먼저 내 이력서 메뉴에서 이력서를 등록해주세요."}
+                </p>
+              </div>
             </Card>
           </div>
         </div>
