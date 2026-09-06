@@ -52,13 +52,18 @@ interface CareerNcsCategory {
   level: number;
   fitReason: string;
 }
-interface PaperVerification {
-  status: "verified" | "unverified";
-  source: "Crossref" | "";
+interface PaperVerificationRecord {
+  source: "Crossref" | "OpenAlex";
   title: string;
   authors: string[];
   venue: string;
   doi: string;
+  url: string;
+}
+interface PaperVerification {
+  status: "verified" | "unverified" | "conflict";
+  records: PaperVerificationRecord[];
+  conflicts: string[];
 }
 interface CareerPaper {
   title: string;
@@ -187,7 +192,7 @@ export function sanitizeCareer(data: Record<string, unknown>): CareerAnalysisRes
           venue: capStr(o.venue, FIELD_MAX),
           abstract: capStr(o.abstract, 5000),
           issues: strings(o.issues, FIELD_MAX).slice(0, 10),
-          verification: { status: "unverified" as const, source: "" as const, title: "", authors: [], venue: "", doi: "" },
+          verification: { status: "unverified" as const, records: [], conflicts: [] },
         };
       })
     : []
@@ -244,59 +249,156 @@ interface CrossrefItem {
   DOI?: string;
 }
 
-async function verifyPaperWithCrossref(paper: CareerPaper): Promise<CareerPaper> {
-  if (!paper.title.trim()) return paper;
+interface OpenAlexWork {
+  id?: string;
+  display_name?: string;
+  doi?: string;
+  authorships?: Array<{ author?: { display_name?: string } }>;
+  primary_location?: {
+    landing_page_url?: string;
+    source?: { display_name?: string; country_code?: string };
+  };
+  locations?: Array<{
+    landing_page_url?: string;
+    source?: { display_name?: string; country_code?: string };
+  }>;
+}
+
+function safeAcademicUrl(value: string | undefined): string {
+  if (!value) return "";
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" || url.protocol === "http:" ? url.toString() : "";
+  } catch {
+    return "";
+  }
+}
+
+export function recordsConflict(left: PaperVerificationRecord, right: PaperVerificationRecord): string[] {
+  const conflicts: string[] = [];
+  if (!titleMatches(left.title, right.title)) conflicts.push("출처별 논문 제목이 다릅니다.");
+  if (left.authors.length && right.authors.length) {
+    const a = left.authors.map(normalizeBibliography);
+    const b = right.authors.map(normalizeBibliography);
+    if (a.length !== b.length || a.some((name, index) => name !== b[index])) {
+      conflicts.push("출처별 저자명 또는 저자순이 다릅니다.");
+    }
+  }
+  if (left.venue && right.venue && normalizeBibliography(left.venue) !== normalizeBibliography(right.venue)) {
+    conflicts.push("출처별 학회·저널 정보가 다릅니다.");
+  }
+  return conflicts;
+}
+
+function paperIssuesForRecord(paper: CareerPaper, record: PaperVerificationRecord): string[] {
+  const issues: string[] = [];
+  if (paper.authors.length && record.authors.length) {
+    const listed = paper.authors.map(normalizeBibliography);
+    const verified = record.authors.map(normalizeBibliography);
+    if (listed.length !== verified.length || listed.some((name, index) => name !== verified[index])) {
+      issues.push(`이력서의 저자명 또는 저자순이 ${record.source} 공개 기록과 다릅니다.`);
+    }
+  }
+  if (paper.venue && record.venue && normalizeBibliography(paper.venue) !== normalizeBibliography(record.venue)) {
+    issues.push(`이력서의 제출·게재 학회/저널 표기가 ${record.source} 공개 기록과 다릅니다.`);
+  }
+  return issues;
+}
+
+async function findPaperWithCrossref(title: string): Promise<PaperVerificationRecord | null> {
   try {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), 5000);
     const url = new URL("https://api.crossref.org/works");
-    url.searchParams.set("query.title", paper.title);
+    url.searchParams.set("query.title", title);
     url.searchParams.set("rows", "3");
     url.searchParams.set("select", "title,author,container-title,event,DOI");
     const response = await fetch(url, {
       signal: controller.signal,
       headers: { "User-Agent": "AI-Resume-Reviewer/1.0 (bibliographic verification)" },
     }).finally(() => clearTimeout(timeout));
-    if (!response.ok) return paper;
+    if (!response.ok) return null;
     const payload = await response.json() as { message?: { items?: CrossrefItem[] } };
-    const match = payload.message?.items?.find((item) => titleMatches(paper.title, item.title?.[0] ?? ""));
-    if (!match) {
-      return {
-        ...paper,
-        issues: [...paper.issues, "Crossref에서 제목이 일치하는 공개 기록을 찾지 못했습니다. 학회·저널 원문 확인이 필요합니다."].slice(0, 10),
-      };
-    }
+    const match = payload.message?.items?.find((item) => titleMatches(title, item.title?.[0] ?? ""));
+    if (!match) return null;
     const verifiedAuthors = (match.author ?? [])
       .map((author) => [author.given, author.family].filter(Boolean).join(" ").trim())
       .filter(Boolean);
     const verifiedTitle = match.title?.[0] ?? "";
     const verifiedVenue = match["container-title"]?.[0] ?? match.event?.name ?? "";
-    const issues = [...paper.issues];
-    if (paper.authors.length && verifiedAuthors.length) {
-      const listed = paper.authors.map(normalizeBibliography);
-      const verified = verifiedAuthors.map(normalizeBibliography);
-      if (listed.length !== verified.length || listed.some((name, index) => name !== verified[index])) {
-        issues.push("이력서의 저자명 또는 저자순이 Crossref 공개 기록과 다릅니다.");
-      }
-    }
-    if (paper.venue && verifiedVenue && normalizeBibliography(paper.venue) !== normalizeBibliography(verifiedVenue)) {
-      issues.push("이력서의 제출·게재 학회/저널 표기가 Crossref 공개 기록과 다릅니다.");
-    }
     return {
-      ...paper,
-      issues: issues.slice(0, 10),
-      verification: {
-        status: "verified",
-        source: "Crossref",
-        title: verifiedTitle,
-        authors: verifiedAuthors,
-        venue: verifiedVenue,
-        doi: match.DOI ?? "",
-      },
+      source: "Crossref",
+      title: verifiedTitle,
+      authors: verifiedAuthors,
+      venue: verifiedVenue,
+      doi: match.DOI ?? "",
+      url: match.DOI ? `https://doi.org/${encodeURIComponent(match.DOI)}` : "",
     };
   } catch {
-    return paper;
+    return null;
   }
+}
+
+async function findPaperWithOpenAlex(title: string): Promise<PaperVerificationRecord | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const url = new URL("https://api.openalex.org/works");
+    url.searchParams.set("search", title);
+    url.searchParams.set("per-page", "10");
+    url.searchParams.set("select", "id,display_name,doi,authorships,primary_location,locations");
+    const response = await fetch(url, {
+      signal: controller.signal,
+      headers: { "User-Agent": "AI-Resume-Reviewer/1.0 (bibliographic verification)" },
+    }).finally(() => clearTimeout(timeout));
+    if (!response.ok) return null;
+    const payload = await response.json() as { results?: OpenAlexWork[] };
+    const candidates = (payload.results ?? []).filter((work) => titleMatches(title, work.display_name ?? ""));
+    const match = candidates.find((work) =>
+      work.primary_location?.source?.country_code === "KR" ||
+      work.locations?.some((location) => location.source?.country_code === "KR")
+    ) ?? candidates[0];
+    if (!match) return null;
+    const koreanLocation = match.locations?.find((location) => location.source?.country_code === "KR");
+    const location = koreanLocation ?? match.primary_location;
+    const doi = match.doi?.replace(/^https?:\/\/doi\.org\//i, "") ?? "";
+    return {
+      source: "OpenAlex",
+      title: match.display_name ?? "",
+      authors: (match.authorships ?? []).map((item) => item.author?.display_name ?? "").filter(Boolean),
+      venue: location?.source?.display_name ?? match.primary_location?.source?.display_name ?? "",
+      doi,
+      url: safeAcademicUrl(location?.landing_page_url) || safeAcademicUrl(match.doi) || safeAcademicUrl(match.id),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function verifyPaper(paper: CareerPaper): Promise<CareerPaper> {
+  if (!paper.title.trim()) return paper;
+  const crossref = await findPaperWithCrossref(paper.title);
+  const openAlex = await findPaperWithOpenAlex(paper.title);
+  const records = [crossref, openAlex].filter((record): record is PaperVerificationRecord => record !== null);
+  if (!records.length) {
+    return {
+      ...paper,
+      issues: [...paper.issues, "Crossref와 OpenAlex 국내 학술 메타데이터에서 제목이 일치하는 공개 기록을 찾지 못했습니다. 학회·저널 원문 확인이 필요합니다."].slice(0, 10),
+    };
+  }
+  const conflicts = crossref && openAlex ? recordsConflict(crossref, openAlex) : [];
+  const issues = [...paper.issues, ...records.flatMap((record) => paperIssuesForRecord(paper, record))];
+  if (!crossref && openAlex) issues.push("Crossref 미발견 후 OpenAlex 국내 학술 메타데이터에서 확인했습니다.");
+  if (conflicts.length) issues.push("학술 데이터 출처가 서로 달라 자동 확정하지 않았습니다.");
+  return {
+    ...paper,
+    issues: [...new Set(issues)].slice(0, 10),
+    verification: {
+      status: conflicts.length ? "conflict" : "verified",
+      records,
+      conflicts,
+    },
+  };
 }
 
 async function runCareerAnalysis(resume: typeof resumesTable.$inferSelect): Promise<CareerAnalysisResult> {
@@ -327,7 +429,7 @@ async function runCareerAnalysis(resume: typeof resumesTable.$inferSelect): Prom
   }
 
   const result = sanitizeCareer(data);
-  result.papers = await Promise.all(result.papers.map(verifyPaperWithCrossref));
+  result.papers = await Promise.all(result.papers.map(verifyPaper));
 
   // 최소 구조 검증 — 강점·추천 직업·종합 조언이 모두 채워져야 유효
   if (

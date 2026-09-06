@@ -1,5 +1,9 @@
-import { describe, expect, it } from "vitest";
-import { sanitizeCareer } from "./career-analysis";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { recordsConflict, sanitizeCareer, verifyPaper } from "./career-analysis";
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("sanitizeCareer", () => {
   it("does not invent an NCS level and normalizes each job salary range", () => {
@@ -36,5 +40,75 @@ describe("sanitizeCareer", () => {
       authors: ["가", "나"],
       verification: expect.objectContaining({ status: "unverified" }),
     }));
+  });
+});
+
+describe("paper verification", () => {
+  it("checks OpenAlex after Crossref has no matching title", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: { items: [] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({
+        results: [{
+          id: "https://openalex.org/W1",
+          display_name: "국내 학회 논문",
+          doi: null,
+          authorships: [
+            { author: { display_name: "홍길동" } },
+            { author: { display_name: "김연구" } },
+          ],
+          primary_location: {
+            landing_page_url: "https://example.kr/paper/1",
+            source: { display_name: "한국정보학회", country_code: "KR" },
+          },
+          locations: [],
+        }],
+      }), { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await verifyPaper({
+      title: "국내 학회 논문",
+      authors: ["홍길동", "김연구"],
+      applicantAuthorOrder: 1,
+      venue: "한국정보학회",
+      abstract: "",
+      issues: [],
+      verification: { status: "unverified", records: [], conflicts: [] },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(result.verification).toEqual(expect.objectContaining({
+      status: "verified",
+      records: [expect.objectContaining({
+        source: "OpenAlex",
+        url: "https://example.kr/paper/1",
+      })],
+    }));
+    expect(result.issues).toContain("Crossref 미발견 후 OpenAlex 국내 학술 메타데이터에서 확인했습니다.");
+  });
+
+  it("reports source differences instead of auto-confirming them", () => {
+    const conflicts = recordsConflict(
+      {
+        source: "Crossref",
+        title: "같은 논문",
+        authors: ["홍길동", "김연구"],
+        venue: "한국정보학회",
+        doi: "10.1000/example",
+        url: "https://doi.org/10.1000/example",
+      },
+      {
+        source: "OpenAlex",
+        title: "같은 논문",
+        authors: ["김연구", "홍길동"],
+        venue: "다른 학회",
+        doi: "10.1000/example",
+        url: "https://example.kr/paper/1",
+      },
+    );
+
+    expect(conflicts).toEqual([
+      "출처별 저자명 또는 저자순이 다릅니다.",
+      "출처별 학회·저널 정보가 다릅니다.",
+    ]);
   });
 });

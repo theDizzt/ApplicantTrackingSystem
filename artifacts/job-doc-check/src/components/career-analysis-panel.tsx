@@ -29,7 +29,12 @@ interface CareerPaper {
   venue: string
   abstract: string
   issues: string[]
-  verification?: { status: "verified" | "unverified"; source: string; title: string; authors: string[]; venue: string; doi: string }
+  verification?: {
+    status: "verified" | "unverified" | "conflict"
+    records?: Array<{ source: "Crossref" | "OpenAlex"; title: string; authors: string[]; venue: string; doi: string; url: string }>
+    conflicts?: string[]
+    source?: string
+  }
 }
 interface CareerTypoIssue { found: string; suggestion: string; note: string }
 interface CareerDateIssue { found: string; issue: string; suggestion: string }
@@ -376,17 +381,30 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
                     <div className="flex flex-wrap items-center gap-2">
                       <div className="font-bold text-slate-800">{paper.title}</div>
                       <Badge variant="outline" className={paper.verification?.status === "verified" ? "border-emerald-200 text-emerald-700" : "border-amber-200 text-amber-700"}>
-                        {paper.verification?.status === "verified" ? "Crossref 확인" : "외부 확인 필요"}
+                        {paper.verification?.status === "verified"
+                          ? `${paper.verification.records?.map((record) => record.source).join(" · ") || paper.verification.source || "학술 데이터"} 확인`
+                          : paper.verification?.status === "conflict" ? "출처 정보 충돌" : "외부 확인 필요"}
                       </Badge>
                     </div>
                     <div className="text-xs text-slate-600">저자순: {paper.authors.join(", ") || "확인 필요"}{paper.applicantAuthorOrder > 0 ? ` · 지원자 ${paper.applicantAuthorOrder}저자` : ""}</div>
                     <div className="text-xs text-slate-600">제출·게재 학회/저널: {paper.venue || "확인 필요"}</div>
-                    {paper.verification?.status === "verified" && (
-                      <div className="rounded-md bg-emerald-50 border border-emerald-100 p-2.5 text-xs text-emerald-800 space-y-1">
-                        <div>확인 제목: {paper.verification.title}</div>
-                        <div>확인 저자순: {paper.verification.authors.join(", ") || "기록 없음"}</div>
-                        <div>확인 학회/저널: {paper.verification.venue || "기록 없음"}</div>
-                        {paper.verification.doi && <a className="underline" href={`https://doi.org/${paper.verification.doi}`} target="_blank" rel="noreferrer">DOI 원문 확인</a>}
+                    {(paper.verification?.records?.length ?? 0) > 0 && (
+                      <div className={`rounded-md border p-2.5 text-xs space-y-2 ${paper.verification?.status === "conflict" ? "bg-amber-50 border-amber-200 text-amber-900" : "bg-emerald-50 border-emerald-100 text-emerald-800"}`}>
+                        {(paper.verification?.records ?? []).map((record) => (
+                          <div key={record.source} className="space-y-1">
+                            <div className="font-bold">출처: {record.source}</div>
+                            <div>확인 제목: {record.title}</div>
+                            <div>확인 저자순: {record.authors.join(", ") || "기록 없음"}</div>
+                            <div>확인 학회/저널: {record.venue || "기록 없음"}</div>
+                            {record.url && <a className="underline font-medium" href={record.url} target="_blank" rel="noreferrer">{record.doi ? "DOI·원문 확인" : "원문 기록 확인"}</a>}
+                          </div>
+                        ))}
+                        {(paper.verification?.conflicts?.length ?? 0) > 0 && (
+                          <div className="border-t border-amber-200 pt-2">
+                            <div className="font-bold">자동 확정하지 않은 차이</div>
+                            <ul className="list-disc pl-4">{(paper.verification?.conflicts ?? []).map((conflict) => <li key={conflict}>{conflict}</li>)}</ul>
+                          </div>
+                        )}
                       </div>
                     )}
                     {paper.issues?.length > 0 && <ul className="text-xs text-amber-700 list-disc pl-4">{paper.issues.map((issue, j) => <li key={j}>{issue}</li>)}</ul>}
