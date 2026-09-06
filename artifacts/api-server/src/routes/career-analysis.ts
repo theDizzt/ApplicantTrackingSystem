@@ -5,6 +5,7 @@ import { requireAuth } from "../middlewares/auth";
 import { getAI, checkAIHealth } from "../lib/openai";
 import { logger } from "../lib/logger";
 import { resumeHtmlToText } from "../lib/resume-text";
+import * as cheerio from "cheerio";
 
 const router: IRouter = Router();
 
@@ -53,7 +54,7 @@ interface CareerNcsCategory {
   fitReason: string;
 }
 interface PaperVerificationRecord {
-  source: "Crossref" | "OpenAlex";
+  source: "Crossref" | "OpenAlex" | "KCI";
   title: string;
   authors: string[];
   venue: string;
@@ -375,20 +376,68 @@ async function findPaperWithOpenAlex(title: string): Promise<PaperVerificationRe
   }
 }
 
+async function findPaperWithKci(title: string): Promise<PaperVerificationRecord | null> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 5000);
+    const body = new URLSearchParams({
+      "poSearchBean.searType": "thesis",
+      "poSearchBean.conditionList": "INDE_TITL",
+      "poSearchBean.keywordList": title,
+      "poSearchBean.docsCount": "10",
+    });
+    const response = await fetch("https://www.kci.go.kr/kciportal/po/search/poArtiSearList.kci", {
+      method: "POST",
+      body,
+      signal: controller.signal,
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+        "User-Agent": "AI-Resume-Reviewer/1.0 (bibliographic verification)",
+      },
+    }).finally(() => clearTimeout(timeout));
+    if (!response.ok) return null;
+
+    const $ = cheerio.load(await response.text());
+    let record: PaperVerificationRecord | null = null;
+    $("a.subject").each((_, element) => {
+      if (record) return;
+      const link = $(element);
+      const candidateTitle = link.text().replace(/\s+/g, " ").trim();
+      if (!titleMatches(title, candidateTitle)) return;
+      const row = link.closest("tr");
+      const value = (name: string) => row.find(`input[name="${name}"]`).attr("value")?.replace(/^[^:]+:\s*/, "").trim() ?? "";
+      const href = link.attr("href");
+      record = {
+        source: "KCI",
+        title: candidateTitle,
+        authors: value("b").split(/\s*\|\s*/).map((author) => author.trim()).filter(Boolean),
+        venue: value("d") || value("c"),
+        doi: "",
+        url: href ? safeAcademicUrl(new URL(href, "https://www.kci.go.kr").toString()) : "",
+      };
+    });
+    return record;
+  } catch {
+    return null;
+  }
+}
+
 export async function verifyPaper(paper: CareerPaper): Promise<CareerPaper> {
   if (!paper.title.trim()) return paper;
   const crossref = await findPaperWithCrossref(paper.title);
   const openAlex = await findPaperWithOpenAlex(paper.title);
-  const records = [crossref, openAlex].filter((record): record is PaperVerificationRecord => record !== null);
+  const kci = !crossref && !openAlex ? await findPaperWithKci(paper.title) : null;
+  const records = [crossref, openAlex, kci].filter((record): record is PaperVerificationRecord => record !== null);
   if (!records.length) {
     return {
       ...paper,
-      issues: [...paper.issues, "Crossref와 OpenAlex 국내 학술 메타데이터에서 제목이 일치하는 공개 기록을 찾지 못했습니다. 학회·저널 원문 확인이 필요합니다."].slice(0, 10),
+      issues: [...paper.issues, "Crossref, OpenAlex, KCI 공개 기록에서 제목이 일치하는 논문을 찾지 못했습니다. 학회·저널 원문 확인이 필요합니다."].slice(0, 10),
     };
   }
   const conflicts = crossref && openAlex ? recordsConflict(crossref, openAlex) : [];
   const issues = [...paper.issues, ...records.flatMap((record) => paperIssuesForRecord(paper, record))];
   if (!crossref && openAlex) issues.push("Crossref 미발견 후 OpenAlex 국내 학술 메타데이터에서 확인했습니다.");
+  if (kci) issues.push("Crossref와 OpenAlex 미발견 후 KCI 공식 공개 기록에서 확인했습니다.");
   if (conflicts.length) issues.push("학술 데이터 출처가 서로 달라 자동 확정하지 않았습니다.");
   return {
     ...paper,

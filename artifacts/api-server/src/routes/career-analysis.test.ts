@@ -86,6 +86,47 @@ describe("paper verification", () => {
     expect(result.issues).toContain("Crossref 미발견 후 OpenAlex 국내 학술 메타데이터에서 확인했습니다.");
   });
 
+  it("checks KCI official records only after Crossref and OpenAlex have no match", async () => {
+    const kciHtml = `
+      <table><tr>
+        <td>
+          <a class="subject" href="/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART001">국내 학회 논문</a>
+          <input type="hidden" name="b" value="저자 : 홍길동 | 김연구" />
+          <input type="hidden" name="c" value="학회명 : 한국정보학회" />
+          <input type="hidden" name="d" value="학술지명 : 정보학연구" />
+        </td>
+      </tr></table>`;
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ message: { items: [] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ results: [] }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(kciHtml, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await verifyPaper({
+      title: "국내 학회 논문",
+      authors: ["홍길동", "김연구"],
+      applicantAuthorOrder: 1,
+      venue: "정보학연구",
+      abstract: "",
+      issues: [],
+      verification: { status: "unverified", records: [], conflicts: [] },
+    });
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[2]?.[0]).toBe("https://www.kci.go.kr/kciportal/po/search/poArtiSearList.kci");
+    expect(result.verification).toEqual(expect.objectContaining({
+      status: "verified",
+      records: [expect.objectContaining({
+        source: "KCI",
+        title: "국내 학회 논문",
+        authors: ["홍길동", "김연구"],
+        venue: "정보학연구",
+        url: "https://www.kci.go.kr/kciportal/ci/sereArticleSearch/ciSereArtiView.kci?sereArticleSearchBean.artiId=ART001",
+      })],
+    }));
+    expect(result.issues).toContain("Crossref와 OpenAlex 미발견 후 KCI 공식 공개 기록에서 확인했습니다.");
+  });
+
   it("reports source differences instead of auto-confirming them", () => {
     const conflicts = recordsConflict(
       {

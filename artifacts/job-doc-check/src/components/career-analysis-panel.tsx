@@ -31,7 +31,7 @@ interface CareerPaper {
   issues: string[]
   verification?: {
     status: "verified" | "unverified" | "conflict"
-    records?: Array<{ source: "Crossref" | "OpenAlex"; title: string; authors: string[]; venue: string; doi: string; url: string }>
+    records?: Array<{ source: "Crossref" | "OpenAlex" | "KCI"; title: string; authors: string[]; venue: string; doi: string; url: string }>
     conflicts?: string[]
     source?: string
   }
