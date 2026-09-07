@@ -83,6 +83,32 @@ function cleanGeneratedText(value: string): string {
     .trim();
 }
 
+async function transcribeAudio(
+  client: OpenAI,
+  wav: Buffer,
+  model: string,
+): Promise<{ text: string; usedModel: string }> {
+  const transcribe = async (selectedModel: string) => client.audio.transcriptions.create({
+    file: await toFile(wav, "recording.wav", { type: "audio/wav" }),
+    model: selectedModel,
+    language: "ko",
+    response_format: "json",
+  });
+
+  try {
+    const result = await transcribe(model);
+    return { text: result.text, usedModel: model };
+  } catch (error) {
+    const unsupportedModel =
+      error instanceof OpenAI.APIError &&
+      (error.code === "UNSUPPORTED_MODEL" || error.message.toLowerCase().includes("not supported"));
+    if (!unsupportedModel || model === DEFAULT_STT_MODEL) throw error;
+
+    const result = await transcribe(DEFAULT_STT_MODEL);
+    return { text: result.text, usedModel: DEFAULT_STT_MODEL };
+  }
+}
+
 router.post(
   "/cover-letter/generate",
   requireAuth,
@@ -97,12 +123,13 @@ router.post(
       const wav = await convertToWav(req.file.buffer, req.file.originalname);
       const transcriptionClient = getTranscriptionClient();
       const sttModel = (await getSetting("ai_stt_model"))?.trim() || DEFAULT_STT_MODEL;
-      const transcription = await transcriptionClient.audio.transcriptions.create({
-        file: await toFile(wav, "recording.wav", { type: "audio/wav" }),
-        model: sttModel,
-        language: "ko",
-        response_format: "json",
-      });
+      const transcription = await transcribeAudio(transcriptionClient, wav, sttModel);
+      if (transcription.usedModel !== sttModel) {
+        req.log.warn(
+          { configuredModel: sttModel, fallbackModel: transcription.usedModel },
+          "Configured STT model unsupported; used default model",
+        );
+      }
       const transcript = transcription.text.trim();
       if (transcript.length < 10) {
         res.status(422).json({ error: "음성에서 충분한 내용을 인식하지 못했습니다. 조금 더 길고 또렷하게 녹음해주세요." });
