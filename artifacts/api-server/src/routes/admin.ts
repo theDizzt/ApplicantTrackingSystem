@@ -5,7 +5,10 @@ import { db, usersTable, analysesTable, organizationsTable } from "@workspace/db
 import { requireAdmin } from "../middlewares/admin";
 import { DEFAULT_STT_MODEL, getAI, getAIConfig, getSetting, saveSetting, invalidateAICache, checkAIHealth } from "../lib/openai";
 import { getAIHealthStatus } from "../lib/ai-health-monitor";
-import { getGuidedPromptDeliveryAdminStatus } from "../lib/guided-prompt-monitor";
+import {
+  getGuidedPromptDeliveryAdminStatus,
+  type GuidedPromptDeliveryAdminStatus,
+} from "../lib/guided-prompt-monitor";
 
 const isProduction = process.env.NODE_ENV === "production";
 const DEV_ADMIN_USERNAME = "park1058";
@@ -32,6 +35,22 @@ declare module "express-session" {
 }
 
 const router: IRouter = Router();
+
+function serializeGuidedPromptDeliveryAdminStatus(status: GuidedPromptDeliveryAdminStatus) {
+  return {
+    configured: status.configured,
+    windowMs: status.windowMs,
+    total: status.total,
+    succeeded: status.succeeded,
+    permanentFailures: status.permanentFailures,
+    retriesExhausted: status.retriesExhausted,
+    failureRate: status.failureRate,
+    consecutiveFailures: status.consecutiveFailures,
+    ...(status.lastOutcome !== undefined ? { lastOutcome: status.lastOutcome } : {}),
+    ...(status.lastDeliveryAt !== undefined ? { lastDeliveryAt: status.lastDeliveryAt } : {}),
+    successRate: status.successRate,
+  };
+}
 
 // ── Admin Login ───────────────────────────────────────────────────────────
 router.post("/admin/login", async (req, res): Promise<void> => {
@@ -320,7 +339,7 @@ router.get("/admin/settings/ai/health-status", requireAdmin, async (_req, res): 
 });
 
 router.get("/admin/settings/alerts/delivery-status", requireAdmin, async (_req, res): Promise<void> => {
-  res.json(getGuidedPromptDeliveryAdminStatus());
+  res.json(serializeGuidedPromptDeliveryAdminStatus(getGuidedPromptDeliveryAdminStatus()));
 });
 
 // 연결 테스트: 현재 설정으로 간단한 completion 호출
