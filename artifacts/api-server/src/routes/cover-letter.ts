@@ -8,6 +8,7 @@ import { and, eq } from "drizzle-orm";
 import multer from "multer";
 import OpenAI, { toFile } from "openai";
 import { db, resumesTable } from "@workspace/db";
+import { GenerateGuidedPromptsBody, GenerateGuidedPromptsResponse } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
 import { DEFAULT_STT_MODEL, getAI, getSetting } from "../lib/openai";
 import { resumeHtmlToText } from "../lib/resume-text";
@@ -182,11 +183,12 @@ function classifyGuidedPromptError(error: unknown): GuidedPromptFailureType {
 }
 
 router.post("/cover-letter/guided-prompts", requireAuth, async (req, res): Promise<void> => {
-  const resumeId = Number(req.body?.resumeId);
-  if (!Number.isInteger(resumeId) || resumeId <= 0) {
+  const input = GenerateGuidedPromptsBody.safeParse(req.body);
+  if (!input.success) {
     res.status(400).json({ error: "질문을 만들 이력서를 선택해주세요." });
     return;
   }
+  const { resumeId } = input.data;
 
   const [resume] = await db.select().from(resumesTable).where(and(
     eq(resumesTable.id, resumeId),
@@ -253,16 +255,19 @@ ${resumeText || "(작성된 이력서 본문 없음)"}`,
       model: metricModel,
       failureType: usedFallback ? "invalid_response" : undefined,
     }, "Guided prompt generation metric");
-    res.json({ prompts: prompts.slice(0, 8), usedFallback });
+    res.json(GenerateGuidedPromptsResponse.parse({ prompts: prompts.slice(0, 8), usedFallback }));
   } catch (error) {
-    req.log.error({ err: error }, "Failed to generate guided recording prompts");
+    req.log.error({ err: error, resumeId }, "Failed to generate guided recording prompts");
     req.log.warn({
       metric: "guided_prompt_generation",
       outcome: "fallback",
       model: metricModel,
       failureType: classifyGuidedPromptError(error),
     }, "Guided prompt generation metric");
-    res.json({ prompts: FALLBACK_GUIDED_PROMPTS, usedFallback: true });
+    res.json(GenerateGuidedPromptsResponse.parse({
+      prompts: FALLBACK_GUIDED_PROMPTS,
+      usedFallback: true,
+    }));
   }
 });
 

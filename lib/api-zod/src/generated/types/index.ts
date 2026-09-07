@@ -19,6 +19,8 @@ export * from './companyUpdate';
 export * from './dashboardSummary';
 export * from './errorResponse';
 export * from './fetchPostingsInput';
+export * from './guidedPromptsInput';
+export * from './guidedPromptsResult';
 export * from './healthStatus';
 export * from './interviewInput';
 export * from './interviewQuestion';

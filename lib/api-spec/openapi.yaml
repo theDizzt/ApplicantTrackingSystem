@@ -18,6 +18,8 @@ tags:
     description: Company profile management
   - name: resumes
     description: Resume management
+  - name: cover-letter
+    description: Cover letter generation
   - name: analyses
     description: AI analysis operations
   - name: interviews
@@ -497,6 +499,44 @@ paths:
       responses:
         "204":
           description: Deleted
+
+  # Cover letter
+  /cover-letter/guided-prompts:
+    post:
+      operationId: generateGuidedPrompts
+      tags: [cover-letter]
+      summary: Generate guided recording prompts from a resume
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GuidedPromptsInput"
+      responses:
+        "200":
+          description: Guided prompts
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GuidedPromptsResult"
+        "400":
+          description: Invalid resume id
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Resume not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Resume has no content to analyze
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   # Analyses
   /analyses:
@@ -1027,6 +1067,25 @@ components:
           type: string
         fileUrl:
           type: string
+
+    GuidedPromptsInput:
+      type: object
+      required: [resumeId]
+      properties:
+        resumeId:
+          type: integer
+          minimum: 1
+
+    GuidedPromptsResult:
+      type: object
+      required: [prompts, usedFallback]
+      properties:
+        prompts:
+          type: array
+          items:
+            type: string
+        usedFallback:
+          type: boolean
 
     # Analyses
     Analysis:

@@ -191,6 +191,16 @@ export interface ResumeUpdate {
   fileUrl?: string;
 }
 
+export interface GuidedPromptsInput {
+  /** @minimum 1 */
+  resumeId: number;
+}
+
+export interface GuidedPromptsResult {
+  prompts: string[];
+  usedFallback: boolean;
+}
+
 export type AnalysisStatus = typeof AnalysisStatus[keyof typeof AnalysisStatus];
 
 

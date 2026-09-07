@@ -422,6 +422,22 @@ export const DeleteResumeResponse = zod.void()
 
 
 /**
+ * @summary Generate guided recording prompts from a resume
+ */
+
+
+
+export const GenerateGuidedPromptsBody = zod.object({
+  "resumeId": zod.number().min(1)
+})
+
+export const GenerateGuidedPromptsResponse = zod.object({
+  "prompts": zod.array(zod.string()),
+  "usedFallback": zod.boolean()
+})
+
+
+/**
  * @summary List all analyses for the user
  */
 export const ListAnalysesResponseItem = zod.object({

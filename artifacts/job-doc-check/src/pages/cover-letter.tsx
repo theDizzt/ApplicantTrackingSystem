@@ -5,7 +5,13 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Mic, Square, UploadCloud, Copy, RefreshCw, AlertCircle, CheckCircle2, Loader2, Save, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
-import { getGetResumeQueryKey, getListResumesQueryKey, useListResumes, useUpdateResume } from '@workspace/api-client-react';
+import {
+  getGetResumeQueryKey,
+  getListResumesQueryKey,
+  useGenerateGuidedPrompts,
+  useListResumes,
+  useUpdateResume,
+} from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 
@@ -65,6 +71,7 @@ export default function CoverLetterPage() {
   const [, setLocation] = useLocation();
   const { data: resumes, isLoading: resumesLoading } = useListResumes();
   const updateResume = useUpdateResume();
+  const generateGuidedPrompts = useGenerateGuidedPrompts();
   
   const [recording, setRecording] = useState(false);
   const [acquiringMic, setAcquiringMic] = useState(false);
@@ -81,7 +88,6 @@ export default function CoverLetterPage() {
   const [guidedPrompts, setGuidedPrompts] = useState<string[]>([]);
   const [usedFallbackPrompts, setUsedFallbackPrompts] = useState(false);
   const [currentPromptIndex, setCurrentPromptIndex] = useState(0);
-  const [isFetchingPrompts, setIsFetchingPrompts] = useState(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -126,27 +132,14 @@ export default function CoverLetterPage() {
   const fetchGuidedPrompts = async () => {
     if (!guidedResumeId) return;
     setSelectedResumeId(guidedResumeId);
-    setIsFetchingPrompts(true);
     setErrorMessage('');
     
     try {
-      const response = await fetch('/api/cover-letter/guided-prompts', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ resumeId: Number(guidedResumeId) }),
-        credentials: 'include'
+      const result = await generateGuidedPrompts.mutateAsync({
+        data: { resumeId: Number(guidedResumeId) },
       });
-      
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || `서버 오류 (${response.status})`);
-      }
-      
-      const result = await response.json();
-      setGuidedPrompts(result.prompts || []);
-      setUsedFallbackPrompts(result.usedFallback === true);
+      setGuidedPrompts(result.prompts);
+      setUsedFallbackPrompts(result.usedFallback);
       setCurrentPromptIndex(0);
     } catch (err: unknown) {
       toast({
@@ -154,8 +147,6 @@ export default function CoverLetterPage() {
         description: err instanceof Error ? err.message : "질문을 불러오는데 실패했습니다.",
         variant: "destructive"
       });
-    } finally {
-      setIsFetchingPrompts(false);
     }
   };
 
@@ -430,10 +421,10 @@ export default function CoverLetterPage() {
                           className="w-full shadow-sm" 
                           size="lg" 
                           onClick={fetchGuidedPrompts}
-                          disabled={!guidedResumeId || isFetchingPrompts || !resumes?.length}
+                          disabled={!guidedResumeId || generateGuidedPrompts.isPending || !resumes?.length}
                           data-testid="button-fetch-prompts"
                         >
-                          {isFetchingPrompts ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : null}
+                          {generateGuidedPrompts.isPending ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : null}
                           가이드 질문 생성
                         </Button>
                         {!resumes?.length && !resumesLoading && (

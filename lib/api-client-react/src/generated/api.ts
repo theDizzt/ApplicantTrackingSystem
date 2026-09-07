@@ -30,6 +30,8 @@ import type {
   DashboardSummary,
   ErrorResponse,
   FetchPostingsInput,
+  GuidedPromptsInput,
+  GuidedPromptsResult,
   HealthStatus,
   InterviewInput,
   InterviewSession,
@@ -1686,6 +1688,77 @@ export const useDeleteResume = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteResumeMutationOptions(options));
+    }
+
+export const getGenerateGuidedPromptsUrl = () => {
+
+
+
+
+  return `/api/cover-letter/guided-prompts`
+}
+
+/**
+ * @summary Generate guided recording prompts from a resume
+ */
+export const generateGuidedPrompts = async (guidedPromptsInput: GuidedPromptsInput, options?: RequestInit): Promise<GuidedPromptsResult> => {
+
+  return customFetch<GuidedPromptsResult>(getGenerateGuidedPromptsUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(guidedPromptsInput)
+  }
+);}
+
+
+
+
+
+export const getGenerateGuidedPromptsMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateGuidedPrompts>>, TError,{data: BodyType<GuidedPromptsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateGuidedPrompts>>, TError,{data: BodyType<GuidedPromptsInput>}, TContext> => {
+
+const mutationKey = ['generateGuidedPrompts'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateGuidedPrompts>>, {data: BodyType<GuidedPromptsInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  generateGuidedPrompts(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateGuidedPromptsMutationResult = NonNullable<Awaited<ReturnType<typeof generateGuidedPrompts>>>
+    export type GenerateGuidedPromptsMutationBody = BodyType<GuidedPromptsInput>
+    export type GenerateGuidedPromptsMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Generate guided recording prompts from a resume
+ */
+export const useGenerateGuidedPrompts = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateGuidedPrompts>>, TError,{data: BodyType<GuidedPromptsInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateGuidedPrompts>>,
+        TError,
+        {data: BodyType<GuidedPromptsInput>},
+        TContext
+      > => {
+      return useMutation(getGenerateGuidedPromptsMutationOptions(options));
     }
 
 export const getListAnalysesUrl = () => {

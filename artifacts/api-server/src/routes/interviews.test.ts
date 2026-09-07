@@ -336,7 +336,7 @@ describe("guided cover letter prompts", () => {
     expect(response.body.prompts).toHaveLength(6);
     expect(new Set(response.body.prompts).size).toBe(6);
     expect(mocks.logError).toHaveBeenCalledWith(
-      { err: error },
+      { err: error, resumeId: 21 },
       "Failed to generate guided recording prompts",
     );
     expect(mocks.logWarn).toHaveBeenCalledWith({
