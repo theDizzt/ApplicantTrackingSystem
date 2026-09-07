@@ -12,3 +12,4 @@
 - [OpenAPI 바이너리 업로드 코드 생성](openapi-binary-upload-codegen.md) — multipart binary는 클라이언트 Blob·서버 Zod File을 생성하므로 공유 타입 빌드에 DOM 타입이 필요
 - [다중 서버 운영 집계 시각](multi-instance-operational-clock.md) — 공유 집계의 기록·구간·쿨다운·표시 시각은 한 트랜잭션에서 얻은 PostgreSQL 시각을 함께 사용할 것
 - [운영 모니터 스키마 배포](monitor-schema-rollout.md) — 모니터용 DB 테이블도 API 시작과 CI에서 같은 재실행 가능 마이그레이션을 먼저 적용할 것
+- [고부하 운영 카운터](high-volume-monitor-counters.md) — 고정 버킷도 단일 행·긴 트랜잭션이면 병목; 제한된 샤드와 짧은 원자 업서트로 설계

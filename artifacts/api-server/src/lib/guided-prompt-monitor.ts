@@ -17,6 +17,7 @@ type Event = {
   failureType?: GuidedPromptFailureType;
 };
 
+const GENERATION_BUCKET_MS = 60_000;
 type AlertReason =
   | { kind: "fallback_rate"; actual: number; threshold: number }
   | { kind: "failure_count"; failureType: GuidedPromptFailureType; actual: number; threshold: number };
@@ -409,23 +410,67 @@ export function createPostgresGuidedPromptMonitorStore(
     async recordAndClaimAlerts(event, config) {
       const client = await databasePool.connect();
       try {
-        await client.query("BEGIN");
-        // 집계와 쿨다운 선점을 모든 API 인스턴스가 공유하는 한 원자 작업으로 직렬화한다.
-        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
-          "guided_prompt_generation_monitor",
-        ]);
         const clockResult = await client.query<{ now: Date }>(
           "SELECT clock_timestamp() AS now",
         );
         const databaseNow = clockResult.rows[0]!.now;
         const evaluatedAt = databaseNow.getTime();
-        await client.query(
-          `INSERT INTO guided_prompt_generation_events (occurred_at, outcome, failure_type)
-           VALUES ($1, $2, $3)`,
-          [databaseNow, event.outcome, event.failureType ?? null],
+        const bucketStart = new Date(
+          Math.floor(evaluatedAt / GENERATION_BUCKET_MS) * GENERATION_BUCKET_MS,
+        );
+        const bucketCount = Math.max(1, Math.ceil(config.windowMs / GENERATION_BUCKET_MS));
+        const firstBucket = new Date(
+          bucketStart.getTime() - (bucketCount - 1) * GENERATION_BUCKET_MS,
         );
         const cutoff = new Date(evaluatedAt - config.windowMs);
-        await client.query("DELETE FROM guided_prompt_generation_events WHERE occurred_at < $1", [cutoff]);
+        const shard = takeGenerationBucketShard();
+        const increments = {
+          generated: event.outcome === "generated" ? 1 : 0,
+          fallback: event.outcome === "fallback" ? 1 : 0,
+          authentication: event.failureType === "authentication" ? 1 : 0,
+          rateLimit: event.failureType === "rate_limit" ? 1 : 0,
+          timeout: event.failureType === "timeout" ? 1 : 0,
+          upstream: event.failureType === "upstream" ? 1 : 0,
+          invalidResponse: event.failureType === "invalid_response" ? 1 : 0,
+          unknown: event.failureType === "unknown" ? 1 : 0,
+        };
+        await client.query(
+          `INSERT INTO guided_prompt_generation_buckets (
+             bucket_start, shard, generated_count, fallback_count, authentication_count,
+             rate_limit_count, timeout_count, upstream_count, invalid_response_count, unknown_count
+           ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+           ON CONFLICT (bucket_start, shard) DO UPDATE SET
+             generated_count = guided_prompt_generation_buckets.generated_count + EXCLUDED.generated_count,
+             fallback_count = guided_prompt_generation_buckets.fallback_count + EXCLUDED.fallback_count,
+             authentication_count = guided_prompt_generation_buckets.authentication_count + EXCLUDED.authentication_count,
+             rate_limit_count = guided_prompt_generation_buckets.rate_limit_count + EXCLUDED.rate_limit_count,
+             timeout_count = guided_prompt_generation_buckets.timeout_count + EXCLUDED.timeout_count,
+             upstream_count = guided_prompt_generation_buckets.upstream_count + EXCLUDED.upstream_count,
+             invalid_response_count = guided_prompt_generation_buckets.invalid_response_count + EXCLUDED.invalid_response_count,
+             unknown_count = guided_prompt_generation_buckets.unknown_count + EXCLUDED.unknown_count`,
+          [
+            bucketStart,
+            shard,
+            increments.generated,
+            increments.fallback,
+            increments.authentication,
+            increments.rateLimit,
+            increments.timeout,
+            increments.upstream,
+            increments.invalidResponse,
+            increments.unknown,
+          ],
+        );
+        // 카운터 업서트는 자동 커밋되어 같은 샤드의 행 잠금을 집계/알림 처리 중 보유하지 않는다.
+        await client.query(
+          "DELETE FROM guided_prompt_generation_buckets WHERE bucket_start < $1",
+          [firstBucket],
+        );
+        // 이전 버전과 함께 배포되는 동안 기존 이벤트도 정확한 시간 기준으로 합산한다.
+        await client.query(
+          "DELETE FROM guided_prompt_generation_events WHERE occurred_at < $1",
+          [cutoff],
+        );
 
         const result = await client.query<{
           total: string;
@@ -439,18 +484,41 @@ export function createPostgresGuidedPromptMonitorStore(
           unknown: string;
         }>(
           `SELECT
-             COUNT(*)::text AS total,
-             COUNT(*) FILTER (WHERE outcome = 'generated')::text AS generated,
-             COUNT(*) FILTER (WHERE outcome = 'fallback')::text AS fallback,
-             COUNT(*) FILTER (WHERE failure_type = 'authentication')::text AS authentication,
-             COUNT(*) FILTER (WHERE failure_type = 'rate_limit')::text AS rate_limit,
-             COUNT(*) FILTER (WHERE failure_type = 'timeout')::text AS timeout,
-             COUNT(*) FILTER (WHERE failure_type = 'upstream')::text AS upstream,
-             COUNT(*) FILTER (WHERE failure_type = 'invalid_response')::text AS invalid_response,
-             COUNT(*) FILTER (WHERE failure_type = 'unknown')::text AS unknown
-           FROM guided_prompt_generation_events
-           WHERE occurred_at >= $1 AND occurred_at <= $2`,
-          [cutoff, databaseNow],
+             (COALESCE(SUM(generated_count), 0) + COALESCE(SUM(fallback_count), 0))::text AS total,
+             COALESCE(SUM(generated_count), 0)::text AS generated,
+             COALESCE(SUM(fallback_count), 0)::text AS fallback,
+             COALESCE(SUM(authentication_count), 0)::text AS authentication,
+             COALESCE(SUM(rate_limit_count), 0)::text AS rate_limit,
+             COALESCE(SUM(timeout_count), 0)::text AS timeout,
+             COALESCE(SUM(upstream_count), 0)::text AS upstream,
+             COALESCE(SUM(invalid_response_count), 0)::text AS invalid_response,
+             COALESCE(SUM(unknown_count), 0)::text AS unknown
+           FROM (
+             SELECT
+               generated_count,
+               fallback_count,
+               authentication_count,
+               rate_limit_count,
+               timeout_count,
+               upstream_count,
+               invalid_response_count,
+               unknown_count
+             FROM guided_prompt_generation_buckets
+             WHERE bucket_start >= $1 AND bucket_start <= $2
+             UNION ALL
+             SELECT
+               COUNT(*) FILTER (WHERE outcome = 'generated')::integer,
+               COUNT(*) FILTER (WHERE outcome = 'fallback')::integer,
+               COUNT(*) FILTER (WHERE failure_type = 'authentication')::integer,
+               COUNT(*) FILTER (WHERE failure_type = 'rate_limit')::integer,
+               COUNT(*) FILTER (WHERE failure_type = 'timeout')::integer,
+               COUNT(*) FILTER (WHERE failure_type = 'upstream')::integer,
+               COUNT(*) FILTER (WHERE failure_type = 'invalid_response')::integer,
+               COUNT(*) FILTER (WHERE failure_type = 'unknown')::integer
+             FROM guided_prompt_generation_events
+             WHERE occurred_at >= $3 AND occurred_at <= $4
+           ) AS generation_counts`,
+           [firstBucket, bucketStart, cutoff, databaseNow],
         );
         const row = result.rows[0]!;
         const total = Number(row.total);
@@ -480,11 +548,7 @@ export function createPostgresGuidedPromptMonitorStore(
           );
           if (claimed.rowCount) actionable.push(reason);
         }
-        await client.query("COMMIT");
         return { summary, actionable, evaluatedAt };
-      } catch (error) {
-        await client.query("ROLLBACK");
-        throw error;
       } finally {
         client.release();
       }
@@ -530,6 +594,7 @@ export function resetGuidedPromptMonitorForTests(): void {
   deliveryHealthState = "healthy";
   deliveryHealthTransitions.length = 0;
   lastDeliveryFlappingAlertAt = -Infinity;
+  nextGenerationBucketShard = 0;
 }
 
 function reasonKey(reason: AlertReason): string {
@@ -567,4 +632,14 @@ export function createInMemoryGuidedPromptMonitorStore(): GuidedPromptMonitorSto
   };
 }
 
+function takeGenerationBucketShard(): number {
+  const shard = nextGenerationBucketShard;
+  nextGenerationBucketShard = (nextGenerationBucketShard + 1) % GENERATION_BUCKET_SHARDS;
+  return shard;
+}
+
 let lastDeliveryFlappingAlertAt = -Infinity;
+
+const GENERATION_BUCKET_SHARDS = 16;
+
+let nextGenerationBucketShard = Math.floor(Math.random() * GENERATION_BUCKET_SHARDS);

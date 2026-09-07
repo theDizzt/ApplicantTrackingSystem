@@ -70,6 +70,8 @@ describe("guided prompt generation monitor", () => {
 
     expect(fetch).toHaveBeenCalledOnce();
       const payload = JSON.parse((fetch as any).mock.calls[0][1].body);
+
+      const loadConfig = { ...config, webhookUrl: undefined };
     expect(payload.summary).toMatchObject({
       total: 2,
       generated: 1,
@@ -95,6 +97,8 @@ describe("guided prompt generation monitor", () => {
     await waitForGuidedPromptAlertDeliveriesForTests();
 
       const payload = JSON.parse((fetch as any).mock.calls[0][1].body);
+
+      const loadConfig = { ...config, webhookUrl: undefined };
     expect(payload.reasons).toContainEqual({
       kind: "failure_count",
       failureType: "rate_limit",
@@ -324,6 +328,7 @@ describe("guided prompt generation monitor", () => {
       minSamples: 1,
       deliveryConsecutiveFailureThreshold: 1,
       deliveryMinSamples: 10,
+      deliveryHealthCooldownMs: 0,
       deliveryFlappingWindowMs: 10_000,
       deliveryFlappingTransitionThreshold: 4,
       deliveryFlappingCooldownMs: 60_000,
@@ -501,7 +506,20 @@ describe("guided prompt PostgreSQL monitor store", () => {
     await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await pool.query(`CREATE SCHEMA "${schema}"`);
     await pool.query(
-      `CREATE TABLE "${schema}".guided_prompt_generation_events (
+      `CREATE TABLE "${schema}".guided_prompt_generation_buckets (
+         bucket_start timestamptz NOT NULL,
+         shard smallint NOT NULL,
+         generated_count integer NOT NULL DEFAULT 0,
+         fallback_count integer NOT NULL DEFAULT 0,
+         authentication_count integer NOT NULL DEFAULT 0,
+         rate_limit_count integer NOT NULL DEFAULT 0,
+         timeout_count integer NOT NULL DEFAULT 0,
+         upstream_count integer NOT NULL DEFAULT 0,
+         invalid_response_count integer NOT NULL DEFAULT 0,
+         unknown_count integer NOT NULL DEFAULT 0,
+         PRIMARY KEY (bucket_start, shard)
+       );
+       CREATE TABLE "${schema}".guided_prompt_generation_events (
          id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
          occurred_at timestamptz NOT NULL,
          outcome text NOT NULL,
@@ -524,7 +542,7 @@ describe("guided prompt PostgreSQL monitor store", () => {
     try {
       const firstInstance = createPostgresGuidedPromptMonitorStore(testPool);
       const secondInstance = createPostgresGuidedPromptMonitorStore(testPool);
-      const now = Date.now();
+      const now = Math.floor(Date.now() / 60_000) * 60_000 + 1_000;
 
       await Promise.all([
         recordGuidedPromptGenerationWithStore(
@@ -552,24 +570,67 @@ describe("guided prompt PostgreSQL monitor store", () => {
         restartedInstance,
       );
       await waitForGuidedPromptAlertDeliveriesForTests();
-
       expect(fetch).toHaveBeenCalledOnce();
       const payload = JSON.parse((fetch as any).mock.calls[0][1].body);
       expect(payload.summary).toMatchObject({ total: 2, fallback: 2 });
 
+      const loadConfig = { ...config, webhookUrl: undefined };
+      await Promise.all(
+        Array.from({ length: 200 }, (_, index) =>
+          recordGuidedPromptGenerationWithStore(
+            index % 2 === 0
+              ? { outcome: "generated" as const }
+              : { outcome: "fallback" as const, failureType: "timeout" as const },
+            logger,
+            now + 2,
+            loadConfig,
+            index % 2 === 0 ? firstInstance : secondInstance,
+          ),
+        ),
+      );
       const columns = await testPool.query<{ column_name: string }>(
         `SELECT column_name
          FROM information_schema.columns
-         WHERE table_schema = $1 AND table_name = 'guided_prompt_generation_events'
+         WHERE table_schema = $1 AND table_name = 'guided_prompt_generation_buckets'
          ORDER BY ordinal_position`,
         [schema],
       );
       expect(columns.rows.map(row => row.column_name)).toEqual([
-        "id",
-        "occurred_at",
-        "outcome",
-        "failure_type",
+        "bucket_start",
+        "shard",
+        "generated_count",
+        "fallback_count",
+        "authentication_count",
+        "rate_limit_count",
+        "timeout_count",
+        "upstream_count",
+        "invalid_response_count",
+        "unknown_count",
       ]);
+
+      const bucket = await testPool.query<{
+        rows: string;
+        total: string;
+        rate_limit: string;
+      }>(
+        `SELECT COUNT(*)::text AS rows,
+                SUM(generated_count + fallback_count)::text AS total,
+                SUM(rate_limit_count)::text AS rate_limit
+         FROM guided_prompt_generation_buckets`,
+      );
+      expect(bucket.rows[0]).toEqual({ rows: "16", total: "203", rate_limit: "3" });
+
+      await testPool.query(
+        `INSERT INTO guided_prompt_generation_events (occurred_at, outcome, failure_type)
+         VALUES (clock_timestamp(), 'fallback', 'upstream')`,
+      );
+      const transitionSummary = await restartedInstance.recordAndClaimAlerts(
+        { at: now + 4, outcome: "generated" },
+        loadConfig,
+      );
+      expect(transitionSummary.summary.total).toBeGreaterThanOrEqual(2);
+      expect(transitionSummary.summary.generated).toBeGreaterThanOrEqual(1);
+      expect(transitionSummary.summary.failures.upstream).toBe(1);
     } finally {
       await testPool.end();
       await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
@@ -581,7 +642,20 @@ describe("guided prompt PostgreSQL monitor store", () => {
     await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await pool.query(`CREATE SCHEMA "${schema}"`);
     await pool.query(
-      `CREATE TABLE "${schema}".guided_prompt_generation_events (
+      `CREATE TABLE "${schema}".guided_prompt_generation_buckets (
+         bucket_start timestamptz NOT NULL,
+         shard smallint NOT NULL,
+         generated_count integer NOT NULL DEFAULT 0,
+         fallback_count integer NOT NULL DEFAULT 0,
+         authentication_count integer NOT NULL DEFAULT 0,
+         rate_limit_count integer NOT NULL DEFAULT 0,
+         timeout_count integer NOT NULL DEFAULT 0,
+         upstream_count integer NOT NULL DEFAULT 0,
+         invalid_response_count integer NOT NULL DEFAULT 0,
+         unknown_count integer NOT NULL DEFAULT 0,
+         PRIMARY KEY (bucket_start, shard)
+       );
+       CREATE TABLE "${schema}".guided_prompt_generation_events (
          id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
          occurred_at timestamptz NOT NULL,
          outcome text NOT NULL,
@@ -624,12 +698,13 @@ describe("guided prompt PostgreSQL monitor store", () => {
 
       expect(fetch).toHaveBeenCalledOnce();
       const payload = JSON.parse((fetch as any).mock.calls[0][1].body);
+
       expect(payload.summary).toMatchObject({ total: 2, fallback: 2 });
       expect(Math.abs(Date.parse(payload.window.endedAt) - Date.now())).toBeLessThan(10_000);
 
       const timestamps = await testPool.query<{ skew_ms: string }>(
-        `SELECT EXTRACT(EPOCH FROM (MAX(occurred_at) - MIN(occurred_at))) * 1000 AS skew_ms
-         FROM guided_prompt_generation_events`,
+        `SELECT EXTRACT(EPOCH FROM (MAX(bucket_start) - MIN(bucket_start))) * 1000 AS skew_ms
+         FROM guided_prompt_generation_buckets`,
       );
       expect(Number(timestamps.rows[0]!.skew_ms)).toBeLessThan(10_000);
     } finally {
@@ -645,7 +720,7 @@ describe("guided prompt PostgreSQL monitor store", () => {
       query: vi.fn(async (sql: string, values?: unknown[]) => {
         queries.push({ sql, values });
         if (sql === "SELECT clock_timestamp() AS now") return { rows: [{ now: databaseNow }] };
-        if (sql.includes("COUNT(*)::text")) {
+        if (sql.includes("AS generation_counts")) {
           return {
             rows: [{
               total: "2", generated: "0", fallback: "2",
@@ -668,9 +743,14 @@ describe("guided prompt PostgreSQL monitor store", () => {
       config,
     );
 
-    const aggregate = queries.find(query => query.sql.includes("COUNT(*)::text"))!;
-    expect(aggregate.sql).toContain("occurred_at >= $1 AND occurred_at <= $2");
+    const aggregate = queries.find(query => query.sql.includes("AS generation_counts"))!;
+
+    const bucketStart = new Date("2026-09-07T12:00:00.000Z");
+    expect(aggregate.sql).toContain("bucket_start >= $1 AND bucket_start <= $2");
+    expect(aggregate.sql).toContain("occurred_at >= $3 AND occurred_at <= $4");
     expect(aggregate.values).toEqual([
+      bucketStart,
+      bucketStart,
       new Date(databaseNow.getTime() - config.windowMs),
       databaseNow,
     ]);
