@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import express from "express";
 import request from "supertest";
 
@@ -149,6 +149,8 @@ function setSelectResults(results: unknown[][]) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.stubEnv("AI_INTEGRATIONS_OPENAI_API_KEY", "test-api-key");
+  vi.stubEnv("AI_INTEGRATIONS_OPENAI_BASE_URL", "https://ai.invalid/v1");
   mocks.selectResults.splice(0);
   mocks.insertResults.splice(0);
   mocks.insertedValues.splice(0);
@@ -156,6 +158,10 @@ beforeEach(() => {
   mocks.insert.mockImplementation(() => query(mocks.insertResults.shift() ?? []));
   mocks.update.mockImplementation(() => query([]));
   mocks.getSetting.mockResolvedValue(null);
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
 });
 
 describe("interview routes", () => {
