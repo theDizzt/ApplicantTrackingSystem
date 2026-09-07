@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   selectResults: [] as unknown[][],
   insertResults: [] as unknown[][],
   aiCreate: vi.fn(),
+  logError: vi.fn(),
   insertedValues: [] as unknown[],
 }));
 
@@ -84,6 +85,10 @@ const company = { name: "정확한 회사", talentProfile: "주도적으로 협�
 function makeApp() {
   const app = express();
   app.use(express.json());
+  app.use((req, _res, next) => {
+    req.log = { error: mocks.logError } as unknown as typeof req.log;
+    next();
+  });
   app.use(interviewsRouter);
   app.use(coverLetterRouter);
   return app;
@@ -260,6 +265,25 @@ describe("guided cover letter prompts", () => {
     expect(response.status).toBe(200);
     expect(response.body.prompts).toHaveLength(6);
     expect(new Set(response.body.prompts).size).toBe(6);
+  });
+
+  it("logs the error and falls back to safe prompts when the AI call fails", async () => {
+    const error = new Error("AI service unavailable");
+    setSelectResults([[resume]]);
+    mocks.aiCreate.mockRejectedValue(error);
+
+    const response = await request(makeApp())
+      .post("/cover-letter/guided-prompts")
+      .set("x-user-id", "1")
+      .send({ resumeId: 21 });
+
+    expect(response.status).toBe(200);
+    expect(response.body.prompts).toHaveLength(6);
+    expect(new Set(response.body.prompts).size).toBe(6);
+    expect(mocks.logError).toHaveBeenCalledWith(
+      { err: error, resumeId: 21 },
+      "Failed to generate guided recording prompts",
+    );
   });
 
   it("strips resume HTML and returns 6 to 8 unique questions", async () => {

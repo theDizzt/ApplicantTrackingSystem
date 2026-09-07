@@ -202,7 +202,7 @@ ${resumeText || "(작성된 이력서 본문 없음)"}`,
     res.json({ prompts: prompts.slice(0, 8) });
   } catch (error) {
     req.log.error({ err: error, resumeId }, "Failed to generate guided recording prompts");
-    res.status(502).json({ error: "이력서 맞춤 질문을 만들지 못했습니다. 잠시 후 다시 시도해주세요." });
+    res.json({ prompts: FALLBACK_GUIDED_PROMPTS });
   }
 });
 
