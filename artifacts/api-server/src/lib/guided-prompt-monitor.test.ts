@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   recordGuidedPromptGeneration,
   resetGuidedPromptMonitorForTests,
+  waitForGuidedPromptAlertDeliveriesForTests,
   type GuidedPromptAlertConfig,
 } from "./guided-prompt-monitor";
 
@@ -46,6 +47,7 @@ describe("guided prompt generation monitor", () => {
       2_000,
       config,
     );
+    await waitForGuidedPromptAlertDeliveriesForTests();
 
     expect(fetch).toHaveBeenCalledOnce();
     const payload = JSON.parse((fetch as any).mock.calls[0][1].body);
@@ -71,6 +73,7 @@ describe("guided prompt generation monitor", () => {
       2_000,
       config,
     );
+    await waitForGuidedPromptAlertDeliveriesForTests();
 
     const payload = JSON.parse((fetch as any).mock.calls[0][1].body as string);
     expect(payload.reasons).toContainEqual({
@@ -89,6 +92,7 @@ describe("guided prompt generation monitor", () => {
     await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 1_000, config);
     await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 2_000, config);
     await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 3_000, config);
+    await waitForGuidedPromptAlertDeliveriesForTests();
 
     expect(fetch).toHaveBeenCalledOnce();
   });
@@ -103,5 +107,73 @@ describe("guided prompt generation monitor", () => {
       generated: 1,
       fallback: 0,
     }), "Guided prompt generation window metric");
+  });
+
+  it("returns before webhook delivery completes", async () => {
+    let resolveFetch!: (value: { ok: boolean; status: number }) => void;
+    vi.mocked(fetch).mockReturnValue(new Promise(resolve => {
+      resolveFetch = resolve as typeof resolveFetch;
+    }) as ReturnType<typeof fetch>);
+
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 1_000, config);
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 2_000, config);
+
+    expect(fetch).toHaveBeenCalledOnce();
+    resolveFetch({ ok: true, status: 200 });
+    await waitForGuidedPromptAlertDeliveriesForTests();
+  });
+
+  it("retries network errors and 5xx responses with bounded exponential backoff", async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new Error("temporary network failure"))
+      .mockResolvedValueOnce({ ok: false, status: 503 } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200 } as Response);
+
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "upstream" }, logger, 1_000, config);
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "upstream" }, logger, 2_000, config);
+    await vi.runAllTimersAsync();
+    await waitForGuidedPromptAlertDeliveriesForTests();
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(logger.error).not.toHaveBeenCalled();
+    vi.useRealTimers();
+  });
+
+  it("does not retry permanent responses and records a structured operational event", async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 400 } as Response);
+
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "rate_limit" }, logger, 1_000, config);
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "rate_limit" }, logger, 2_000, config);
+    await waitForGuidedPromptAlertDeliveriesForTests();
+
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({
+      operationalEvent: "guided_prompt_alert_delivery_failed",
+      failureKind: "permanent_http_response",
+      statusCode: 400,
+      attempts: 1,
+    }), "Guided prompt alert webhook permanently rejected");
+  });
+
+  it("records retry exhaustion without logging payload or user content", async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 503 } as Response);
+
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "upstream" }, logger, 1_000, config);
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "upstream" }, logger, 2_000, config);
+    await vi.runAllTimersAsync();
+    await waitForGuidedPromptAlertDeliveriesForTests();
+
+    expect(fetch).toHaveBeenCalledTimes(3);
+    const event = logger.error.mock.calls[0][0];
+    expect(event).toEqual({
+      operationalEvent: "guided_prompt_alert_delivery_failed",
+      failureKind: "retries_exhausted",
+      statusCode: 503,
+      attempts: 3,
+    });
+    expect(JSON.stringify(event)).not.toMatch(/userId|resumeId|resume|content/);
+    vi.useRealTimers();
   });
 });

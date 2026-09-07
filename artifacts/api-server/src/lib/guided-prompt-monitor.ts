@@ -31,6 +31,17 @@ export type GuidedPromptAlertConfig = {
 
 const events: Event[] = [];
 const lastAlerts = new Map<string, number>();
+const pendingDeliveries = new Set<Promise<void>>();
+const WEBHOOK_MAX_ATTEMPTS = 3;
+const WEBHOOK_RETRY_BASE_MS = 250;
+const WEBHOOK_TIMEOUT_MS = 5_000;
+
+type AlertPayload = {
+  event: "guided_prompt_generation_alert";
+  window: { durationMs: number; endedAt: string };
+  summary: ReturnType<typeof summarize>;
+  reasons: AlertReason[];
+};
 
 function readNumber(name: string, fallback: number, minimum = 0): number {
   const value = Number(process.env[name]);
@@ -72,6 +83,87 @@ function summarize(windowEvents: Event[]) {
   };
 }
 
+function wait(ms: number): Promise<void> {
+  return new Promise(resolve => {
+    const timer = setTimeout(resolve, ms);
+    timer.unref?.();
+  });
+}
+
+async function deliverAlert(
+  webhookUrl: string,
+  payload: AlertPayload,
+  logger: Logger,
+): Promise<void> {
+  for (let attempt = 1; attempt <= WEBHOOK_MAX_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await fetch(webhookUrl, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+      });
+      if (response.ok) {
+        logger.warn({
+          alert: "guided_prompt_generation",
+          reasons: payload.reasons,
+          windowMs: payload.window.durationMs,
+          summary: payload.summary,
+          deliveryAttempts: attempt,
+        }, "Guided prompt generation threshold exceeded");
+        return;
+      }
+
+      if (response.status < 500) {
+        logger.error({
+          operationalEvent: "guided_prompt_alert_delivery_failed",
+          failureKind: "permanent_http_response",
+          statusCode: response.status,
+          attempts: attempt,
+        }, "Guided prompt alert webhook permanently rejected");
+        return;
+      }
+
+      if (attempt === WEBHOOK_MAX_ATTEMPTS) {
+        logger.error({
+          operationalEvent: "guided_prompt_alert_delivery_failed",
+          failureKind: "retries_exhausted",
+          statusCode: response.status,
+          attempts: attempt,
+        }, "Guided prompt alert webhook retries exhausted");
+        return;
+      }
+    } catch {
+      if (attempt === WEBHOOK_MAX_ATTEMPTS) {
+        logger.error({
+          operationalEvent: "guided_prompt_alert_delivery_failed",
+          failureKind: "retries_exhausted",
+          attempts: attempt,
+        }, "Guided prompt alert webhook retries exhausted");
+        return;
+      }
+    }
+
+    await wait(WEBHOOK_RETRY_BASE_MS * 2 ** (attempt - 1));
+  }
+}
+
+function scheduleAlertDelivery(
+  webhookUrl: string,
+  payload: AlertPayload,
+  logger: Logger,
+): void {
+  const delivery = deliverAlert(webhookUrl, payload, logger)
+    .catch(() => {
+      logger.error({
+        operationalEvent: "guided_prompt_alert_delivery_failed",
+        failureKind: "unexpected_delivery_error",
+      }, "Guided prompt alert delivery failed unexpectedly");
+    })
+    .finally(() => pendingDeliveries.delete(delivery));
+  pendingDeliveries.add(delivery);
+}
+
 export async function recordGuidedPromptGeneration(
   event: Omit<Event, "at">,
   logger: Logger,
@@ -111,32 +203,24 @@ export async function recordGuidedPromptGeneration(
   });
   if (!actionable.length) return;
 
-  const response = await fetch(config.webhookUrl, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      event: "guided_prompt_generation_alert",
-      window: { durationMs: config.windowMs, endedAt: new Date(now).toISOString() },
-      summary,
-      reasons: actionable,
-    }),
-    signal: AbortSignal.timeout(5_000),
-  });
-  if (!response.ok) throw new Error(`Guided prompt alert webhook returned ${response.status}`);
-
   for (const reason of actionable) {
     const key = reason.kind === "fallback_rate" ? reason.kind : `${reason.kind}:${reason.failureType}`;
     lastAlerts.set(key, now);
   }
-  logger.warn({
-    alert: "guided_prompt_generation",
-    reasons: actionable,
-    windowMs: config.windowMs,
+  scheduleAlertDelivery(config.webhookUrl, {
+    event: "guided_prompt_generation_alert",
+    window: { durationMs: config.windowMs, endedAt: new Date(now).toISOString() },
     summary,
-  }, "Guided prompt generation threshold exceeded");
+    reasons: actionable,
+  }, logger);
+}
+
+export async function waitForGuidedPromptAlertDeliveriesForTests(): Promise<void> {
+  await Promise.all([...pendingDeliveries]);
 }
 
 export function resetGuidedPromptMonitorForTests(): void {
   events.length = 0;
   lastAlerts.clear();
+  pendingDeliveries.clear();
 }
