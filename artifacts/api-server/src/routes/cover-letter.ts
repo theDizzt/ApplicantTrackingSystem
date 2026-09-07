@@ -248,11 +248,11 @@ ${resumeText || "(작성된 이력서 본문 없음)"}`,
         usedFallback = true;
       }
     }
-    void recordGuidedPromptGeneration({
+    await recordGuidedPromptGeneration({
       outcome: usedFallback ? "fallback" : "generated",
       failureType: usedFallback ? "invalid_response" : undefined,
     }, req.log).catch(alertError => {
-      req.log.error({ err: alertError }, "Failed to send guided prompt generation alert");
+      req.log.error({ err: alertError }, "Failed to persist guided prompt generation alert");
     });
     req.log.info({
       metric: "guided_prompt_generation",
@@ -269,11 +269,11 @@ ${resumeText || "(작성된 이력서 본문 없음)"}`,
       model: metricModel,
       failureType: classifyGuidedPromptError(error),
     }, "Guided prompt generation metric");
-    void recordGuidedPromptGeneration({
+    await recordGuidedPromptGeneration({
       outcome: "fallback",
       failureType: classifyGuidedPromptError(error),
     }, req.log).catch(alertError => {
-      req.log.error({ err: alertError }, "Failed to send guided prompt generation alert");
+      req.log.error({ err: alertError }, "Failed to persist guided prompt generation alert");
     });
     res.json(GenerateGuidedPromptsResponse.parse({
       prompts: FALLBACK_GUIDED_PROMPTS,

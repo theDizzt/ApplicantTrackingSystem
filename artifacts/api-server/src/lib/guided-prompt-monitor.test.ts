@@ -7,7 +7,9 @@ import {
   getGuidedPromptDeliveryAdminStatus,
   getGuidedPromptDeliveryStatus,
   recordGuidedPromptGeneration as recordGuidedPromptGenerationWithStore,
+  processGuidedPromptAlertOutboxForTests,
   resetGuidedPromptMonitorForTests,
+  setGuidedPromptAlertOutboxForTests,
   waitForGuidedPromptAlertDeliveriesForTests,
   type GuidedPromptAlertConfig,
 } from "./guided-prompt-monitor";
@@ -34,21 +36,98 @@ const logger = {
   error: vi.fn(),
 } as any;
 
-let store: ReturnType<typeof createInMemoryGuidedPromptMonitorStore>;
+type StoredItem = {
+  id: string;
+  payload: any;
+  attempts: number;
+  nextAttemptAt: Date;
+  expiresAt: Date;
+  claimed: boolean;
+  leaseToken: string | null;
+};
 
-function recordGuidedPromptGeneration(
-  event: Parameters<typeof recordGuidedPromptGenerationWithStore>[0],
-  eventLogger: Parameters<typeof recordGuidedPromptGenerationWithStore>[1],
-  now: number,
-  alertConfig: GuidedPromptAlertConfig,
-) {
-  return recordGuidedPromptGenerationWithStore(event, eventLogger, now, alertConfig, store);
+function createTestOutbox() {
+  const items: StoredItem[] = [];
+  let acceptClaims = true;
+  let leaseSequence = 0;
+  return {
+    items,
+    setAcceptClaims(value: boolean) {
+      acceptClaims = value;
+    },
+    store: {
+      async enqueue(payload: any, expiresAt: Date) {
+        items.push({
+          id: String(items.length + 1),
+          payload,
+          attempts: 0,
+          nextAttemptAt: new Date(0),
+          expiresAt,
+          claimed: false,
+          leaseToken: null,
+        });
+      },
+      async claim(now: Date) {
+        if (!acceptClaims) return undefined;
+        const item = items.find(candidate =>
+          !candidate.claimed &&
+          candidate.nextAttemptAt <= now &&
+          candidate.expiresAt > now);
+        if (!item) return undefined;
+        item.claimed = true;
+        item.leaseToken = `lease-${++leaseSequence}`;
+        return { ...item, leaseToken: item.leaseToken };
+      },
+      async complete(id: string, leaseToken: string) {
+        const index = items.findIndex(item => item.id === id && item.leaseToken === leaseToken);
+        if (index >= 0) items.splice(index, 1);
+        return index >= 0;
+      },
+      async retry(id: string, leaseToken: string, attempts: number, nextAttemptAt: Date) {
+        const item = items.find(candidate =>
+          candidate.id === id && candidate.leaseToken === leaseToken);
+        if (!item) return false;
+        item.attempts = attempts;
+        item.nextAttemptAt = nextAttemptAt;
+        item.claimed = false;
+        item.leaseToken = null;
+        return true;
+      },
+      async discardExpired(now: Date) {
+        const expired = items.filter(item => item.expiresAt <= now).length;
+        for (let index = items.length - 1; index >= 0; index -= 1) {
+          if (items[index].expiresAt <= now) items.splice(index, 1);
+        }
+        return expired;
+      },
+    },
+  };
 }
 
 describe("guided prompt generation monitor", () => {
+      const testOutbox = createTestOutbox();
+  let monitorStore: ReturnType<typeof createInMemoryGuidedPromptMonitorStore>;
+
+  function recordGuidedPromptGeneration(
+    event: Parameters<typeof recordGuidedPromptGenerationWithStore>[0],
+    eventLogger: Parameters<typeof recordGuidedPromptGenerationWithStore>[1],
+    now: number,
+    alertConfig: GuidedPromptAlertConfig,
+  ) {
+    return recordGuidedPromptGenerationWithStore(
+      event,
+      eventLogger,
+      now,
+      alertConfig,
+      monitorStore,
+    );
+  }
+
   beforeEach(() => {
     resetGuidedPromptMonitorForTests();
-    store = createInMemoryGuidedPromptMonitorStore();
+    monitorStore = createInMemoryGuidedPromptMonitorStore();
+    testOutbox = createTestOutbox();
+    setGuidedPromptAlertOutboxForTests(testOutbox.store);
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
   });
 
@@ -69,9 +148,7 @@ describe("guided prompt generation monitor", () => {
     await waitForGuidedPromptAlertDeliveriesForTests();
 
     expect(fetch).toHaveBeenCalledOnce();
-      const payload = JSON.parse((fetch as any).mock.calls[0][1].body);
-
-      const loadConfig = { ...config, webhookUrl: undefined };
+      const payload = outboxRows.rows[0].payload;
     expect(payload.summary).toMatchObject({
       total: 2,
       generated: 1,
@@ -96,9 +173,7 @@ describe("guided prompt generation monitor", () => {
     );
     await waitForGuidedPromptAlertDeliveriesForTests();
 
-      const payload = JSON.parse((fetch as any).mock.calls[0][1].body);
-
-      const loadConfig = { ...config, webhookUrl: undefined };
+      const payload = outboxRows.rows[0].payload;
     expect(payload.reasons).toContainEqual({
       kind: "failure_count",
       failureType: "rate_limit",
@@ -141,13 +216,12 @@ describe("guided prompt generation monitor", () => {
     await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 1_000, config);
     await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 2_000, config);
 
-    expect(fetch).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
     resolveFetch({ ok: true, status: 200 });
     await waitForGuidedPromptAlertDeliveriesForTests();
   });
 
   it("retries network errors and 5xx responses with bounded exponential backoff", async () => {
-    vi.useFakeTimers();
     vi.mocked(fetch)
       .mockRejectedValueOnce(new Error("temporary network failure"))
       .mockResolvedValueOnce({ ok: false, status: 503 } as Response)
@@ -155,12 +229,12 @@ describe("guided prompt generation monitor", () => {
 
     await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "upstream" }, logger, 1_000, config);
     await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "upstream" }, logger, 2_000, config);
-    await vi.runAllTimersAsync();
     await waitForGuidedPromptAlertDeliveriesForTests();
+    await processGuidedPromptAlertOutboxForTests(logger, new Date(2_250));
+    await processGuidedPromptAlertOutboxForTests(logger, new Date(2_750));
 
     expect(fetch).toHaveBeenCalledTimes(3);
     expect(logger.error).not.toHaveBeenCalled();
-    vi.useRealTimers();
   });
 
   it("does not retry permanent responses and records a structured operational event", async () => {
@@ -180,13 +254,13 @@ describe("guided prompt generation monitor", () => {
   });
 
   it("records retry exhaustion without logging payload or user content", async () => {
-    vi.useFakeTimers();
     vi.mocked(fetch).mockResolvedValue({ ok: false, status: 503 } as Response);
 
     await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "upstream" }, logger, 1_000, config);
     await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "upstream" }, logger, 2_000, config);
-    await vi.runAllTimersAsync();
     await waitForGuidedPromptAlertDeliveriesForTests();
+    await processGuidedPromptAlertOutboxForTests(logger, new Date(2_250));
+    await processGuidedPromptAlertOutboxForTests(logger, new Date(2_750));
 
     expect(fetch).toHaveBeenCalledTimes(3);
     const event = logger.error.mock.calls[0][0];
@@ -197,7 +271,73 @@ describe("guided prompt generation monitor", () => {
       attempts: 3,
     });
     expect(JSON.stringify(event)).not.toMatch(/userId|resumeId|resume|content/);
-    vi.useRealTimers();
+  });
+
+  it("resumes an undelivered persisted alert after monitor state is reset", async () => {
+    testOutbox.setAcceptClaims(false);
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 1_000, config);
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 2_000, config);
+    await waitForGuidedPromptAlertDeliveriesForTests();
+
+    expect(testOutbox.items).toHaveLength(1);
+    expect(fetch).not.toHaveBeenCalled();
+    expect(JSON.stringify(testOutbox.items[0].payload)).not.toMatch(/userId|resumeId|resume|content/);
+
+    resetGuidedPromptMonitorForTests();
+    testOutbox.setAcceptClaims(true);
+    setGuidedPromptAlertOutboxForTests(testOutbox.store);
+    vi.stubEnv("GUIDED_PROMPT_ALERT_WEBHOOK_URL", config.webhookUrl!);
+    await processGuidedPromptAlertOutboxForTests(logger, new Date(3_000));
+
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(testOutbox.items).toHaveLength(0);
+  });
+
+  it("safely removes expired alerts without sending them", async () => {
+    testOutbox.items.push({
+      id: "expired",
+      payload: { event: "guided_prompt_generation_alert" },
+      attempts: 1,
+      nextAttemptAt: new Date(0),
+      expiresAt: new Date(1_000),
+      claimed: false,
+      leaseToken: null,
+    });
+
+    await processGuidedPromptAlertOutboxForTests(logger, new Date(1_001));
+
+    expect(fetch).not.toHaveBeenCalled();
+    expect(testOutbox.items).toHaveLength(0);
+    expect(logger.warn).toHaveBeenCalledWith(expect.objectContaining({
+      operationalEvent: "guided_prompt_alerts_expired",
+      count: 1,
+    }), "Expired guided prompt alerts removed");
+  });
+
+  it("does not let a stale worker remove an alert reclaimed by another worker", async () => {
+    let resolveFetch!: (value: { ok: boolean; status: number }) => void;
+    vi.mocked(fetch).mockReturnValue(new Promise(resolve => {
+      resolveFetch = resolve as typeof resolveFetch;
+    }) as ReturnType<typeof fetch>);
+
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 1_000, config);
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 2_000, config);
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalledOnce());
+
+    const persisted = testOutbox.items[0];
+    persisted.leaseToken = "new-worker-lease";
+    persisted.claimed = true;
+    resolveFetch({ ok: true, status: 200 });
+    await waitForGuidedPromptAlertDeliveriesForTests();
+
+    expect(testOutbox.items).toHaveLength(1);
+    expect(testOutbox.items[0].leaseToken).toBe("new-worker-lease");
+    expect(getGuidedPromptDeliveryStatus()).toMatchObject({
+      total: 0,
+      succeeded: 0,
+      permanentFailures: 0,
+      retriesExhausted: 0,
+    });
   });
 
   it("aggregates successful, permanent, and exhausted deliveries without sensitive data", async () => {
@@ -329,8 +469,8 @@ describe("guided prompt generation monitor", () => {
       deliveryConsecutiveFailureThreshold: 1,
       deliveryMinSamples: 10,
       deliveryHealthCooldownMs: 0,
-      deliveryFlappingWindowMs: 10_000,
-      deliveryFlappingTransitionThreshold: 4,
+      deliveryFlappingWindowMs: 5_000,
+      deliveryFlappingTransitionThreshold: 3,
       deliveryFlappingCooldownMs: 60_000,
     };
 
@@ -381,7 +521,7 @@ describe("guided prompt generation monitor", () => {
     });
 
     for (let batch = 0; batch < deliveryOutcomes.length; batch += 1) {
-      const now = batch * 30 * 60_000;
+      const now = Date.now();
       vi.setSystemTime(now);
       for (let sample = 0; sample < 5; sample += 1) {
         await recordGuidedPromptGeneration(
@@ -497,7 +637,6 @@ describe("guided prompt PostgreSQL monitor store", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
     vi.clearAllMocks();
   });
 
@@ -528,6 +667,16 @@ describe("guided prompt PostgreSQL monitor store", () => {
        CREATE TABLE "${schema}".guided_prompt_alert_states (
          reason_key text PRIMARY KEY,
          last_alerted_at timestamptz NOT NULL
+       );
+       CREATE TABLE "${schema}".guided_prompt_alert_outbox (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         payload jsonb NOT NULL,
+         attempts integer NOT NULL DEFAULT 0,
+         next_attempt_at timestamptz NOT NULL DEFAULT now(),
+         claimed_at timestamptz,
+         lease_token uuid,
+         expires_at timestamptz NOT NULL,
+         created_at timestamptz NOT NULL DEFAULT now()
        );`,
     );
     const PoolConstructor = pool.constructor as unknown as new (
@@ -542,24 +691,44 @@ describe("guided prompt PostgreSQL monitor store", () => {
     try {
       const firstInstance = createPostgresGuidedPromptMonitorStore(testPool);
       const secondInstance = createPostgresGuidedPromptMonitorStore(testPool);
-      const now = Math.floor(Date.now() / 60_000) * 60_000 + 1_000;
+      const testOutbox = createTestOutbox();
+      setGuidedPromptAlertOutboxForTests(testOutbox.store);
+      const now = Date.now();
 
-      await Promise.all([
-        recordGuidedPromptGenerationWithStore(
-          { outcome: "fallback", failureType: "rate_limit" },
-          logger,
-          now,
-          config,
-          firstInstance,
-        ),
-        recordGuidedPromptGenerationWithStore(
-          { outcome: "fallback", failureType: "rate_limit" },
-          logger,
-          now,
-          config,
-          secondInstance,
-        ),
-      ]);
+      await recordGuidedPromptGenerationWithStore(
+        { outcome: "fallback", failureType: "rate_limit" },
+        logger,
+        now,
+        config,
+        firstInstance,
+      );
+      await expect(recordGuidedPromptGenerationWithStore(
+        { outcome: "fallback", failureType: "rate_limit" },
+        logger,
+        now,
+        config,
+        secondInstance,
+      )).rejects.toThrow(/forced guided_prompt_alert_outbox failure/);
+
+      const rolledBack = await testPool.query(
+        `SELECT
+           (SELECT SUM(generated_count + fallback_count)::int
+            FROM guided_prompt_generation_buckets) AS bucket_count,
+           (SELECT COUNT(*)::int FROM guided_prompt_alert_states) AS state_count`,
+      );
+      expect(rolledBack.rows[0]).toMatchObject({ bucket_count: 2, state_count: 0 });
+
+      await testPool.query(
+        `DROP TRIGGER fail_guided_prompt_outbox_insert
+         ON "${schema}".guided_prompt_alert_outbox`,
+      );
+      await recordGuidedPromptGenerationWithStore(
+        { outcome: "fallback", failureType: "rate_limit" },
+        logger,
+        now,
+        config,
+        secondInstance,
+      );
 
       const restartedInstance = createPostgresGuidedPromptMonitorStore(testPool);
       await recordGuidedPromptGenerationWithStore(
@@ -570,24 +739,15 @@ describe("guided prompt PostgreSQL monitor store", () => {
         restartedInstance,
       );
       await waitForGuidedPromptAlertDeliveriesForTests();
-      expect(fetch).toHaveBeenCalledOnce();
-      const payload = JSON.parse((fetch as any).mock.calls[0][1].body);
-      expect(payload.summary).toMatchObject({ total: 2, fallback: 2 });
 
-      const loadConfig = { ...config, webhookUrl: undefined };
-      await Promise.all(
-        Array.from({ length: 200 }, (_, index) =>
-          recordGuidedPromptGenerationWithStore(
-            index % 2 === 0
-              ? { outcome: "generated" as const }
-              : { outcome: "fallback" as const, failureType: "timeout" as const },
-            logger,
-            now + 2,
-            loadConfig,
-            index % 2 === 0 ? firstInstance : secondInstance,
-          ),
-        ),
+      expect(fetch).not.toHaveBeenCalled();
+      const outboxRows = await testPool.query<{ payload: any }>(
+        `SELECT payload FROM guided_prompt_alert_outbox`,
       );
+      expect(outboxRows.rows).toHaveLength(1);
+      const payload = outboxRows.rows[0].payload;
+      expect(payload.summary).toMatchObject({ total: 3, fallback: 3 });
+
       const columns = await testPool.query<{ column_name: string }>(
         `SELECT column_name
          FROM information_schema.columns
@@ -608,6 +768,20 @@ describe("guided prompt PostgreSQL monitor store", () => {
         "unknown_count",
       ]);
 
+      const loadConfig = { ...config, webhookUrl: undefined };
+      await Promise.all(
+        Array.from({ length: 200 }, (_, index) =>
+          recordGuidedPromptGenerationWithStore(
+            index % 2 === 0
+              ? { outcome: "generated" as const }
+              : { outcome: "fallback" as const, failureType: "timeout" as const },
+            logger,
+            now + 2,
+            loadConfig,
+            index % 2 === 0 ? firstInstance : secondInstance,
+          ),
+        ),
+      );
       const bucket = await testPool.query<{
         rows: string;
         total: string;
@@ -618,7 +792,7 @@ describe("guided prompt PostgreSQL monitor store", () => {
                 SUM(rate_limit_count)::text AS rate_limit
          FROM guided_prompt_generation_buckets`,
       );
-      expect(bucket.rows[0]).toEqual({ rows: "16", total: "203", rate_limit: "3" });
+      expect(bucket.rows[0]).toEqual({ rows: "16", total: "204", rate_limit: "4" });
 
       await testPool.query(
         `INSERT INTO guided_prompt_generation_events (occurred_at, outcome, failure_type)
@@ -664,6 +838,16 @@ describe("guided prompt PostgreSQL monitor store", () => {
        CREATE TABLE "${schema}".guided_prompt_alert_states (
          reason_key text PRIMARY KEY,
          last_alerted_at timestamptz NOT NULL
+       );
+       CREATE TABLE "${schema}".guided_prompt_alert_outbox (
+         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+         payload jsonb NOT NULL,
+         attempts integer NOT NULL DEFAULT 0,
+         next_attempt_at timestamptz NOT NULL DEFAULT now(),
+         claimed_at timestamptz,
+         lease_token uuid,
+         expires_at timestamptz NOT NULL,
+         created_at timestamptz NOT NULL DEFAULT now()
        );`,
     );
     const PoolConstructor = pool.constructor as unknown as new (
@@ -678,6 +862,8 @@ describe("guided prompt PostgreSQL monitor store", () => {
     try {
       const firstInstance = createPostgresGuidedPromptMonitorStore(testPool);
       const secondInstance = createPostgresGuidedPromptMonitorStore(testPool);
+      const emptyOutbox = createTestOutbox();
+      setGuidedPromptAlertOutboxForTests(emptyOutbox.store);
       const oneHour = 60 * 60_000;
 
       await recordGuidedPromptGenerationWithStore(
@@ -696,11 +882,15 @@ describe("guided prompt PostgreSQL monitor store", () => {
       );
       await waitForGuidedPromptAlertDeliveriesForTests();
 
-      expect(fetch).toHaveBeenCalledOnce();
-      const payload = JSON.parse((fetch as any).mock.calls[0][1].body);
-
-      expect(payload.summary).toMatchObject({ total: 2, fallback: 2 });
-      expect(Math.abs(Date.parse(payload.window.endedAt) - Date.now())).toBeLessThan(10_000);
+      expect(fetch).not.toHaveBeenCalled();
+      const outboxRows = await testPool.query<{ payload: any }>(
+        `SELECT payload FROM guided_prompt_alert_outbox`,
+      );
+      expect(outboxRows.rows).toHaveLength(1);
+      expect(outboxRows.rows[0].payload.summary).toMatchObject({ total: 2, fallback: 2 });
+      expect(Math.abs(
+        Date.parse(outboxRows.rows[0].payload.window.endedAt) - Date.now(),
+      )).toBeLessThan(10_000);
 
       const timestamps = await testPool.query<{ skew_ms: string }>(
         `SELECT EXTRACT(EPOCH FROM (MAX(bucket_start) - MIN(bucket_start))) * 1000 AS skew_ms
@@ -729,7 +919,9 @@ describe("guided prompt PostgreSQL monitor store", () => {
             }],
           };
         }
-        if (sql.includes("RETURNING reason_key")) return { rows: [{ reason_key: "x" }], rowCount: 1 };
+        if (sql.includes("RETURNING reason_key")) {
+          return { rows: [{ reason_key: "x" }], rowCount: 1 };
+        }
         return { rows: [], rowCount: 0 };
       }),
       release: vi.fn(),
@@ -744,7 +936,6 @@ describe("guided prompt PostgreSQL monitor store", () => {
     );
 
     const aggregate = queries.find(query => query.sql.includes("AS generation_counts"))!;
-
     const bucketStart = new Date("2026-09-07T12:00:00.000Z");
     expect(aggregate.sql).toContain("bucket_start >= $1 AND bucket_start <= $2");
     expect(aggregate.sql).toContain("occurred_at >= $3 AND occurred_at <= $4");
@@ -760,5 +951,6 @@ describe("guided prompt PostgreSQL monitor store", () => {
       new Date(databaseNow.getTime() - config.cooldownMs),
     );
     expect(result.evaluatedAt).toBe(databaseNow.getTime());
+    expect(result.outboxPersisted).toBe(true);
   });
 });

@@ -7,3 +7,4 @@ export * from "./organizations";
 export * from "./settings";
 export * from "./sessions";
 export * from "./guided-prompt-monitor";
+export * from "./guided-prompt-alert-outbox";

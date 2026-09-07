@@ -10,12 +10,7 @@ export type GuidedPromptFailureType =
   | "unknown";
 
 type Outcome = "generated" | "fallback";
-
-type Event = {
-  at: number;
-  outcome: Outcome;
-  failureType?: GuidedPromptFailureType;
-};
+type Event = { at: number; outcome: Outcome; failureType?: GuidedPromptFailureType };
 
 const GENERATION_BUCKET_MS = 60_000;
 type AlertReason =
@@ -47,6 +42,7 @@ export type GuidedPromptMonitorStore = {
     summary: ReturnType<typeof summarize>;
     actionable: AlertReason[];
     evaluatedAt: number;
+    outboxPersisted: boolean;
   }>;
 };
 const pendingDeliveries = new Set<Promise<void>>();
@@ -68,6 +64,7 @@ const WEBHOOK_MAX_ATTEMPTS = 3;
 const WEBHOOK_RETRY_BASE_MS = 250;
 const WEBHOOK_TIMEOUT_MS = 5_000;
 
+const OUTBOX_TTL_MS = 24 * 60 * 60_000;
 type AlertPayload = {
   event: "guided_prompt_generation_alert";
   window: { durationMs: number; endedAt: string };
@@ -75,6 +72,13 @@ type AlertPayload = {
   reasons: AlertReason[];
 };
 
+type OutboxItem = {
+  id: string;
+  payload: AlertPayload;
+  attempts: number;
+  expiresAt: Date;
+  leaseToken: string;
+};
 function readNumber(name: string, fallback: number, minimum = 0): number {
   const value = Number(process.env[name]);
   return Number.isFinite(value) && value >= minimum ? value : fallback;
@@ -297,6 +301,88 @@ function summarize(windowEvents: Event[]) {
   };
 }
 
+async function processOutbox(logger: Logger, now = new Date()): Promise<void> {
+  if (workerRunning) return;
+  workerRunning = true;
+  try {
+    const expired = await outbox.discardExpired(now);
+    if (expired) {
+      logger.warn({ operationalEvent: "guided_prompt_alerts_expired", count: expired },
+        "Expired guided prompt alerts removed");
+    }
+
+    for (;;) {
+      const item = await outbox.claim(now);
+      if (!item) break;
+      const webhookUrl = deliveryWebhookUrl ?? getGuidedPromptAlertConfig().webhookUrl;
+      if (!webhookUrl) {
+        await outbox.retry(
+          item.id,
+          item.leaseToken,
+          item.attempts,
+          new Date(now.getTime() + OUTBOX_POLL_MS),
+        );
+        break;
+      }
+
+      let response: Response | undefined;
+      try {
+        response = await fetch(webhookUrl, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(item.payload),
+          signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
+        });
+      } catch {
+        // Network errors are retried below without persisting error details.
+      }
+
+      const attempt = item.attempts + 1;
+      const config = activeDeliveryConfig ?? getGuidedPromptAlertConfig();
+      if (response?.ok) {
+        const completed = await outbox.complete(item.id, item.leaseToken);
+        if (!completed) continue;
+        recordDeliveryOutcome("success", attempt, logger, config);
+        logger.warn({
+          alert: "guided_prompt_generation",
+          reasons: item.payload.reasons,
+          windowMs: item.payload.window.durationMs,
+          summary: item.payload.summary,
+          deliveryAttempts: attempt,
+        }, "Guided prompt generation threshold exceeded");
+      } else if (response && response.status < 500) {
+        const completed = await outbox.complete(item.id, item.leaseToken);
+        if (!completed) continue;
+        recordDeliveryOutcome("permanent_failure", attempt, logger, config);
+        logger.error({
+          operationalEvent: "guided_prompt_alert_delivery_failed",
+          failureKind: "permanent_http_response",
+          statusCode: response.status,
+          attempts: attempt,
+        }, "Guided prompt alert webhook permanently rejected");
+      } else if (attempt >= WEBHOOK_MAX_ATTEMPTS || item.expiresAt <= now) {
+        const completed = await outbox.complete(item.id, item.leaseToken);
+        if (!completed) continue;
+        recordDeliveryOutcome("retries_exhausted", attempt, logger, config);
+        logger.error({
+          operationalEvent: "guided_prompt_alert_delivery_failed",
+          failureKind: "retries_exhausted",
+          ...(response ? { statusCode: response.status } : {}),
+          attempts: attempt,
+        }, "Guided prompt alert webhook retries exhausted");
+      } else {
+        await outbox.retry(
+          item.id,
+          item.leaseToken,
+          attempt,
+          new Date(now.getTime() + WEBHOOK_RETRY_BASE_MS * 2 ** (attempt - 1)),
+        );
+      }
+    }
+  } finally {
+    workerRunning = false;
+  }
+}
 function reasonsFor(
   summary: ReturnType<typeof summarize>,
   config: GuidedPromptAlertConfig,
@@ -316,93 +402,20 @@ function reasonsFor(
   }
   return reasons;
 }
-function wait(ms: number): Promise<void> {
-  return new Promise(resolve => {
-    const timer = setTimeout(resolve, ms);
-    timer.unref?.();
-  });
-}
 
-async function deliverAlert(
-  webhookUrl: string,
-  payload: AlertPayload,
-  logger: Logger,
+function createAlertPayload(
+  summary: ReturnType<typeof summarize>,
+  actionable: AlertReason[],
+  evaluatedAt: number,
   config: GuidedPromptAlertConfig,
-): Promise<void> {
-  for (let attempt = 1; attempt <= WEBHOOK_MAX_ATTEMPTS; attempt += 1) {
-    try {
-      const response = await fetch(webhookUrl, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
-      });
-      if (response.ok) {
-        recordDeliveryOutcome("success", attempt, logger, config);
-        logger.warn({
-          alert: "guided_prompt_generation",
-          reasons: payload.reasons,
-          windowMs: payload.window.durationMs,
-          summary: payload.summary,
-          deliveryAttempts: attempt,
-        }, "Guided prompt generation threshold exceeded");
-        return;
-      }
-
-      if (response.status < 500) {
-        recordDeliveryOutcome("permanent_failure", attempt, logger, config);
-        logger.error({
-          operationalEvent: "guided_prompt_alert_delivery_failed",
-          failureKind: "permanent_http_response",
-          statusCode: response.status,
-          attempts: attempt,
-        }, "Guided prompt alert webhook permanently rejected");
-        return;
-      }
-
-      if (attempt === WEBHOOK_MAX_ATTEMPTS) {
-        recordDeliveryOutcome("retries_exhausted", attempt, logger, config);
-        logger.error({
-          operationalEvent: "guided_prompt_alert_delivery_failed",
-          failureKind: "retries_exhausted",
-          statusCode: response.status,
-          attempts: attempt,
-        }, "Guided prompt alert webhook retries exhausted");
-        return;
-      }
-    } catch {
-      if (attempt === WEBHOOK_MAX_ATTEMPTS) {
-        recordDeliveryOutcome("retries_exhausted", attempt, logger, config);
-        logger.error({
-          operationalEvent: "guided_prompt_alert_delivery_failed",
-          failureKind: "retries_exhausted",
-          attempts: attempt,
-        }, "Guided prompt alert webhook retries exhausted");
-        return;
-      }
-    }
-
-    await wait(WEBHOOK_RETRY_BASE_MS * 2 ** (attempt - 1));
-  }
+): AlertPayload {
+  return {
+    event: "guided_prompt_generation_alert",
+    window: { durationMs: config.windowMs, endedAt: new Date(evaluatedAt).toISOString() },
+    summary,
+    reasons: actionable,
+  };
 }
-
-function scheduleAlertDelivery(
-  webhookUrl: string,
-  payload: AlertPayload,
-  logger: Logger,
-  config: GuidedPromptAlertConfig,
-): void {
-  const delivery = deliverAlert(webhookUrl, payload, logger, config)
-    .catch(() => {
-      logger.error({
-        operationalEvent: "guided_prompt_alert_delivery_failed",
-        failureKind: "unexpected_delivery_error",
-      }, "Guided prompt alert delivery failed unexpectedly");
-    })
-    .finally(() => pendingDeliveries.delete(delivery));
-  pendingDeliveries.add(delivery);
-}
-
 export function createPostgresGuidedPromptMonitorStore(
   databasePool: Pick<typeof pool, "connect">,
 ): GuidedPromptMonitorStore {
@@ -537,18 +550,42 @@ export function createPostgresGuidedPromptMonitorStore(
 
         const actionable: AlertReason[] = [];
         const reasons = config.webhookUrl ? reasonsFor(summary, config) : [];
-        for (const reason of reasons) {
-          const claimed = await client.query(
-            `INSERT INTO guided_prompt_alert_states (reason_key, last_alerted_at)
-             VALUES ($1, $2)
-             ON CONFLICT (reason_key) DO UPDATE SET last_alerted_at = EXCLUDED.last_alerted_at
-             WHERE guided_prompt_alert_states.last_alerted_at <= $3
-             RETURNING reason_key`,
-            [reasonKey(reason), databaseNow, new Date(evaluatedAt - config.cooldownMs)],
-          );
-          if (claimed.rowCount) actionable.push(reason);
+        if (reasons.length) {
+          await client.query("BEGIN");
+          try {
+            for (const reason of reasons) {
+              const claimed = await client.query(
+                `INSERT INTO guided_prompt_alert_states (reason_key, last_alerted_at)
+                 VALUES ($1, $2)
+                 ON CONFLICT (reason_key) DO UPDATE SET last_alerted_at = EXCLUDED.last_alerted_at
+                 WHERE guided_prompt_alert_states.last_alerted_at <= $3
+                 RETURNING reason_key`,
+                [reasonKey(reason), databaseNow, new Date(evaluatedAt - config.cooldownMs)],
+              );
+              if (claimed.rowCount) actionable.push(reason);
+            }
+            if (actionable.length) {
+              await client.query(
+                `INSERT INTO guided_prompt_alert_outbox (payload, expires_at)
+                 VALUES ($1, $2)`,
+                [
+                  createAlertPayload(summary, actionable, evaluatedAt, config),
+                  new Date(evaluatedAt + OUTBOX_TTL_MS),
+                ],
+              );
+            }
+            await client.query("COMMIT");
+          } catch (error) {
+            await client.query("ROLLBACK");
+            throw error;
+          }
         }
-        return { summary, actionable, evaluatedAt };
+        return {
+          summary,
+          actionable,
+          evaluatedAt,
+          outboxPersisted: actionable.length > 0,
+        };
       } finally {
         client.release();
       }
@@ -563,7 +600,7 @@ export async function recordGuidedPromptGeneration(
   store?: GuidedPromptMonitorStore,
 ): Promise<void> {
   const activeStore = store ?? createPostgresGuidedPromptMonitorStore(pool);
-  const { summary, actionable, evaluatedAt } =
+  const { summary, actionable, evaluatedAt, outboxPersisted } =
     await activeStore.recordAndClaimAlerts({ ...event, at: now }, config);
   logger.info({
     metric: "guided_prompt_generation_window",
@@ -573,18 +610,25 @@ export async function recordGuidedPromptGeneration(
 
   if (!config.webhookUrl || !actionable.length) return;
 
-  scheduleAlertDelivery(config.webhookUrl, {
-    event: "guided_prompt_generation_alert",
-    window: { durationMs: config.windowMs, endedAt: new Date(evaluatedAt).toISOString() },
-    summary,
-    reasons: actionable,
-  }, logger, config);
+  const payload = createAlertPayload(summary, actionable, evaluatedAt, config);
+  deliveryWebhookUrl = config.webhookUrl;
+  activeDeliveryConfig = config;
+  if (!outboxPersisted) {
+    await outbox.enqueue(payload, new Date(evaluatedAt + OUTBOX_TTL_MS));
+  }
+  track(processOutbox(logger, new Date(evaluatedAt)), logger);
 }
 
 export async function waitForGuidedPromptAlertDeliveriesForTests(): Promise<void> {
-  await Promise.all([...pendingDeliveries]);
+  while (pendingDeliveries.size) await Promise.all([...pendingDeliveries]);
 }
 
+export async function processGuidedPromptAlertOutboxForTests(
+  logger: Logger,
+  now: Date,
+): Promise<void> {
+  await processOutbox(logger, now);
+}
 export function resetGuidedPromptMonitorForTests(): void {
   pendingDeliveries.clear();
   deliveryEvents.length = 0;
@@ -595,8 +639,15 @@ export function resetGuidedPromptMonitorForTests(): void {
   deliveryHealthTransitions.length = 0;
   lastDeliveryFlappingAlertAt = -Infinity;
   nextGenerationBucketShard = 0;
+  workerRunning = false;
+  if (workerTimer) clearInterval(workerTimer);
+  workerTimer = undefined;
+  deliveryWebhookUrl = undefined;
+  activeDeliveryConfig = undefined;
+  outbox = databaseOutbox;
 }
 
+let workerRunning = false;
 function reasonKey(reason: AlertReason): string {
   return reason.kind === "fallback_rate" ? reason.kind : `${reason.kind}:${reason.failureType}`;
 }
@@ -627,7 +678,12 @@ export function createInMemoryGuidedPromptMonitorStore(): GuidedPromptMonitorSto
         lastAlerts.set(key, event.at);
         return true;
       });
-      return { summary, actionable, evaluatedAt: event.at };
+      return {
+        summary,
+        actionable,
+        evaluatedAt: event.at,
+        outboxPersisted: false,
+      };
     },
   };
 }
@@ -640,6 +696,109 @@ function takeGenerationBucketShard(): number {
 
 let lastDeliveryFlappingAlertAt = -Infinity;
 
+export function setGuidedPromptAlertOutboxForTests(testOutbox: AlertOutbox): void {
+  outbox = testOutbox;
+}
+
 const GENERATION_BUCKET_SHARDS = 16;
 
 let nextGenerationBucketShard = Math.floor(Math.random() * GENERATION_BUCKET_SHARDS);
+
+const databaseOutbox: AlertOutbox = {
+  async enqueue(payload, expiresAt) {
+    const { db, guidedPromptAlertOutboxTable } = await import("@workspace/db");
+    await db.insert(guidedPromptAlertOutboxTable).values({ payload, expiresAt });
+  },
+  async claim(now) {
+    const { pool } = await import("@workspace/db");
+    const result = await pool.query<OutboxItem>(`
+      WITH candidate AS (
+        SELECT id
+        FROM guided_prompt_alert_outbox
+        WHERE next_attempt_at <= $1
+          AND expires_at > $1
+          AND (claimed_at IS NULL OR claimed_at < $2)
+        ORDER BY next_attempt_at, created_at
+        FOR UPDATE SKIP LOCKED
+        LIMIT 1
+      )
+      UPDATE guided_prompt_alert_outbox AS outbox
+      SET claimed_at = $1, lease_token = gen_random_uuid()
+      FROM candidate
+      WHERE outbox.id = candidate.id
+      RETURNING outbox.id, outbox.payload, outbox.attempts,
+        outbox.expires_at AS "expiresAt", outbox.lease_token AS "leaseToken"
+    `, [now, new Date(now.getTime() - OUTBOX_CLAIM_TIMEOUT_MS)]);
+    return result.rows[0];
+  },
+  async complete(id, leaseToken) {
+    const { db, guidedPromptAlertOutboxTable } = await import("@workspace/db");
+    const { and, eq } = await import("drizzle-orm");
+    const deleted = await db.delete(guidedPromptAlertOutboxTable)
+      .where(and(
+        eq(guidedPromptAlertOutboxTable.id, id),
+        eq(guidedPromptAlertOutboxTable.leaseToken, leaseToken),
+      ))
+      .returning({ id: guidedPromptAlertOutboxTable.id });
+    return deleted.length === 1;
+  },
+  async retry(id, leaseToken, attempts, nextAttemptAt) {
+    const { db, guidedPromptAlertOutboxTable } = await import("@workspace/db");
+    const { and, eq } = await import("drizzle-orm");
+    const updated = await db.update(guidedPromptAlertOutboxTable)
+      .set({ attempts, nextAttemptAt, claimedAt: null, leaseToken: null })
+      .where(and(
+        eq(guidedPromptAlertOutboxTable.id, id),
+        eq(guidedPromptAlertOutboxTable.leaseToken, leaseToken),
+      ))
+      .returning({ id: guidedPromptAlertOutboxTable.id });
+    return updated.length === 1;
+  },
+  async discardExpired(now) {
+    const { db, guidedPromptAlertOutboxTable } = await import("@workspace/db");
+    const { lte } = await import("drizzle-orm");
+    const deleted = await db.delete(guidedPromptAlertOutboxTable)
+      .where(lte(guidedPromptAlertOutboxTable.expiresAt, now))
+      .returning({ id: guidedPromptAlertOutboxTable.id });
+    return deleted.length;
+  },
+};
+
+function track(work: Promise<void>, logger: Logger): void {
+  const delivery = work
+    .catch(err => logger.error({
+      err,
+      operationalEvent: "guided_prompt_alert_outbox_error",
+    }, "Guided prompt alert outbox operation failed"))
+    .finally(() => pendingDeliveries.delete(delivery));
+  pendingDeliveries.add(delivery);
+}
+
+let outbox: AlertOutbox = databaseOutbox;
+
+const OUTBOX_CLAIM_TIMEOUT_MS = 60_000;
+
+type AlertOutbox = {
+  enqueue(payload: AlertPayload, expiresAt: Date): Promise<void>;
+  claim(now: Date): Promise<OutboxItem | undefined>;
+  complete(id: string, leaseToken: string): Promise<boolean>;
+  retry(id: string, leaseToken: string, attempts: number, nextAttemptAt: Date): Promise<boolean>;
+  discardExpired(now: Date): Promise<number>;
+};
+
+let workerTimer: NodeJS.Timeout | undefined;
+
+let activeDeliveryConfig: GuidedPromptAlertConfig | undefined;
+
+const OUTBOX_POLL_MS = 10_000;
+
+let deliveryWebhookUrl: string | undefined;
+
+export function startGuidedPromptAlertWorker(logger: Logger): void {
+  if (workerTimer) return;
+  activeDeliveryConfig = getGuidedPromptAlertConfig();
+  deliveryWebhookUrl = activeDeliveryConfig.webhookUrl;
+  track(processOutbox(logger), logger);
+  workerTimer = setInterval(() => track(processOutbox(logger), logger), OUTBOX_POLL_MS);
+  workerTimer.unref?.();
+}
