@@ -42,6 +42,12 @@ type DeliveryEvent = { at: number; outcome: DeliveryOutcome; attempts: number };
 const deliveryEvents: DeliveryEvent[] = [];
 let consecutiveDeliveryFailures = 0;
 let lastDeliveryHealthAlertAt = -Infinity;
+type DeliveryDegradation = {
+  startedAt: number;
+  permanentFailures: number;
+  retriesExhausted: number;
+};
+let deliveryDegradation: DeliveryDegradation | undefined;
 const WEBHOOK_MAX_ATTEMPTS = 3;
 const WEBHOOK_RETRY_BASE_MS = 250;
 const WEBHOOK_TIMEOUT_MS = 5_000;
@@ -154,12 +160,35 @@ function recordDeliveryOutcome(
   const failureRateThresholdExceeded =
     status.total >= settings.minSamples &&
     status.failureRate >= settings.failureRateThreshold;
+
+  if (outcome === "success" && deliveryDegradation) {
+    logger.info({
+      operationalEvent: "guided_prompt_alert_channel_recovered",
+      outageDurationMs: Math.max(0, now - deliveryDegradation.startedAt),
+      failures: {
+        permanentFailures: deliveryDegradation.permanentFailures,
+        retriesExhausted: deliveryDegradation.retriesExhausted,
+        total: deliveryDegradation.permanentFailures + deliveryDegradation.retriesExhausted,
+      },
+    }, "Guided prompt alert channel recovered");
+    deliveryDegradation = undefined;
+  }
+
   if (
     outcome !== "success" &&
     (consecutiveThresholdExceeded || failureRateThresholdExceeded) &&
     now - lastDeliveryHealthAlertAt >= settings.healthCooldownMs
   ) {
     lastDeliveryHealthAlertAt = now;
+    deliveryDegradation = {
+      startedAt: now,
+      permanentFailures: 1,
+      retriesExhausted: 0,
+      ...(outcome === "retries_exhausted" ? {
+        permanentFailures: 0,
+        retriesExhausted: 1,
+      } : {}),
+    };
     logger.error({
       operationalEvent: "guided_prompt_alert_channel_degraded",
       status,
@@ -169,6 +198,9 @@ function recordDeliveryOutcome(
         consecutiveFailures: settings.consecutiveFailureThreshold,
       },
     }, "Guided prompt alert channel health threshold exceeded");
+  } else if (outcome !== "success" && deliveryDegradation) {
+    if (outcome === "permanent_failure") deliveryDegradation.permanentFailures += 1;
+    if (outcome === "retries_exhausted") deliveryDegradation.retriesExhausted += 1;
   }
 }
 
@@ -338,4 +370,5 @@ export function resetGuidedPromptMonitorForTests(): void {
   deliveryEvents.length = 0;
   consecutiveDeliveryFailures = 0;
   lastDeliveryHealthAlertAt = -Infinity;
+  deliveryDegradation = undefined;
 }

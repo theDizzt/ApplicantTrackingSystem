@@ -231,4 +231,52 @@ describe("guided prompt generation monitor", () => {
       .find((call: any[]) => call[0].operationalEvent === "guided_prompt_alert_channel_degraded")?.[0];
     expect(JSON.stringify(degradedEvent)).not.toContain(config.webhookUrl);
   });
+
+  it("emits one recovery event on the first success after degradation", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(10_000);
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: false, status: 400 } as Response)
+      .mockResolvedValueOnce({ ok: false, status: 400 } as Response)
+      .mockResolvedValueOnce({ ok: false, status: 400 } as Response)
+      .mockResolvedValue({ ok: true, status: 200 } as Response);
+    const healthConfig = {
+      ...config,
+      cooldownMs: 0,
+      deliveryConsecutiveFailureThreshold: 2,
+      deliveryMinSamples: 10,
+    };
+
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 1_000, healthConfig);
+    await waitForGuidedPromptAlertDeliveriesForTests();
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 2_000, healthConfig);
+    await waitForGuidedPromptAlertDeliveriesForTests();
+    vi.setSystemTime(12_000);
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 3_000, healthConfig);
+    await waitForGuidedPromptAlertDeliveriesForTests();
+    vi.setSystemTime(15_000);
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 4_000, healthConfig);
+    await waitForGuidedPromptAlertDeliveriesForTests();
+    vi.setSystemTime(16_000);
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 5_000, healthConfig);
+    await waitForGuidedPromptAlertDeliveriesForTests();
+
+    const recoveryEvents = logger.info.mock.calls
+      .filter((call: any[]) => call[0].operationalEvent === "guided_prompt_alert_channel_recovered");
+    expect(recoveryEvents).toEqual([[
+      {
+        operationalEvent: "guided_prompt_alert_channel_recovered",
+        outageDurationMs: 4_000,
+        failures: {
+          permanentFailures: 2,
+          retriesExhausted: 0,
+          total: 2,
+        },
+      },
+      "Guided prompt alert channel recovered",
+    ]]);
+    expect(JSON.stringify(recoveryEvents)).not.toContain(config.webhookUrl);
+    expect(JSON.stringify(recoveryEvents)).not.toMatch(/userId|resumeId|resume|content/);
+    vi.useRealTimers();
+  });
 });
