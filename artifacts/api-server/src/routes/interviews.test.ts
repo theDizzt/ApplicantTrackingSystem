@@ -47,7 +47,7 @@ vi.mock("@workspace/db", () => ({
   },
   interviewSessionsTable: { id: "id", userId: "userId", resumeId: "resumeId", companyId: "companyId", createdAt: "createdAt" },
   interviewQuestionsTable: { id: "id", sessionId: "sessionId", order: "order" },
-  resumesTable: { id: "id", userId: "userId", title: "title" },
+  resumesTable: { id: "id", userId: "userId", title: "title", content: "content", coverLetter: "coverLetter" },
   companiesTable: { id: "id", userId: "userId", name: "name", talentProfile: "talentProfile", jobDescription: "jobDescription" },
 }));
 
@@ -65,6 +65,7 @@ vi.mock("../lib/openai", () => ({
 }));
 
 import interviewsRouter from "./interviews";
+import coverLetterRouter from "./cover-letter";
 
 const createdAt = new Date("2025-01-02T03:04:05.000Z");
 const session = {
@@ -84,6 +85,7 @@ function makeApp() {
   const app = express();
   app.use(express.json());
   app.use(interviewsRouter);
+  app.use(coverLetterRouter);
   return app;
 }
 
@@ -218,5 +220,80 @@ describe("interview routes", () => {
     const foreignSession = await request(makeApp()).post("/interviews/11/evaluate").set("x-user-id", "2");
     expect(foreignSession.status).toBe(404);
     expect(mocks.aiCreate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("guided cover letter prompts", () => {
+  const resume = {
+    id: 21,
+    userId: 1,
+    title: "백엔드 이력서",
+    content: "<div>Node.js API 개발</div>",
+    coverLetter: "<h2>협업 경험</h2><p>팀과 &amp; 함께 문제를 해결했습니다.</p>",
+  };
+
+  it("does not expose or send another user's resume to AI", async () => {
+    setSelectResults([[]]);
+
+    const response = await request(makeApp())
+      .post("/cover-letter/guided-prompts")
+      .set("x-user-id", "2")
+      .send({ resumeId: 21 });
+
+    expect(response.status).toBe(404);
+    expect(response.body).toEqual({ error: "이력서를 찾을 수 없습니다." });
+    expect(mocks.aiCreate).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["malformed JSON", "not-json"],
+    ["an empty prompt list", JSON.stringify({ prompts: [] })],
+  ])("falls back to safe prompts for %s", async (_label, content) => {
+    setSelectResults([[resume]]);
+    mocks.aiCreate.mockResolvedValue({ choices: [{ message: { content } }] });
+
+    const response = await request(makeApp())
+      .post("/cover-letter/guided-prompts")
+      .set("x-user-id", "1")
+      .send({ resumeId: 21 });
+
+    expect(response.status).toBe(200);
+    expect(response.body.prompts).toHaveLength(6);
+    expect(new Set(response.body.prompts).size).toBe(6);
+  });
+
+  it("strips resume HTML and returns 6 to 8 unique questions", async () => {
+    setSelectResults([[resume]]);
+    mocks.aiCreate.mockResolvedValue({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            prompts: [
+              "Node.js API 개발 경험을 구체적으로 이야기해 주세요.",
+              "Node.js API 개발 경험을 구체적으로 이야기해 주세요.",
+              { question: "팀과 문제를 해결한 협업 경험을 이야기해 주세요." },
+              "짧음",
+            ],
+          }),
+        },
+      }],
+    });
+
+    const response = await request(makeApp())
+      .post("/cover-letter/guided-prompts")
+      .set("x-user-id", "1")
+      .send({ resumeId: 21 });
+
+    expect(response.status).toBe(200);
+    expect(response.body.prompts.length).toBeGreaterThanOrEqual(6);
+    expect(response.body.prompts.length).toBeLessThanOrEqual(8);
+    expect(new Set(response.body.prompts).size).toBe(response.body.prompts.length);
+
+    const prompt = mocks.aiCreate.mock.calls[0][0].messages
+      .map((message: { content: string }) => message.content)
+      .join("\n");
+    expect(prompt).toContain("협업 경험\n팀과 & 함께 문제를 해결했습니다.");
+    expect(prompt).toContain("Node.js API 개발");
+    expect(prompt).not.toMatch(/<\/?[a-z][^>]*>/i);
   });
 });
