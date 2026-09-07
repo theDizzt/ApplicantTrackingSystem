@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { pool } from "@workspace/db";
 import {
+  createInMemoryGuidedPromptMonitorStore,
+  createPostgresGuidedPromptMonitorStore,
   getGuidedPromptDeliveryAdminStatus,
   getGuidedPromptDeliveryStatus,
-  recordGuidedPromptGeneration,
+  recordGuidedPromptGeneration as recordGuidedPromptGenerationWithStore,
   resetGuidedPromptMonitorForTests,
   waitForGuidedPromptAlertDeliveriesForTests,
   type GuidedPromptAlertConfig,
@@ -30,9 +33,21 @@ const logger = {
   error: vi.fn(),
 } as any;
 
+let store: ReturnType<typeof createInMemoryGuidedPromptMonitorStore>;
+
+function recordGuidedPromptGeneration(
+  event: Parameters<typeof recordGuidedPromptGenerationWithStore>[0],
+  eventLogger: Parameters<typeof recordGuidedPromptGenerationWithStore>[1],
+  now: number,
+  alertConfig: GuidedPromptAlertConfig,
+) {
+  return recordGuidedPromptGenerationWithStore(event, eventLogger, now, alertConfig, store);
+}
+
 describe("guided prompt generation monitor", () => {
   beforeEach(() => {
     resetGuidedPromptMonitorForTests();
+    store = createInMemoryGuidedPromptMonitorStore();
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
   });
 
@@ -292,5 +307,97 @@ describe("guided prompt generation monitor", () => {
     expect(JSON.stringify(recoveryEvents)).not.toContain(config.webhookUrl);
     expect(JSON.stringify(recoveryEvents)).not.toMatch(/userId|resumeId|resume|content/);
     vi.useRealTimers();
+  });
+});
+
+describe("guided prompt PostgreSQL monitor store", () => {
+  beforeEach(() => {
+    resetGuidedPromptMonitorForTests();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ ok: true }));
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
+  });
+
+  it("shares concurrent counts and cooldown state without storing user or resume data", async () => {
+    const schema = `guided_prompt_monitor_test_${process.pid}`;
+    await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    await pool.query(`CREATE SCHEMA "${schema}"`);
+    await pool.query(
+      `CREATE TABLE "${schema}".guided_prompt_generation_events (
+         id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+         occurred_at timestamptz NOT NULL,
+         outcome text NOT NULL,
+         failure_type text
+       );
+       CREATE TABLE "${schema}".guided_prompt_alert_states (
+         reason_key text PRIMARY KEY,
+         last_alerted_at timestamptz NOT NULL
+       );`,
+    );
+
+    const PoolConstructor = pool.constructor as unknown as new (
+      config: { connectionString?: string; options?: string; max?: number },
+    ) => typeof pool;
+    const testPool = new PoolConstructor({
+      connectionString: process.env.DATABASE_URL,
+      options: `-c search_path=${schema}`,
+      max: 4,
+    });
+    try {
+      const firstInstance = createPostgresGuidedPromptMonitorStore(testPool);
+      const secondInstance = createPostgresGuidedPromptMonitorStore(testPool);
+      const now = Date.now();
+
+      await Promise.all([
+        recordGuidedPromptGenerationWithStore(
+          { outcome: "fallback", failureType: "rate_limit" },
+          logger,
+          now,
+          config,
+          firstInstance,
+        ),
+        recordGuidedPromptGenerationWithStore(
+          { outcome: "fallback", failureType: "rate_limit" },
+          logger,
+          now,
+          config,
+          secondInstance,
+        ),
+      ]);
+
+      const restartedInstance = createPostgresGuidedPromptMonitorStore(testPool);
+      await recordGuidedPromptGenerationWithStore(
+        { outcome: "fallback", failureType: "rate_limit" },
+        logger,
+        now + 1,
+        config,
+        restartedInstance,
+      );
+      await waitForGuidedPromptAlertDeliveriesForTests();
+
+      expect(fetch).toHaveBeenCalledOnce();
+      const payload = JSON.parse((fetch as any).mock.calls[0][1].body);
+      expect(payload.summary).toMatchObject({ total: 2, fallback: 2 });
+
+      const columns = await testPool.query<{ column_name: string }>(
+        `SELECT column_name
+         FROM information_schema.columns
+         WHERE table_schema = $1 AND table_name = 'guided_prompt_generation_events'
+         ORDER BY ordinal_position`,
+        [schema],
+      );
+      expect(columns.rows.map(row => row.column_name)).toEqual([
+        "id",
+        "occurred_at",
+        "outcome",
+        "failure_type",
+      ]);
+    } finally {
+      await testPool.end();
+      await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    }
   });
 });

@@ -1,3 +1,4 @@
+import { pool } from "@workspace/db";
 import type { Logger } from "pino";
 
 export type GuidedPromptFailureType =
@@ -34,8 +35,12 @@ export type GuidedPromptAlertConfig = {
   deliveryHealthCooldownMs?: number;
 };
 
-const events: Event[] = [];
-const lastAlerts = new Map<string, number>();
+export type GuidedPromptMonitorStore = {
+  recordAndClaimAlerts(
+    event: Event,
+    config: GuidedPromptAlertConfig,
+  ): Promise<{ summary: ReturnType<typeof summarize>; actionable: AlertReason[] }>;
+};
 const pendingDeliveries = new Set<Promise<void>>();
 type DeliveryOutcome = "success" | "permanent_failure" | "retries_exhausted";
 type DeliveryEvent = { at: number; outcome: DeliveryOutcome; attempts: number };
@@ -238,6 +243,25 @@ function summarize(windowEvents: Event[]) {
   };
 }
 
+function reasonsFor(
+  summary: ReturnType<typeof summarize>,
+  config: GuidedPromptAlertConfig,
+): AlertReason[] {
+  const reasons: AlertReason[] = [];
+  if (summary.total >= config.minSamples && summary.fallbackRate >= config.fallbackRateThreshold) {
+    reasons.push({
+      kind: "fallback_rate",
+      actual: summary.fallbackRate,
+      threshold: config.fallbackRateThreshold,
+    });
+  }
+  for (const failureType of failureTypes) {
+    const actual = summary.failures[failureType];
+    const threshold = config.failureThresholds[failureType];
+    if (actual >= threshold) reasons.push({ kind: "failure_count", failureType, actual, threshold });
+  }
+  return reasons;
+}
 function wait(ms: number): Promise<void> {
   return new Promise(resolve => {
     const timer = setTimeout(resolve, ms);
@@ -325,49 +349,107 @@ function scheduleAlertDelivery(
   pendingDeliveries.add(delivery);
 }
 
+export function createPostgresGuidedPromptMonitorStore(
+  databasePool: Pick<typeof pool, "connect">,
+): GuidedPromptMonitorStore {
+  return {
+    async recordAndClaimAlerts(event, config) {
+      const client = await databasePool.connect();
+      try {
+        await client.query("BEGIN");
+        // 집계와 쿨다운 선점을 모든 API 인스턴스가 공유하는 한 원자 작업으로 직렬화한다.
+        await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
+          "guided_prompt_generation_monitor",
+        ]);
+        await client.query(
+          `INSERT INTO guided_prompt_generation_events (occurred_at, outcome, failure_type)
+           VALUES ($1, $2, $3)`,
+          [new Date(event.at), event.outcome, event.failureType ?? null],
+        );
+        const cutoff = new Date(event.at - config.windowMs);
+        await client.query("DELETE FROM guided_prompt_generation_events WHERE occurred_at < $1", [cutoff]);
+
+        const result = await client.query<{
+          total: string;
+          generated: string;
+          fallback: string;
+          authentication: string;
+          rate_limit: string;
+          timeout: string;
+          upstream: string;
+          invalid_response: string;
+          unknown: string;
+        }>(
+          `SELECT
+             COUNT(*)::text AS total,
+             COUNT(*) FILTER (WHERE outcome = 'generated')::text AS generated,
+             COUNT(*) FILTER (WHERE outcome = 'fallback')::text AS fallback,
+             COUNT(*) FILTER (WHERE failure_type = 'authentication')::text AS authentication,
+             COUNT(*) FILTER (WHERE failure_type = 'rate_limit')::text AS rate_limit,
+             COUNT(*) FILTER (WHERE failure_type = 'timeout')::text AS timeout,
+             COUNT(*) FILTER (WHERE failure_type = 'upstream')::text AS upstream,
+             COUNT(*) FILTER (WHERE failure_type = 'invalid_response')::text AS invalid_response,
+             COUNT(*) FILTER (WHERE failure_type = 'unknown')::text AS unknown
+           FROM guided_prompt_generation_events
+           WHERE occurred_at >= $1 AND occurred_at <= $2`,
+          [cutoff, new Date(event.at)],
+        );
+        const row = result.rows[0]!;
+        const total = Number(row.total);
+        const generated = Number(row.generated);
+        const fallback = Number(row.fallback);
+        const summary: ReturnType<typeof summarize> = {
+          total,
+          generated,
+          fallback,
+          generatedRate: total ? generated / total : 0,
+          fallbackRate: total ? fallback / total : 0,
+          failures: Object.fromEntries(
+            failureTypes.map(type => [type, Number(row[type])]),
+          ) as Record<GuidedPromptFailureType, number>,
+        };
+
+        const actionable: AlertReason[] = [];
+        const reasons = config.webhookUrl ? reasonsFor(summary, config) : [];
+        for (const reason of reasons) {
+          const claimed = await client.query(
+            `INSERT INTO guided_prompt_alert_states (reason_key, last_alerted_at)
+             VALUES ($1, $2)
+             ON CONFLICT (reason_key) DO UPDATE SET last_alerted_at = EXCLUDED.last_alerted_at
+             WHERE guided_prompt_alert_states.last_alerted_at <= $3
+             RETURNING reason_key`,
+            [reasonKey(reason), new Date(event.at), new Date(event.at - config.cooldownMs)],
+          );
+          if (claimed.rowCount) actionable.push(reason);
+        }
+        await client.query("COMMIT");
+        return { summary, actionable };
+      } catch (error) {
+        await client.query("ROLLBACK");
+        throw error;
+      } finally {
+        client.release();
+      }
+    },
+  };
+}
 export async function recordGuidedPromptGeneration(
   event: Omit<Event, "at">,
   logger: Logger,
   now = Date.now(),
   config = getGuidedPromptAlertConfig(),
+  store?: GuidedPromptMonitorStore,
 ): Promise<void> {
-  events.push({ ...event, at: now });
-  const cutoff = now - config.windowMs;
-  while (events[0]?.at < cutoff) events.shift();
-
-  const summary = summarize(events);
+  const activeStore = store ?? createPostgresGuidedPromptMonitorStore(pool);
+  const { summary, actionable } = await activeStore.recordAndClaimAlerts({ ...event, at: now }, config);
   logger.info({
     metric: "guided_prompt_generation_window",
     windowMs: config.windowMs,
     ...summary,
   }, "Guided prompt generation window metric");
 
-  if (!config.webhookUrl) return;
+  if (!config.webhookUrl || !actionable.length) return;
 
-  const reasons: AlertReason[] = [];
-  if (summary.total >= config.minSamples && summary.fallbackRate >= config.fallbackRateThreshold) {
-    reasons.push({
-      kind: "fallback_rate",
-      actual: summary.fallbackRate,
-      threshold: config.fallbackRateThreshold,
-    });
-  }
-  for (const [failureType, threshold] of Object.entries(config.failureThresholds) as
-    [GuidedPromptFailureType, number][]) {
-    const actual = summary.failures[failureType];
-    if (actual >= threshold) reasons.push({ kind: "failure_count", failureType, actual, threshold });
-  }
-
-  const actionable = reasons.filter(reason => {
-    const key = reason.kind === "fallback_rate" ? reason.kind : `${reason.kind}:${reason.failureType}`;
-    return now - (lastAlerts.get(key) ?? -Infinity) >= config.cooldownMs;
-  });
-  if (!actionable.length) return;
-
-  for (const reason of actionable) {
-    const key = reason.kind === "fallback_rate" ? reason.kind : `${reason.kind}:${reason.failureType}`;
-    lastAlerts.set(key, now);
-  }
   scheduleAlertDelivery(config.webhookUrl, {
     event: "guided_prompt_generation_alert",
     window: { durationMs: config.windowMs, endedAt: new Date(now).toISOString() },
@@ -381,11 +463,44 @@ export async function waitForGuidedPromptAlertDeliveriesForTests(): Promise<void
 }
 
 export function resetGuidedPromptMonitorForTests(): void {
-  events.length = 0;
-  lastAlerts.clear();
   pendingDeliveries.clear();
   deliveryEvents.length = 0;
   consecutiveDeliveryFailures = 0;
   lastDeliveryHealthAlertAt = -Infinity;
   deliveryDegradation = undefined;
+}
+
+function reasonKey(reason: AlertReason): string {
+  return reason.kind === "fallback_rate" ? reason.kind : `${reason.kind}:${reason.failureType}`;
+}
+
+const failureTypes = [
+  "authentication",
+  "rate_limit",
+  "timeout",
+  "upstream",
+  "invalid_response",
+  "unknown",
+] as const;
+
+/** 테스트에서만 사용하는, PostgreSQL 저장소와 같은 의미의 공유 메모리 저장소. */
+export function createInMemoryGuidedPromptMonitorStore(): GuidedPromptMonitorStore {
+  const events: Event[] = [];
+  const lastAlerts = new Map<string, number>();
+  return {
+    async recordAndClaimAlerts(event, config) {
+      events.push(event);
+      const cutoff = event.at - config.windowMs;
+      while (events[0]?.at < cutoff) events.shift();
+      const summary = summarize(events.filter(item => item.at <= event.at));
+      const reasons = config.webhookUrl ? reasonsFor(summary, config) : [];
+      const actionable = reasons.filter(reason => {
+        const key = reasonKey(reason);
+        if (event.at - (lastAlerts.get(key) ?? -Infinity) < config.cooldownMs) return false;
+        lastAlerts.set(key, event.at);
+        return true;
+      });
+      return { summary, actionable };
+    },
+  };
 }

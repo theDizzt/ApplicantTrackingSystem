@@ -6,3 +6,4 @@ export * from "./interviews";
 export * from "./organizations";
 export * from "./settings";
 export * from "./sessions";
+export * from "./guided-prompt-monitor";
