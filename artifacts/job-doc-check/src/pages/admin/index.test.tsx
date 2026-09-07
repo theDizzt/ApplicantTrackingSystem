@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import { AISettingsTab } from "./index"
 
@@ -121,5 +121,68 @@ describe("AISettingsTab 알림 채널 상태", () => {
       "알림 채널 상태를 불러오지 못했습니다.",
     )
     expect(screen.queryByText("internal details must not be shown")).not.toBeInTheDocument()
+  })
+
+  it("조회 장애가 끝난 뒤 새로고침하면 최신 지표로 복구하며 중복 요청하지 않는다", async () => {
+    const lastDeliveryAt = "2026-09-07T05:30:00.000Z"
+    const recoveredStatus = {
+      configured: true,
+      windowMs: 3_600_000,
+      total: 10,
+      succeeded: 9,
+      failureRate: 0.1,
+      successRate: 0.9,
+      consecutiveFailures: 1,
+      lastOutcome: "success",
+      lastDeliveryAt,
+    }
+    let alertRequestCount = 0
+    let resolveRefresh!: (response: ReturnType<typeof jsonResponse>) => void
+    const refreshResponse = new Promise<ReturnType<typeof jsonResponse>>((resolve) => {
+      resolveRefresh = resolve
+    })
+
+    mocks.fetch.mockImplementation(async (input: string | URL | Request) => {
+      const url = String(input)
+      if (url.endsWith("/admin/settings/alerts/delivery-status")) {
+        alertRequestCount += 1
+        if (alertRequestCount === 1) {
+          return jsonResponse({ error: "temporary internal outage" }, false)
+        }
+        return refreshResponse
+      }
+      if (url.endsWith("/admin/settings/ai/health")) {
+        return jsonResponse({ ok: true, code: "ok" })
+      }
+      if (url.endsWith("/admin/settings/ai")) {
+        return jsonResponse(aiSettings)
+      }
+      throw new Error(`Unexpected request: ${url}`)
+    })
+
+    render(<AISettingsTab />)
+
+    expect(await screen.findByTestId("status-alert-error")).toHaveTextContent(
+      "알림 채널 상태를 불러오지 못했습니다.",
+    )
+
+    const refreshButton = screen.getByTestId("button-refresh-alert-status")
+    fireEvent.click(refreshButton)
+    fireEvent.click(refreshButton)
+
+    expect(refreshButton).toBeDisabled()
+    expect(alertRequestCount).toBe(2)
+
+    resolveRefresh(jsonResponse(recoveredStatus))
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("status-alert-error")).not.toBeInTheDocument()
+    })
+    expect(screen.getByTestId("text-alert-success-rate")).toHaveTextContent("90%")
+    expect(screen.getByTestId("text-alert-last-delivery")).toHaveTextContent(
+      new Date(lastDeliveryAt).toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" }),
+    )
+    expect(screen.getByTestId("text-alert-consecutive-failures")).toHaveTextContent("1건")
+    expect(alertRequestCount).toBe(2)
   })
 })
