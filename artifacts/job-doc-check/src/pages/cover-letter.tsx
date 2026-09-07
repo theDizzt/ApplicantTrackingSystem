@@ -210,10 +210,10 @@ export default function CoverLetterPage() {
     const file = e.target.files?.[0];
     if (!file) return;
     
-    if (file.size > 25 * 1024 * 1024) {
+    if (file.size > 50 * 1024 * 1024) {
       toast({
         title: "파일 크기 초과",
-        description: "25MB 이하의 오디오 파일만 업로드 가능합니다.",
+        description: "50MB 이하의 오디오 파일만 업로드 가능합니다.",
         variant: "destructive"
       });
       return;
@@ -330,7 +330,7 @@ export default function CoverLetterPage() {
           <CardHeader>
             <CardTitle>오디오 입력</CardTitle>
             <CardDescription>
-              마이크를 사용해 직접 녹음하거나 오디오 파일을 업로드하세요. (최대 25MB)
+              마이크를 사용해 직접 녹음하거나 오디오 파일을 업로드하세요. (최대 50MB)
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -388,7 +388,7 @@ export default function CoverLetterPage() {
                     <UploadCloud className="w-10 h-10" />
                   </div>
                   <div className="text-base font-semibold text-slate-800 mb-2">오디오 파일을 선택하세요</div>
-                  <div className="text-sm text-slate-500 mb-8">지원 형식: mp3, wav, m4a, ogg 등 (최대 25MB)</div>
+                  <div className="text-sm text-slate-500 mb-8">지원 형식: mp3, wav, m4a, ogg 등 (최대 50MB)</div>
                   
                   <Button asChild size="lg" className="px-8 shadow-sm font-semibold" data-testid="button-upload-file">
                     <label className="cursor-pointer">

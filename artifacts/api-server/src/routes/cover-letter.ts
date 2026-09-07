@@ -11,7 +11,7 @@ import { DEFAULT_STT_MODEL, getAI, getSetting } from "../lib/openai";
 
 const execFileAsync = promisify(execFile);
 const router: IRouter = Router();
-const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 50 * 1024 * 1024;
 const MAX_AUDIO_SECONDS = 10 * 60;
 const ALLOWED_EXTENSIONS = new Set([".webm", ".wav", ".mp3", ".m4a", ".mp4", ".ogg", ".oga", ".aac", ".flac"]);
 
@@ -32,7 +32,7 @@ const handleAudioUpload: RequestHandler = (req, res, next) => {
       return;
     }
     if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
-      res.status(413).json({ error: "오디오 파일은 25MB 이하만 업로드할 수 있습니다." });
+      res.status(413).json({ error: "오디오 파일은 50MB 이하만 업로드할 수 있습니다." });
       return;
     }
     if (error instanceof Error && error.message === "지원하지 않는 오디오 형식입니다.") {
