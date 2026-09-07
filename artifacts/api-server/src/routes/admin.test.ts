@@ -2,10 +2,18 @@ import express, { type Request } from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { checkAIHealth, getAIHealthStatus, getDeliveryStatus } = vi.hoisted(() => ({
+const {
+  checkAIHealth,
+  getAIConfig,
+  getAIHealthStatus,
+  getDeliveryStatus,
+  getSetting,
+} = vi.hoisted(() => ({
   checkAIHealth: vi.fn(),
+  getAIConfig: vi.fn(),
   getAIHealthStatus: vi.fn(),
   getDeliveryStatus: vi.fn(),
+  getSetting: vi.fn(),
 }));
 
 vi.mock("@workspace/db", () => ({
@@ -18,8 +26,8 @@ vi.mock("@workspace/db", () => ({
 vi.mock("../lib/openai", () => ({
   DEFAULT_STT_MODEL: "test-stt-model",
   getAI: vi.fn(),
-  getAIConfig: vi.fn(),
-  getSetting: vi.fn(),
+  getAIConfig,
+  getSetting,
   saveSetting: vi.fn(),
   invalidateAICache: vi.fn(),
   checkAIHealth,
@@ -55,6 +63,152 @@ function makeApp(isAdmin: boolean) {
   app.use(adminRouter);
   return app;
 }
+
+const aiSettingsKeys = [
+  "apiKeyMasked",
+  "hasApiKey",
+  "baseUrl",
+  "model",
+  "sttModel",
+  "apiKey2Masked",
+  "hasApiKey2",
+  "baseUrl2",
+  "model2",
+  "apiKey3Masked",
+  "hasApiKey3",
+  "baseUrl3",
+  "model3",
+].sort();
+
+describe("admin AI settings response contract", () => {
+  beforeEach(() => {
+    getAIConfig.mockReset();
+    getSetting.mockReset();
+  });
+
+  it("rejects non-admin requests before reading AI settings", async () => {
+    const response = await request(makeApp(false)).get("/admin/settings/ai");
+
+    expect(response.status).toBe(403);
+    expect(response.body).toEqual({ error: "관리자 권한이 필요합니다." });
+    expect(getAIConfig).not.toHaveBeenCalled();
+    expect(getSetting).not.toHaveBeenCalled();
+  });
+
+  it("returns the fixed empty-settings shape without any API key field", async () => {
+    getAIConfig.mockResolvedValue({
+      apiKey: "",
+      baseUrl: undefined,
+      model: "default-model",
+    });
+    getSetting.mockResolvedValue(undefined);
+
+    const response = await request(makeApp(true)).get("/admin/settings/ai");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      apiKeyMasked: "",
+      hasApiKey: false,
+      baseUrl: "",
+      model: "default-model",
+      sttModel: "test-stt-model",
+      apiKey2Masked: "",
+      hasApiKey2: false,
+      baseUrl2: "",
+      model2: "",
+      apiKey3Masked: "",
+      hasApiKey3: false,
+      baseUrl3: "",
+      model3: "",
+    });
+    expect(Object.keys(response.body).sort()).toEqual(aiSettingsKeys);
+    expect(response.body).not.toHaveProperty("apiKey");
+    expect(response.body).not.toHaveProperty("apiKey2");
+    expect(response.body).not.toHaveProperty("apiKey3");
+  });
+
+  it("returns only masked keys and allowlisted fields for primary and secondary models", async () => {
+    const secrets = {
+      primary: "primary-secret-api-key",
+      secondary2: "secondary-two-secret-key",
+      secondary3: "secondary-three-secret-key",
+    };
+    getAIConfig.mockResolvedValue({
+      apiKey: secrets.primary,
+      baseUrl: "https://primary.example/v1",
+      model: "primary-model",
+      internalCredential: secrets.primary,
+    });
+    const settings: Record<string, string> = {
+      ai_stt_model: "custom-stt-model",
+      ai2_api_key: secrets.secondary2,
+      ai2_base_url: "https://secondary-two.example/v1",
+      ai2_model: "secondary-model-2",
+      ai3_api_key: secrets.secondary3,
+      ai3_base_url: "https://secondary-three.example/v1",
+      ai3_model: "secondary-model-3",
+    };
+    getSetting.mockImplementation(async (key: string) => settings[key]);
+
+    const response = await request(makeApp(true)).get("/admin/settings/ai");
+    const serialized = JSON.stringify(response.body);
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      apiKeyMasked: "primar…-key",
+      hasApiKey: true,
+      baseUrl: "https://primary.example/v1",
+      model: "primary-model",
+      sttModel: "custom-stt-model",
+      apiKey2Masked: "second…-key",
+      hasApiKey2: true,
+      baseUrl2: "https://secondary-two.example/v1",
+      model2: "secondary-model-2",
+      apiKey3Masked: "second…-key",
+      hasApiKey3: true,
+      baseUrl3: "https://secondary-three.example/v1",
+      model3: "secondary-model-3",
+    });
+    expect(Object.keys(response.body).sort()).toEqual(aiSettingsKeys);
+    expect(serialized).not.toContain(secrets.primary);
+    expect(serialized).not.toContain(secrets.secondary2);
+    expect(serialized).not.toContain(secrets.secondary3);
+    expect(serialized).not.toContain("internalCredential");
+  });
+
+  it("fully redacts short primary and secondary API keys", async () => {
+    const secrets = {
+      primary: "short-key",
+      secondary2: "tiny",
+      secondary3: "1234567890",
+    };
+    getAIConfig.mockResolvedValue({
+      apiKey: secrets.primary,
+      baseUrl: undefined,
+      model: "primary-model",
+    });
+    const settings: Record<string, string> = {
+      ai2_api_key: secrets.secondary2,
+      ai3_api_key: secrets.secondary3,
+    };
+    getSetting.mockImplementation(async (key: string) => settings[key]);
+
+    const response = await request(makeApp(true)).get("/admin/settings/ai");
+    const serialized = JSON.stringify(response.body);
+
+    expect(response.status).toBe(200);
+    expect(response.body.apiKeyMasked).toBe("••••••••");
+    expect(response.body.apiKey2Masked).toBe("••••••••");
+    expect(response.body.apiKey3Masked).toBe("••••••••");
+    expect(response.body.hasApiKey).toBe(true);
+    expect(response.body.hasApiKey2).toBe(true);
+    expect(response.body.hasApiKey3).toBe(true);
+    expect(Object.keys(response.body).sort()).toEqual(aiSettingsKeys);
+    expect(serialized).not.toContain(secrets.primary);
+    expect(serialized).not.toContain(secrets.secondary2);
+    expect(serialized).not.toContain(secrets.secondary3);
+  });
+});
 
 describe("admin AI health response contracts", () => {
   beforeEach(() => {

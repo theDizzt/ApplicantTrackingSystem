@@ -274,7 +274,52 @@ router.delete("/admin/organizations/:id", requireAdmin, async (req, res): Promis
 
 // ── AI 설정 (API 키 / Base URL / 모델) ────────────────────────────────────
 function maskApiKey(key: string): string {
-  return key ? key.slice(0, 6) + "…" + key.slice(-4) : "";
+  if (!key) return "";
+  if (key.length <= 10) return "••••••••";
+  return key.slice(0, 6) + "…" + key.slice(-4);
+}
+
+type AdminAISettingsResponse = {
+  apiKeyMasked: string;
+  hasApiKey: boolean;
+  baseUrl: string;
+  model: string;
+  sttModel: string;
+  apiKey2Masked: string;
+  hasApiKey2: boolean;
+  baseUrl2: string;
+  model2: string;
+  apiKey3Masked: string;
+  hasApiKey3: boolean;
+  baseUrl3: string;
+  model3: string;
+};
+
+function serializeAdminAISettings(input: {
+  config: Awaited<ReturnType<typeof getAIConfig>>;
+  sttModel: string | null | undefined;
+  apiKey2: string | null | undefined;
+  baseUrl2: string | null | undefined;
+  model2: string | null | undefined;
+  apiKey3: string | null | undefined;
+  baseUrl3: string | null | undefined;
+  model3: string | null | undefined;
+}): AdminAISettingsResponse {
+  return {
+    apiKeyMasked: maskApiKey(input.config.apiKey),
+    hasApiKey: !!input.config.apiKey,
+    baseUrl: input.config.baseUrl ?? "",
+    model: input.config.model,
+    sttModel: input.sttModel?.trim() || DEFAULT_STT_MODEL,
+    apiKey2Masked: maskApiKey(input.apiKey2 ?? ""),
+    hasApiKey2: !!(input.apiKey2 ?? ""),
+    baseUrl2: input.baseUrl2 ?? "",
+    model2: input.model2 ?? "",
+    apiKey3Masked: maskApiKey(input.apiKey3 ?? ""),
+    hasApiKey3: !!(input.apiKey3 ?? ""),
+    baseUrl3: input.baseUrl3 ?? "",
+    model3: input.model3 ?? "",
+  };
 }
 
 router.get("/admin/settings/ai", requireAdmin, async (_req, res): Promise<void> => {
@@ -288,22 +333,16 @@ router.get("/admin/settings/ai", requireAdmin, async (_req, res): Promise<void> 
     getSetting("ai3_base_url"),
     getSetting("ai3_model"),
   ]);
-  res.json({
-    apiKeyMasked: maskApiKey(config.apiKey),
-    hasApiKey: !!config.apiKey,
-    baseUrl: config.baseUrl ?? "",
-    model: config.model,
-    sttModel: sttModel?.trim() || DEFAULT_STT_MODEL,
-    // 보조 심사 모델 (선택)
-    apiKey2Masked: maskApiKey(apiKey2 ?? ""),
-    hasApiKey2: !!(apiKey2 ?? ""),
-    baseUrl2: baseUrl2 ?? "",
-    model2: model2 ?? "",
-    apiKey3Masked: maskApiKey(apiKey3 ?? ""),
-    hasApiKey3: !!(apiKey3 ?? ""),
-    baseUrl3: baseUrl3 ?? "",
-    model3: model3 ?? "",
-  });
+  res.json(serializeAdminAISettings({
+    config,
+    sttModel,
+    apiKey2,
+    baseUrl2,
+    model2,
+    apiKey3,
+    baseUrl3,
+    model3,
+  }));
 });
 
 router.put("/admin/settings/ai", requireAdmin, async (req, res): Promise<void> => {
