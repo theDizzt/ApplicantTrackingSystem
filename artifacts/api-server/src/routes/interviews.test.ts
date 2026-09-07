@@ -10,8 +10,48 @@ const mocks = vi.hoisted(() => ({
   insertResults: [] as unknown[][],
   aiCreate: vi.fn(),
   logError: vi.fn(),
+  transcribeCreate: vi.fn(),
+  getSetting: vi.fn(),
   insertedValues: [] as unknown[],
 }));
+
+vi.mock("child_process", () => ({
+  execFile: vi.fn((
+    _file: string,
+    _args: string[],
+    _options: unknown,
+    callback: (error: null, result: { stdout: string; stderr: string }) => void,
+  ) => callback(null, { stdout: "", stderr: "" })),
+}));
+
+vi.mock("fs/promises", () => ({
+  default: {
+    writeFile: vi.fn(async () => {}),
+    readFile: vi.fn(async () => Buffer.from("mock wav audio")),
+    unlink: vi.fn(async () => {}),
+  },
+}));
+
+vi.mock("openai", () => {
+  class APIError extends Error {
+    code?: string;
+
+    constructor(message: string, code?: string) {
+      super(message);
+      this.code = code;
+    }
+  }
+
+  class OpenAI {
+    static APIError = APIError;
+    audio = { transcriptions: { create: mocks.transcribeCreate } };
+  }
+
+  return {
+    default: OpenAI,
+    toFile: vi.fn(async (buffer: Buffer) => buffer),
+  };
+});
 
 function query(result: unknown) {
   const promise = Promise.resolve(result);
@@ -59,6 +99,8 @@ vi.mock("drizzle-orm", () => ({
 }));
 
 vi.mock("../lib/openai", () => ({
+  DEFAULT_STT_MODEL: "whisper-1",
+  getSetting: mocks.getSetting,
   getAI: async () => ({
     model: "test-model",
     openai: { chat: { completions: { create: mocks.aiCreate } } },
@@ -84,11 +126,14 @@ const company = { name: "정확한 회사", talentProfile: "주도적으로 협�
 
 function makeApp() {
   const app = express();
-  app.use(express.json());
   app.use((req, _res, next) => {
-    req.log = { error: mocks.logError } as unknown as typeof req.log;
+    req.log = {
+      warn: vi.fn(),
+      error: mocks.logError,
+    } as unknown as typeof req.log;
     next();
   });
+  app.use(express.json());
   app.use(interviewsRouter);
   app.use(coverLetterRouter);
   return app;
@@ -107,6 +152,7 @@ beforeEach(() => {
   mocks.select.mockImplementation(() => query(mocks.selectResults.shift() ?? []));
   mocks.insert.mockImplementation(() => query(mocks.insertResults.shift() ?? []));
   mocks.update.mockImplementation(() => query([]));
+  mocks.getSetting.mockResolvedValue(null);
 });
 
 describe("interview routes", () => {
@@ -319,5 +365,79 @@ describe("guided cover letter prompts", () => {
     expect(prompt).toContain("협업 경험\n팀과 & 함께 문제를 해결했습니다.");
     expect(prompt).toContain("Node.js API 개발");
     expect(prompt).not.toMatch(/<\/?[a-z][^>]*>/i);
+  });
+});
+
+describe("cover letter audio generation", () => {
+  it("rejects audio larger than 50MB with a clear 413 response", async () => {
+    const response = await request(makeApp())
+      .post("/cover-letter/generate")
+      .set("x-user-id", "1")
+      .attach("audio", Buffer.alloc(50 * 1024 * 1024 + 1), {
+        filename: "recording.wav",
+        contentType: "audio/wav",
+      });
+
+    expect(response.status).toBe(413);
+    expect(response.body.error).toContain("50MB 이하");
+    expect(mocks.transcribeCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported file formats with a clear 415 response", async () => {
+    const response = await request(makeApp())
+      .post("/cover-letter/generate")
+      .set("x-user-id", "1")
+      .attach("audio", Buffer.from("not audio"), {
+        filename: "notes.txt",
+        contentType: "text/plain",
+      });
+
+    expect(response.status).toBe(415);
+    expect(response.body).toEqual({ error: "지원하지 않는 오디오 형식입니다." });
+    expect(mocks.transcribeCreate).not.toHaveBeenCalled();
+  });
+
+  it("returns 422 guidance when the recognized speech is too short", async () => {
+    mocks.transcribeCreate.mockResolvedValue({ text: "짧아요" });
+
+    const response = await request(makeApp())
+      .post("/cover-letter/generate")
+      .set("x-user-id", "1")
+      .attach("audio", Buffer.from("audio"), {
+        filename: "recording.webm",
+        contentType: "audio/webm",
+      });
+
+    expect(response.status).toBe(422);
+    expect(response.body.error).toContain("조금 더 길고 또렷하게");
+    expect(mocks.aiCreate).not.toHaveBeenCalled();
+  });
+
+  it("retries with the default STT model when the configured model is unsupported", async () => {
+    const OpenAI = (await import("openai")).default;
+    const unsupportedModelError = Object.assign(
+      Object.create(OpenAI.APIError.prototype) as InstanceType<typeof OpenAI.APIError>,
+      { message: "model is not supported", code: "UNSUPPORTED_MODEL" },
+    );
+    mocks.getSetting.mockResolvedValue("configured-stt-model");
+    mocks.transcribeCreate
+      .mockRejectedValueOnce(unsupportedModelError)
+      .mockResolvedValueOnce({ text: "충분히 길게 말한 자기소개서 원문입니다." });
+    mocks.aiCreate.mockResolvedValue({
+      choices: [{ message: { content: "## 성장배경\n작성된 자기소개서" } }],
+    });
+
+    const response = await request(makeApp())
+      .post("/cover-letter/generate")
+      .set("x-user-id", "1")
+      .attach("audio", Buffer.from("audio"), {
+        filename: "recording.webm",
+        contentType: "audio/webm",
+      });
+
+    expect(response.status).toBe(200);
+    expect(mocks.transcribeCreate).toHaveBeenCalledTimes(2);
+    expect(mocks.transcribeCreate.mock.calls.map(([input]) => input.model))
+      .toEqual(["configured-stt-model", "whisper-1"]);
   });
 });
