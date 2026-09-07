@@ -10,3 +10,4 @@
 - [api-server 통합 테스트 패턴](api-server-test-mocks.md) — admin 라우터를 vitest에서 직접 띄우는 법: db/미들웨어/openai 모듈 mock + 가짜 Ollama(11434) + 레지스트리 fetch stub
 - [심사 한도·특권 안전성](analysis-quota-entitlements.md) — 무제한 권한은 구독과 분리하고, 월 리셋·차감은 행 잠금 단일 트랜잭션으로 처리
 - [OpenAPI 바이너리 업로드 코드 생성](openapi-binary-upload-codegen.md) — multipart binary는 클라이언트 Blob·서버 Zod File을 생성하므로 공유 타입 빌드에 DOM 타입이 필요
+- [다중 서버 운영 집계 시각](multi-instance-operational-clock.md) — 공유 집계의 기록·구간·쿨다운·표시 시각은 한 트랜잭션에서 얻은 PostgreSQL 시각을 함께 사용할 것

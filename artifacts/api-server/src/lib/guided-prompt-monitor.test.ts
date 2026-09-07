@@ -400,4 +400,110 @@ describe("guided prompt PostgreSQL monitor store", () => {
       await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     }
   });
+
+  it("uses the PostgreSQL clock for event windows despite opposite instance clock skew", async () => {
+    const schema = `guided_prompt_clock_test_${process.pid}`;
+    await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    await pool.query(`CREATE SCHEMA "${schema}"`);
+    await pool.query(
+      `CREATE TABLE "${schema}".guided_prompt_generation_events (
+         id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+         occurred_at timestamptz NOT NULL,
+         outcome text NOT NULL,
+         failure_type text
+       );
+       CREATE TABLE "${schema}".guided_prompt_alert_states (
+         reason_key text PRIMARY KEY,
+         last_alerted_at timestamptz NOT NULL
+       );`,
+    );
+    const PoolConstructor = pool.constructor as unknown as new (
+      config: { connectionString?: string; options?: string; max?: number },
+    ) => typeof pool;
+    const testPool = new PoolConstructor({
+      connectionString: process.env.DATABASE_URL,
+      options: `-c search_path=${schema}`,
+      max: 2,
+    });
+
+    try {
+      const firstInstance = createPostgresGuidedPromptMonitorStore(testPool);
+      const secondInstance = createPostgresGuidedPromptMonitorStore(testPool);
+      const oneHour = 60 * 60_000;
+
+      await recordGuidedPromptGenerationWithStore(
+        { outcome: "fallback", failureType: "rate_limit" },
+        logger,
+        Date.now() - oneHour,
+        config,
+        firstInstance,
+      );
+      await recordGuidedPromptGenerationWithStore(
+        { outcome: "fallback", failureType: "rate_limit" },
+        logger,
+        Date.now() + oneHour,
+        config,
+        secondInstance,
+      );
+      await waitForGuidedPromptAlertDeliveriesForTests();
+
+      expect(fetch).toHaveBeenCalledOnce();
+      const payload = JSON.parse((fetch as any).mock.calls[0][1].body);
+      expect(payload.summary).toMatchObject({ total: 2, fallback: 2 });
+      expect(Math.abs(Date.parse(payload.window.endedAt) - Date.now())).toBeLessThan(10_000);
+
+      const timestamps = await testPool.query<{ skew_ms: string }>(
+        `SELECT EXTRACT(EPOCH FROM (MAX(occurred_at) - MIN(occurred_at))) * 1000 AS skew_ms
+         FROM guided_prompt_generation_events`,
+      );
+      expect(Number(timestamps.rows[0]!.skew_ms)).toBeLessThan(10_000);
+    } finally {
+      await testPool.end();
+      await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
+    }
+  });
+
+  it("uses inclusive PostgreSQL window and cooldown boundaries", async () => {
+    const databaseNow = new Date("2026-09-07T12:00:00.000Z");
+    const queries: Array<{ sql: string; values?: unknown[] }> = [];
+    const client = {
+      query: vi.fn(async (sql: string, values?: unknown[]) => {
+        queries.push({ sql, values });
+        if (sql === "SELECT clock_timestamp() AS now") return { rows: [{ now: databaseNow }] };
+        if (sql.includes("COUNT(*)::text")) {
+          return {
+            rows: [{
+              total: "2", generated: "0", fallback: "2",
+              authentication: "0", rate_limit: "2", timeout: "0",
+              upstream: "0", invalid_response: "0", unknown: "0",
+            }],
+          };
+        }
+        if (sql.includes("RETURNING reason_key")) return { rows: [{ reason_key: "x" }], rowCount: 1 };
+        return { rows: [], rowCount: 0 };
+      }),
+      release: vi.fn(),
+    };
+    const boundaryStore = createPostgresGuidedPromptMonitorStore({
+      connect: vi.fn().mockResolvedValue(client),
+    } as any);
+
+    const result = await boundaryStore.recordAndClaimAlerts(
+      { at: databaseNow.getTime() + 60 * 60_000, outcome: "fallback", failureType: "rate_limit" },
+      config,
+    );
+
+    const aggregate = queries.find(query => query.sql.includes("COUNT(*)::text"))!;
+    expect(aggregate.sql).toContain("occurred_at >= $1 AND occurred_at <= $2");
+    expect(aggregate.values).toEqual([
+      new Date(databaseNow.getTime() - config.windowMs),
+      databaseNow,
+    ]);
+    const cooldownClaim = queries.find(query => query.sql.includes("RETURNING reason_key"))!;
+    expect(cooldownClaim.sql).toContain("last_alerted_at <= $3");
+    expect(cooldownClaim.values?.[2]).toEqual(
+      new Date(databaseNow.getTime() - config.cooldownMs),
+    );
+    expect(result.evaluatedAt).toBe(databaseNow.getTime());
+  });
 });

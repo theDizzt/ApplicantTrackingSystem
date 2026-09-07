@@ -39,7 +39,11 @@ export type GuidedPromptMonitorStore = {
   recordAndClaimAlerts(
     event: Event,
     config: GuidedPromptAlertConfig,
-  ): Promise<{ summary: ReturnType<typeof summarize>; actionable: AlertReason[] }>;
+  ): Promise<{
+    summary: ReturnType<typeof summarize>;
+    actionable: AlertReason[];
+    evaluatedAt: number;
+  }>;
 };
 const pendingDeliveries = new Set<Promise<void>>();
 type DeliveryOutcome = "success" | "permanent_failure" | "retries_exhausted";
@@ -361,12 +365,17 @@ export function createPostgresGuidedPromptMonitorStore(
         await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [
           "guided_prompt_generation_monitor",
         ]);
+        const clockResult = await client.query<{ now: Date }>(
+          "SELECT clock_timestamp() AS now",
+        );
+        const databaseNow = clockResult.rows[0]!.now;
+        const evaluatedAt = databaseNow.getTime();
         await client.query(
           `INSERT INTO guided_prompt_generation_events (occurred_at, outcome, failure_type)
            VALUES ($1, $2, $3)`,
-          [new Date(event.at), event.outcome, event.failureType ?? null],
+          [databaseNow, event.outcome, event.failureType ?? null],
         );
-        const cutoff = new Date(event.at - config.windowMs);
+        const cutoff = new Date(evaluatedAt - config.windowMs);
         await client.query("DELETE FROM guided_prompt_generation_events WHERE occurred_at < $1", [cutoff]);
 
         const result = await client.query<{
@@ -392,7 +401,7 @@ export function createPostgresGuidedPromptMonitorStore(
              COUNT(*) FILTER (WHERE failure_type = 'unknown')::text AS unknown
            FROM guided_prompt_generation_events
            WHERE occurred_at >= $1 AND occurred_at <= $2`,
-          [cutoff, new Date(event.at)],
+          [cutoff, databaseNow],
         );
         const row = result.rows[0]!;
         const total = Number(row.total);
@@ -418,12 +427,12 @@ export function createPostgresGuidedPromptMonitorStore(
              ON CONFLICT (reason_key) DO UPDATE SET last_alerted_at = EXCLUDED.last_alerted_at
              WHERE guided_prompt_alert_states.last_alerted_at <= $3
              RETURNING reason_key`,
-            [reasonKey(reason), new Date(event.at), new Date(event.at - config.cooldownMs)],
+            [reasonKey(reason), databaseNow, new Date(evaluatedAt - config.cooldownMs)],
           );
           if (claimed.rowCount) actionable.push(reason);
         }
         await client.query("COMMIT");
-        return { summary, actionable };
+        return { summary, actionable, evaluatedAt };
       } catch (error) {
         await client.query("ROLLBACK");
         throw error;
@@ -441,7 +450,8 @@ export async function recordGuidedPromptGeneration(
   store?: GuidedPromptMonitorStore,
 ): Promise<void> {
   const activeStore = store ?? createPostgresGuidedPromptMonitorStore(pool);
-  const { summary, actionable } = await activeStore.recordAndClaimAlerts({ ...event, at: now }, config);
+  const { summary, actionable, evaluatedAt } =
+    await activeStore.recordAndClaimAlerts({ ...event, at: now }, config);
   logger.info({
     metric: "guided_prompt_generation_window",
     windowMs: config.windowMs,
@@ -452,7 +462,7 @@ export async function recordGuidedPromptGeneration(
 
   scheduleAlertDelivery(config.webhookUrl, {
     event: "guided_prompt_generation_alert",
-    window: { durationMs: config.windowMs, endedAt: new Date(now).toISOString() },
+    window: { durationMs: config.windowMs, endedAt: new Date(evaluatedAt).toISOString() },
     summary,
     reasons: actionable,
   }, logger, config);
@@ -500,7 +510,7 @@ export function createInMemoryGuidedPromptMonitorStore(): GuidedPromptMonitorSto
         lastAlerts.set(key, event.at);
         return true;
       });
-      return { summary, actionable };
+      return { summary, actionable, evaluatedAt: event.at };
     },
   };
 }

@@ -16,6 +16,8 @@ jobs:
     name: API Server Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app
     services:
       postgres:
         image: postgres:16
@@ -62,7 +64,6 @@ jobs:
         env:
           ADMIN_PASSWORD_HASH: ci-smoke-test-unused-hash
           ADMIN_USERNAME: ci-smoke-test-admin
-          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app
           SESSION_SECRET: ci-smoke-test-session-secret
           SMOKE_TEST_PORT: "43123"
         run: pnpm --filter @workspace/api-server run smoke:start
