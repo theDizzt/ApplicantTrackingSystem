@@ -195,14 +195,18 @@ ${resumeText || "(작성된 이력서 본문 없음)"}`,
 
     const generated = parseGuidedPrompts(response.choices[0]?.message?.content ?? "{}");
     const prompts = [...generated];
+    let usedFallback = false;
     for (const fallback of FALLBACK_GUIDED_PROMPTS) {
       if (prompts.length >= 6) break;
-      if (!prompts.includes(fallback)) prompts.push(fallback);
+      if (!prompts.includes(fallback)) {
+        prompts.push(fallback);
+        usedFallback = true;
+      }
     }
-    res.json({ prompts: prompts.slice(0, 8) });
+    res.json({ prompts: prompts.slice(0, 8), usedFallback });
   } catch (error) {
     req.log.error({ err: error, resumeId }, "Failed to generate guided recording prompts");
-    res.json({ prompts: FALLBACK_GUIDED_PROMPTS });
+    res.json({ prompts: FALLBACK_GUIDED_PROMPTS, usedFallback: true });
   }
 });
 

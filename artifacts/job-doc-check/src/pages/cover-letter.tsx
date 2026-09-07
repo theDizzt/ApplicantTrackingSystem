@@ -79,6 +79,7 @@ export default function CoverLetterPage() {
 
   const [guidedResumeId, setGuidedResumeId] = useState('');
   const [guidedPrompts, setGuidedPrompts] = useState<string[]>([]);
+  const [usedFallbackPrompts, setUsedFallbackPrompts] = useState(false);
   const [currentPromptIndex, setCurrentPromptIndex] = useState(0);
   const [isFetchingPrompts, setIsFetchingPrompts] = useState(false);
 
@@ -145,6 +146,7 @@ export default function CoverLetterPage() {
       
       const result = await response.json();
       setGuidedPrompts(result.prompts || []);
+      setUsedFallbackPrompts(result.usedFallback === true);
       setCurrentPromptIndex(0);
     } catch (err: unknown) {
       toast({
@@ -451,7 +453,10 @@ export default function CoverLetterPage() {
                           variant="ghost" 
                           size="sm" 
                           className="text-slate-500 hover:text-slate-700"
-                          onClick={() => setGuidedPrompts([])}
+                          onClick={() => {
+                            setGuidedPrompts([]);
+                            setUsedFallbackPrompts(false);
+                          }}
                           disabled={recording}
                           data-testid="button-reset-prompts"
                         >
@@ -459,6 +464,17 @@ export default function CoverLetterPage() {
                           질문 다시 생성
                         </Button>
                       </div>
+
+                      {usedFallbackPrompts && (
+                        <div
+                          className="mb-6 flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+                          data-testid="guided-prompts-fallback-notice"
+                          role="status"
+                        >
+                          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                          <span>맞춤 질문을 만들지 못해 기본 질문으로 안내하고 있습니다. 그대로 녹음을 계속하셔도 됩니다.</span>
+                        </div>
+                      )}
                       
                       <div className="bg-white p-6 sm:p-8 rounded-xl border shadow-sm mb-8 min-h-[160px] flex items-center justify-center text-center">
                         <p className="text-lg sm:text-xl font-medium text-slate-800 leading-relaxed">
