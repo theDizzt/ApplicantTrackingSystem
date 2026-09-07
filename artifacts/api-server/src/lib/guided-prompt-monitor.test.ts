@@ -3,6 +3,7 @@ import { pool } from "@workspace/db";
 import {
   createInMemoryGuidedPromptMonitorStore,
   createPostgresGuidedPromptMonitorStore,
+  getGuidedPromptAlertConfig,
   getGuidedPromptDeliveryAdminStatus,
   getGuidedPromptDeliveryStatus,
   recordGuidedPromptGeneration as recordGuidedPromptGenerationWithStore,
@@ -53,6 +54,7 @@ describe("guided prompt generation monitor", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.clearAllMocks();
   });
 
@@ -67,7 +69,7 @@ describe("guided prompt generation monitor", () => {
     await waitForGuidedPromptAlertDeliveriesForTests();
 
     expect(fetch).toHaveBeenCalledOnce();
-    const payload = JSON.parse((fetch as any).mock.calls[0][1].body);
+      const payload = JSON.parse((fetch as any).mock.calls[0][1].body);
     expect(payload.summary).toMatchObject({
       total: 2,
       generated: 1,
@@ -92,7 +94,7 @@ describe("guided prompt generation monitor", () => {
     );
     await waitForGuidedPromptAlertDeliveriesForTests();
 
-    const payload = JSON.parse((fetch as any).mock.calls[0][1].body as string);
+      const payload = JSON.parse((fetch as any).mock.calls[0][1].body);
     expect(payload.reasons).toContainEqual({
       kind: "failure_count",
       failureType: "rate_limit",
@@ -308,6 +310,178 @@ describe("guided prompt generation monitor", () => {
     expect(JSON.stringify(recoveryEvents)).not.toMatch(/userId|resumeId|resume|content/);
     vi.useRealTimers();
   });
+
+  it("records one flapping event when health transitions repeatedly within the configured window", async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: false, status: 400 } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200 } as Response)
+      .mockResolvedValueOnce({ ok: false, status: 400 } as Response)
+      .mockResolvedValue({ ok: true, status: 200 } as Response);
+    const flappingConfig = {
+      ...config,
+      cooldownMs: 0,
+      minSamples: 1,
+      deliveryConsecutiveFailureThreshold: 1,
+      deliveryMinSamples: 10,
+      deliveryFlappingWindowMs: 10_000,
+      deliveryFlappingTransitionThreshold: 4,
+      deliveryFlappingCooldownMs: 60_000,
+    };
+
+    for (let index = 0; index < 4; index += 1) {
+      vi.setSystemTime(10_000 + index * 1_000);
+      await recordGuidedPromptGeneration(
+        { outcome: "fallback", failureType: "timeout" },
+        logger,
+        1_000 + index,
+        flappingConfig,
+      );
+      await waitForGuidedPromptAlertDeliveriesForTests();
+    }
+
+    const flappingEvents = logger.error.mock.calls
+      .filter((call: any[]) => call[0].operationalEvent === "guided_prompt_alert_channel_flapping");
+    expect(flappingEvents).toEqual([[
+      {
+        operationalEvent: "guided_prompt_alert_channel_flapping",
+        windowMs: 10_000,
+        transitionCount: 4,
+        transitionThreshold: 4,
+        currentState: "recovered",
+      },
+      "Guided prompt alert channel is repeatedly changing health state",
+    ]]);
+    expect(JSON.stringify(flappingEvents)).not.toContain(config.webhookUrl);
+    expect(JSON.stringify(flappingEvents)).not.toMatch(/userId|resumeId|resume|content/);
+    vi.useRealTimers();
+  });
+
+  it("detects repeated channel degradation and recovery with the default operational settings", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("GUIDED_PROMPT_ALERT_WEBHOOK_URL", "https://alerts.example.test/hook");
+    const defaultConfig = getGuidedPromptAlertConfig();
+    const deliveryOutcomes = [false, false, false, true, false, false, false, true];
+    let deliveryIndex = 0;
+    vi.mocked(fetch).mockImplementation(async () => {
+      const ok = deliveryOutcomes[deliveryIndex++]!;
+      return { ok, status: ok ? 200 : 400 } as Response;
+    });
+
+    expect(defaultConfig).toMatchObject({
+      cooldownMs: 30 * 60_000,
+      deliveryConsecutiveFailureThreshold: 3,
+      deliveryFlappingWindowMs: 3 * 60 * 60_000,
+      deliveryFlappingTransitionThreshold: 4,
+    });
+
+    for (let batch = 0; batch < deliveryOutcomes.length; batch += 1) {
+      const now = batch * 30 * 60_000;
+      vi.setSystemTime(now);
+      for (let sample = 0; sample < 5; sample += 1) {
+        await recordGuidedPromptGeneration(
+          { outcome: "fallback", failureType: "timeout" },
+          logger,
+          now,
+          defaultConfig,
+        );
+      }
+      await waitForGuidedPromptAlertDeliveriesForTests();
+    }
+
+    const flappingEvents = logger.error.mock.calls
+      .filter((call: any[]) => call[0].operationalEvent === "guided_prompt_alert_channel_flapping");
+    expect(fetch).toHaveBeenCalledTimes(8);
+    expect(flappingEvents).toEqual([[
+      {
+        operationalEvent: "guided_prompt_alert_channel_flapping",
+        windowMs: 3 * 60 * 60_000,
+        transitionCount: 4,
+        transitionThreshold: 4,
+        currentState: "recovered",
+      },
+      "Guided prompt alert channel is repeatedly changing health state",
+    ]]);
+    vi.useRealTimers();
+  });
+
+  it("drops old health transitions and suppresses repeated flapping events during cooldown", async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: false, status: 400 } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200 } as Response)
+      .mockResolvedValueOnce({ ok: false, status: 400 } as Response)
+      .mockResolvedValueOnce({ ok: true, status: 200 } as Response)
+      .mockResolvedValueOnce({ ok: false, status: 400 } as Response)
+      .mockResolvedValue({ ok: true, status: 200 } as Response);
+    const flappingConfig = {
+      ...config,
+      cooldownMs: 0,
+      minSamples: 1,
+      deliveryConsecutiveFailureThreshold: 1,
+      deliveryMinSamples: 10,
+      deliveryHealthCooldownMs: 0,
+      deliveryFlappingWindowMs: 5_000,
+      deliveryFlappingTransitionThreshold: 3,
+      deliveryFlappingCooldownMs: 60_000,
+    };
+
+    const times = [1_000, 2_000, 10_000, 11_000, 12_000, 13_000];
+    for (const [index, time] of times.entries()) {
+      vi.setSystemTime(time);
+      await recordGuidedPromptGeneration(
+        { outcome: "fallback", failureType: "timeout" },
+        logger,
+        index + 1,
+        flappingConfig,
+      );
+      await waitForGuidedPromptAlertDeliveriesForTests();
+    }
+
+    const flappingEvents = logger.error.mock.calls
+      .filter((call: any[]) => call[0].operationalEvent === "guided_prompt_alert_channel_flapping");
+    expect(flappingEvents).toHaveLength(1);
+    expect(flappingEvents[0][0]).toMatchObject({
+      transitionCount: 3,
+      currentState: "degraded",
+    });
+    vi.useRealTimers();
+  });
+
+  it("does not count repeated failures during one continuous degradation as health transitions", async () => {
+    vi.useFakeTimers();
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 400 } as Response);
+    const continuousFailureConfig = {
+      ...config,
+      cooldownMs: 0,
+      minSamples: 1,
+      deliveryConsecutiveFailureThreshold: 1,
+      deliveryMinSamples: 10,
+      deliveryHealthCooldownMs: 0,
+      deliveryFlappingWindowMs: 60_000,
+      deliveryFlappingTransitionThreshold: 2,
+      deliveryFlappingCooldownMs: 0,
+    };
+
+    for (let index = 0; index < 4; index += 1) {
+      vi.setSystemTime(1_000 + index * 1_000);
+      await recordGuidedPromptGeneration(
+        { outcome: "fallback", failureType: "timeout" },
+        logger,
+        index + 1,
+        continuousFailureConfig,
+      );
+      await waitForGuidedPromptAlertDeliveriesForTests();
+    }
+
+    expect(logger.error.mock.calls
+      .filter((call: any[]) => call[0].operationalEvent === "guided_prompt_alert_channel_flapping"))
+      .toHaveLength(0);
+    expect(logger.error.mock.calls
+      .filter((call: any[]) => call[0].operationalEvent === "guided_prompt_alert_channel_degraded"))
+      .toHaveLength(1);
+    vi.useRealTimers();
+  });
 });
 
 describe("guided prompt PostgreSQL monitor store", () => {
@@ -318,11 +492,12 @@ describe("guided prompt PostgreSQL monitor store", () => {
 
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.clearAllMocks();
   });
 
   it("shares concurrent counts and cooldown state without storing user or resume data", async () => {
-    const schema = `guided_prompt_monitor_test_${process.pid}`;
+    const schema = `guided_prompt_clock_test_${process.pid}`;
     await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
     await pool.query(`CREATE SCHEMA "${schema}"`);
     await pool.query(
@@ -337,15 +512,15 @@ describe("guided prompt PostgreSQL monitor store", () => {
          last_alerted_at timestamptz NOT NULL
        );`,
     );
-
     const PoolConstructor = pool.constructor as unknown as new (
       config: { connectionString?: string; options?: string; max?: number },
     ) => typeof pool;
     const testPool = new PoolConstructor({
       connectionString: process.env.DATABASE_URL,
       options: `-c search_path=${schema}`,
-      max: 4,
+      max: 2,
     });
+
     try {
       const firstInstance = createPostgresGuidedPromptMonitorStore(testPool);
       const secondInstance = createPostgresGuidedPromptMonitorStore(testPool);

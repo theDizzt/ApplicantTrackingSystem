@@ -33,6 +33,9 @@ export type GuidedPromptAlertConfig = {
   deliveryFailureRateThreshold?: number;
   deliveryConsecutiveFailureThreshold?: number;
   deliveryHealthCooldownMs?: number;
+  deliveryFlappingWindowMs?: number;
+  deliveryFlappingTransitionThreshold?: number;
+  deliveryFlappingCooldownMs?: number;
 };
 
 export type GuidedPromptMonitorStore = {
@@ -57,6 +60,9 @@ type DeliveryDegradation = {
   retriesExhausted: number;
 };
 let deliveryDegradation: DeliveryDegradation | undefined;
+
+let deliveryHealthState: "healthy" | "degraded" = "healthy";
+const deliveryHealthTransitions: { at: number; state: "degraded" | "recovered" }[] = [];
 const WEBHOOK_MAX_ATTEMPTS = 3;
 const WEBHOOK_RETRY_BASE_MS = 250;
 const WEBHOOK_TIMEOUT_MS = 5_000;
@@ -96,6 +102,15 @@ export function getGuidedPromptAlertConfig(): GuidedPromptAlertConfig {
       readNumber("GUIDED_PROMPT_DELIVERY_CONSECUTIVE_FAILURES", 3, 1),
     ),
     deliveryHealthCooldownMs: readNumber("GUIDED_PROMPT_DELIVERY_HEALTH_COOLDOWN_MS", 30 * 60_000, 0),
+    deliveryFlappingWindowMs: readNumber("GUIDED_PROMPT_DELIVERY_FLAPPING_WINDOW_MS", 3 * 60 * 60_000, 1),
+    deliveryFlappingTransitionThreshold: Math.floor(
+      readNumber("GUIDED_PROMPT_DELIVERY_FLAPPING_TRANSITIONS", 4, 2),
+    ),
+    deliveryFlappingCooldownMs: readNumber(
+      "GUIDED_PROMPT_DELIVERY_FLAPPING_COOLDOWN_MS",
+      30 * 60_000,
+      0,
+    ),
   };
 }
 
@@ -126,6 +141,34 @@ function getDeliverySettings(config: GuidedPromptAlertConfig) {
   };
 }
 
+function recordDeliveryHealthTransition(
+  state: "degraded" | "recovered",
+  now: number,
+  logger: Logger,
+  config: GuidedPromptAlertConfig,
+): void {
+  const windowMs = config.deliveryFlappingWindowMs ?? 3 * 60 * 60_000;
+  const transitionThreshold = config.deliveryFlappingTransitionThreshold ?? 4;
+  const cooldownMs = config.deliveryFlappingCooldownMs ?? 30 * 60_000;
+  deliveryHealthTransitions.push({ at: now, state });
+  const cutoff = now - windowMs;
+  while (deliveryHealthTransitions[0]?.at < cutoff) deliveryHealthTransitions.shift();
+
+  const transitionCount = deliveryHealthTransitions.length;
+  if (
+    transitionCount < transitionThreshold ||
+    now - lastDeliveryFlappingAlertAt < cooldownMs
+  ) return;
+
+  lastDeliveryFlappingAlertAt = now;
+  logger.error({
+    operationalEvent: "guided_prompt_alert_channel_flapping",
+    windowMs,
+    transitionCount,
+    transitionThreshold,
+    currentState: state,
+  }, "Guided prompt alert channel is repeatedly changing health state");
+}
 export function getGuidedPromptDeliveryStatus(
   now = Date.now(),
   config = getGuidedPromptAlertConfig(),
@@ -187,7 +230,8 @@ function recordDeliveryOutcome(
     status.total >= settings.minSamples &&
     status.failureRate >= settings.failureRateThreshold;
 
-  if (outcome === "success" && deliveryDegradation) {
+  if (outcome === "success" && deliveryHealthState === "degraded" && deliveryDegradation) {
+    deliveryHealthState = "healthy";
     logger.info({
       operationalEvent: "guided_prompt_alert_channel_recovered",
       outageDurationMs: Math.max(0, now - deliveryDegradation.startedAt),
@@ -198,14 +242,15 @@ function recordDeliveryOutcome(
       },
     }, "Guided prompt alert channel recovered");
     deliveryDegradation = undefined;
+    recordDeliveryHealthTransition("recovered", now, logger, config);
   }
 
   if (
     outcome !== "success" &&
     (consecutiveThresholdExceeded || failureRateThresholdExceeded) &&
-    now - lastDeliveryHealthAlertAt >= settings.healthCooldownMs
+    deliveryHealthState === "healthy"
   ) {
-    lastDeliveryHealthAlertAt = now;
+    deliveryHealthState = "degraded";
     deliveryDegradation = {
       startedAt: now,
       permanentFailures: 1,
@@ -215,15 +260,19 @@ function recordDeliveryOutcome(
         retriesExhausted: 1,
       } : {}),
     };
-    logger.error({
-      operationalEvent: "guided_prompt_alert_channel_degraded",
-      status,
-      thresholds: {
-        minSamples: settings.minSamples,
-        failureRate: settings.failureRateThreshold,
-        consecutiveFailures: settings.consecutiveFailureThreshold,
-      },
-    }, "Guided prompt alert channel health threshold exceeded");
+    recordDeliveryHealthTransition("degraded", now, logger, config);
+    if (now - lastDeliveryHealthAlertAt >= settings.healthCooldownMs) {
+      lastDeliveryHealthAlertAt = now;
+      logger.error({
+        operationalEvent: "guided_prompt_alert_channel_degraded",
+        status,
+        thresholds: {
+          minSamples: settings.minSamples,
+          failureRate: settings.failureRateThreshold,
+          consecutiveFailures: settings.consecutiveFailureThreshold,
+        },
+      }, "Guided prompt alert channel health threshold exceeded");
+    }
   } else if (outcome !== "success" && deliveryDegradation) {
     if (outcome === "permanent_failure") deliveryDegradation.permanentFailures += 1;
     if (outcome === "retries_exhausted") deliveryDegradation.retriesExhausted += 1;
@@ -478,6 +527,9 @@ export function resetGuidedPromptMonitorForTests(): void {
   consecutiveDeliveryFailures = 0;
   lastDeliveryHealthAlertAt = -Infinity;
   deliveryDegradation = undefined;
+  deliveryHealthState = "healthy";
+  deliveryHealthTransitions.length = 0;
+  lastDeliveryFlappingAlertAt = -Infinity;
 }
 
 function reasonKey(reason: AlertReason): string {
@@ -514,3 +566,5 @@ export function createInMemoryGuidedPromptMonitorStore(): GuidedPromptMonitorSto
     },
   };
 }
+
+let lastDeliveryFlappingAlertAt = -Infinity;

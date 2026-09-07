@@ -54,7 +54,14 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Apply guided prompt monitor schema
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app
+        run: pnpm --filter @workspace/db run migrate:guided-prompt-monitor
+
       - name: Run API server tests
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app
         run: pnpm --filter @workspace/api-server run test
 
       - name: Build API server
