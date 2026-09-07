@@ -10,6 +10,10 @@ import OpenAI, { toFile } from "openai";
 import { db, resumesTable } from "@workspace/db";
 import { GenerateGuidedPromptsBody, GenerateGuidedPromptsResponse } from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
+import {
+  recordGuidedPromptGeneration,
+  type GuidedPromptFailureType,
+} from "../lib/guided-prompt-monitor";
 import { DEFAULT_STT_MODEL, getAI, getSetting } from "../lib/openai";
 import { resumeHtmlToText } from "../lib/resume-text";
 
@@ -160,15 +164,6 @@ function parseGuidedPrompts(content: string): string[] {
     return [];
   }
 }
-
-type GuidedPromptFailureType =
-  | "authentication"
-  | "rate_limit"
-  | "timeout"
-  | "upstream"
-  | "invalid_response"
-  | "unknown";
-
 function classifyGuidedPromptError(error: unknown): GuidedPromptFailureType {
   if (error instanceof OpenAI.APIError) {
     if (error.status === 401 || error.status === 403) return "authentication";
@@ -208,7 +203,7 @@ router.post("/cover-letter/guided-prompts", requireAuth, async (req, res): Promi
 
   let metricModel = "unknown";
   try {
-    const ai = await getAI();
+      const ai = await getAI();
     metricModel = ai.model;
     const response = await ai.openai.chat.completions.create({
       model: ai.model,
@@ -249,6 +244,12 @@ ${resumeText || "(작성된 이력서 본문 없음)"}`,
         usedFallback = true;
       }
     }
+    void recordGuidedPromptGeneration({
+      outcome: usedFallback ? "fallback" : "generated",
+      failureType: usedFallback ? "invalid_response" : undefined,
+    }, req.log).catch(alertError => {
+      req.log.error({ err: alertError }, "Failed to send guided prompt generation alert");
+    });
     req.log.info({
       metric: "guided_prompt_generation",
       outcome: usedFallback ? "fallback" : "generated",
@@ -264,6 +265,12 @@ ${resumeText || "(작성된 이력서 본문 없음)"}`,
       model: metricModel,
       failureType: classifyGuidedPromptError(error),
     }, "Guided prompt generation metric");
+    void recordGuidedPromptGeneration({
+      outcome: "fallback",
+      failureType: classifyGuidedPromptError(error),
+    }, req.log).catch(alertError => {
+      req.log.error({ err: alertError }, "Failed to send guided prompt generation alert");
+    });
     res.json(GenerateGuidedPromptsResponse.parse({
       prompts: FALLBACK_GUIDED_PROMPTS,
       usedFallback: true,
