@@ -16,6 +16,20 @@ jobs:
     name: API Server Tests
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: app
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d app"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
 
     steps:
       - name: Check out repository
@@ -40,3 +54,15 @@ jobs:
 
       - name: Run API server tests
         run: pnpm --filter @workspace/api-server run test
+
+      - name: Build API server
+        run: pnpm --filter @workspace/api-server run build
+
+      - name: Smoke test built API server
+        env:
+          ADMIN_PASSWORD_HASH: ci-smoke-test-unused-hash
+          ADMIN_USERNAME: ci-smoke-test-admin
+          DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/app
+          SESSION_SECRET: ci-smoke-test-session-secret
+          SMOKE_TEST_PORT: "43123"
+        run: pnpm --filter @workspace/api-server run smoke:start
