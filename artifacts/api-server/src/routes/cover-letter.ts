@@ -139,6 +139,27 @@ function parseGuidedPrompts(content: string): string[] {
   }
 }
 
+type GuidedPromptFailureType =
+  | "authentication"
+  | "rate_limit"
+  | "timeout"
+  | "upstream"
+  | "invalid_response"
+  | "unknown";
+
+function classifyGuidedPromptError(error: unknown): GuidedPromptFailureType {
+  if (error instanceof OpenAI.APIError) {
+    if (error.status === 401 || error.status === 403) return "authentication";
+    if (error.status === 429) return "rate_limit";
+    if (error.status >= 500) return "upstream";
+  }
+  if (error instanceof Error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ETIMEDOUT" || code === "ECONNABORTED" || error.name === "AbortError") return "timeout";
+  }
+  return "unknown";
+}
+
 router.post("/cover-letter/guided-prompts", requireAuth, async (req, res): Promise<void> => {
   const resumeId = Number(req.body?.resumeId);
   if (!Number.isInteger(resumeId) || resumeId <= 0) {
@@ -162,8 +183,10 @@ router.post("/cover-letter/guided-prompts", requireAuth, async (req, res): Promi
     return;
   }
 
+  let metricModel = "unknown";
   try {
     const ai = await getAI();
+    metricModel = ai.model;
     const response = await ai.openai.chat.completions.create({
       model: ai.model,
       messages: [
@@ -203,9 +226,21 @@ ${resumeText || "(작성된 이력서 본문 없음)"}`,
         usedFallback = true;
       }
     }
+    req.log.info({
+      metric: "guided_prompt_generation",
+      outcome: usedFallback ? "fallback" : "generated",
+      model: metricModel,
+      failureType: usedFallback ? "invalid_response" : undefined,
+    }, "Guided prompt generation metric");
     res.json({ prompts: prompts.slice(0, 8), usedFallback });
   } catch (error) {
-    req.log.error({ err: error, resumeId }, "Failed to generate guided recording prompts");
+    req.log.error({ err: error }, "Failed to generate guided recording prompts");
+    req.log.warn({
+      metric: "guided_prompt_generation",
+      outcome: "fallback",
+      model: metricModel,
+      failureType: classifyGuidedPromptError(error),
+    }, "Guided prompt generation metric");
     res.json({ prompts: FALLBACK_GUIDED_PROMPTS, usedFallback: true });
   }
 });
