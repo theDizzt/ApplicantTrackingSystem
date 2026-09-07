@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useLocation } from "wouter"
 import {
   Users, Building2, Cpu, TrendingUp, LogOut, Plus, Pencil, Trash2,
-  Shield, RefreshCw, ChevronDown, AlertCircle
+  Shield, RefreshCw, ChevronDown, AlertCircle, BellRing
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -71,6 +71,18 @@ interface Organization {
   memberCount: number
   status: string
   registeredAt: string
+}
+
+interface AlertDeliveryStatus {
+  configured: boolean
+  windowMs: number
+  total: number
+  succeeded: number
+  failureRate: number
+  successRate: number | null
+  consecutiveFailures: number
+  lastOutcome?: "success" | "permanent_failure" | "retries_exhausted"
+  lastDeliveryAt?: string
 }
 
 const PLAN_LABELS: Record<string, string> = { free: "Free", basic: "베이직", premium: "프리미엄" }
@@ -256,6 +268,19 @@ export function AISettingsTab() {
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null)
   const [health, setHealth] = useState<{ ok: boolean; code: string; error?: string } | null>(null)
   const [healthLoading, setHealthLoading] = useState(false)
+  const [alertStatus, setAlertStatus] = useState<AlertDeliveryStatus | null>(null)
+  const [alertStatusLoading, setAlertStatusLoading] = useState(true)
+
+  const loadAlertStatus = useCallback(async () => {
+    setAlertStatusLoading(true)
+    try {
+      setAlertStatus(await api("/admin/settings/alerts/delivery-status"))
+    } catch {
+      setAlertStatus(null)
+    } finally {
+      setAlertStatusLoading(false)
+    }
+  }, [])
 
   const loadHealth = useCallback(async () => {
     setHealthLoading(true)
@@ -269,6 +294,7 @@ export function AISettingsTab() {
   }, [])
 
   useEffect(() => { loadHealth() }, [loadHealth])
+  useEffect(() => { loadAlertStatus() }, [loadAlertStatus])
 
   const load = useCallback(async () => {
     try {
@@ -341,7 +367,8 @@ export function AISettingsTab() {
   if (!loaded) return <div className="text-slate-400 text-sm">불러오는 중...</div>
 
   return (
-    <Card className="bg-slate-900 border-slate-800 max-w-2xl">
+    <div className="max-w-2xl space-y-4">
+    <Card className="bg-slate-900 border-slate-800">
       <CardHeader>
         <CardTitle className="text-white text-base flex items-center justify-between gap-2">
           <span className="flex items-center gap-2">
@@ -533,6 +560,69 @@ export function AISettingsTab() {
         </div>
       </CardContent>
     </Card>
+    <Card className="bg-slate-900 border-slate-800" data-testid="card-alert-delivery-status">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-white text-base flex items-center justify-between gap-2">
+          <span className="flex items-center gap-2">
+            <BellRing className="h-4 w-4 text-primary" /> 알림 채널 상태
+          </span>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 text-slate-400 hover:text-white"
+            onClick={loadAlertStatus}
+            disabled={alertStatusLoading}
+            data-testid="button-refresh-alert-status"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${alertStatusLoading ? "animate-spin" : ""}`} />
+          </Button>
+        </CardTitle>
+      </CardHeader>
+      <CardContent>
+        {alertStatusLoading && !alertStatus ? (
+          <p className="text-sm text-slate-400" data-testid="status-alert-loading">불러오는 중...</p>
+        ) : !alertStatus ? (
+          <p className="text-sm text-red-300" data-testid="status-alert-error">알림 채널 상태를 불러오지 못했습니다.</p>
+        ) : !alertStatus.configured ? (
+          <div data-testid="status-alert-unconfigured">
+            <p className="text-sm font-medium text-amber-300">웹훅 미설정</p>
+            <p className="text-xs text-slate-500 mt-1">알림을 전달할 채널이 아직 설정되지 않았습니다.</p>
+          </div>
+        ) : alertStatus.total === 0 ? (
+          <div data-testid="status-alert-no-history">
+            <p className="text-sm font-medium text-slate-300">전달 이력 없음</p>
+            <p className="text-xs text-slate-500 mt-1">채널은 설정되어 있으며, 최근 집계 구간에 전달 시도가 없습니다.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+              <p className="text-xs text-slate-500">최근 전달</p>
+              <p className="text-sm font-semibold text-white mt-1" data-testid="text-alert-last-delivery">
+                {alertStatus.lastDeliveryAt ? fmtTime(alertStatus.lastDeliveryAt) : "—"}
+              </p>
+              <p className={`text-xs mt-1 ${alertStatus.lastOutcome === "success" ? "text-emerald-400" : "text-red-400"}`}>
+                {alertStatus.lastOutcome === "success" ? "성공" : "실패"}
+              </p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+              <p className="text-xs text-slate-500">최근 성공률</p>
+              <p className="text-lg font-bold text-white mt-1" data-testid="text-alert-success-rate">
+                {((alertStatus.successRate ?? 0) * 100).toFixed(0)}%
+              </p>
+              <p className="text-xs text-slate-500 mt-1">{alertStatus.succeeded}/{alertStatus.total}건</p>
+            </div>
+            <div className="rounded-lg border border-slate-800 bg-slate-950/50 p-3">
+              <p className="text-xs text-slate-500">연속 실패</p>
+              <p className={`text-lg font-bold mt-1 ${alertStatus.consecutiveFailures ? "text-red-300" : "text-emerald-300"}`} data-testid="text-alert-consecutive-failures">
+                {alertStatus.consecutiveFailures}건
+              </p>
+              <p className="text-xs text-slate-500 mt-1">실패율 {(alertStatus.failureRate * 100).toFixed(0)}%</p>
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+    </div>
   )
 }
 

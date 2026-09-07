@@ -5,6 +5,7 @@ import { db, usersTable, analysesTable, organizationsTable } from "@workspace/db
 import { requireAdmin } from "../middlewares/admin";
 import { DEFAULT_STT_MODEL, getAI, getAIConfig, getSetting, saveSetting, invalidateAICache, checkAIHealth } from "../lib/openai";
 import { getAIHealthStatus } from "../lib/ai-health-monitor";
+import { getGuidedPromptDeliveryAdminStatus } from "../lib/guided-prompt-monitor";
 
 const isProduction = process.env.NODE_ENV === "production";
 const DEV_ADMIN_USERNAME = "park1058";
@@ -316,6 +317,10 @@ router.get("/admin/settings/ai/health-status", requireAdmin, async (_req, res): 
     return;
   }
   res.json({ checked: true, ...status });
+});
+
+router.get("/admin/settings/alerts/delivery-status", requireAdmin, async (_req, res): Promise<void> => {
+  res.json(getGuidedPromptDeliveryAdminStatus());
 });
 
 // 연결 테스트: 현재 설정으로 간단한 completion 호출

@@ -102,6 +102,11 @@ export type GuidedPromptDeliveryStatus = {
   lastDeliveryAt?: string;
 };
 
+export type GuidedPromptDeliveryAdminStatus = GuidedPromptDeliveryStatus & {
+  configured: boolean;
+  successRate: number | null;
+};
+
 function getDeliverySettings(config: GuidedPromptAlertConfig) {
   return {
     windowMs: config.deliveryWindowMs ?? 60 * 60_000,
@@ -136,6 +141,18 @@ export function getGuidedPromptDeliveryStatus(
       lastOutcome: latest.outcome,
       lastDeliveryAt: new Date(latest.at).toISOString(),
     } : {}),
+  };
+}
+
+export function getGuidedPromptDeliveryAdminStatus(
+  now = Date.now(),
+  config = getGuidedPromptAlertConfig(),
+): GuidedPromptDeliveryAdminStatus {
+  const status = getGuidedPromptDeliveryStatus(now, config);
+  return {
+    configured: Boolean(config.webhookUrl),
+    ...status,
+    successRate: status.total ? status.succeeded / status.total : null,
   };
 }
 

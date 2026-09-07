@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  getGuidedPromptDeliveryAdminStatus,
   getGuidedPromptDeliveryStatus,
   recordGuidedPromptGeneration,
   resetGuidedPromptMonitorForTests,
@@ -204,6 +205,19 @@ describe("guided prompt generation monitor", () => {
     expect(metrics).toHaveLength(2);
     expect(JSON.stringify(metrics)).not.toContain(config.webhookUrl);
     expect(JSON.stringify(metrics)).not.toMatch(/userId|resumeId|resume|content/);
+  });
+
+  it("returns an admin-safe configured status and an explicit no-history state", () => {
+    const status = getGuidedPromptDeliveryAdminStatus(1_000, config);
+
+    expect(status).toEqual(expect.objectContaining({
+      configured: true,
+      total: 0,
+      successRate: null,
+      consecutiveFailures: 0,
+    }));
+    expect(JSON.stringify(status)).not.toContain(config.webhookUrl);
+    expect(status).not.toHaveProperty("webhookUrl");
   });
 
   it("emits independent channel health visibility after consecutive failures", async () => {
