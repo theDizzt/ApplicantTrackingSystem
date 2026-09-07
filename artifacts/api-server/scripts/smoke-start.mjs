@@ -3,8 +3,9 @@ import { spawn } from "node:child_process";
 const port = process.env.SMOKE_TEST_PORT ?? "43123";
 const timeoutMs = Number(process.env.SMOKE_TEST_TIMEOUT_MS ?? "15000");
 const healthUrl = `http://127.0.0.1:${port}/api/healthz`;
+const serverEntry = process.env.SMOKE_TEST_SERVER_ENTRY ?? "./dist/index.mjs";
 
-const server = spawn(process.execPath, ["--enable-source-maps", "./dist/index.mjs"], {
+const server = spawn(process.execPath, ["--enable-source-maps", serverEntry], {
   cwd: new URL("..", import.meta.url),
   env: {
     ...process.env,
