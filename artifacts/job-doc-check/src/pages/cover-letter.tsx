@@ -15,6 +15,7 @@ import {
 } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
+import { trackEvent } from '@/lib/analytics';
 
 const getSupportedMimeType = () => {
   const types = ['audio/webm', 'audio/mp4', 'audio/ogg'];
@@ -79,6 +80,7 @@ export default function CoverLetterPage() {
   const [acquiringMic, setAcquiringMic] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
   const [audioFile, setAudioFile] = useState<{ blob: Blob | File; url: string; name: string } | null>(null);
+  const [audioSource, setAudioSource] = useState<'recording' | 'file' | null>(null);
   
   const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const [transcript, setTranscript] = useState('');
@@ -182,6 +184,7 @@ export default function CoverLetterPage() {
         const url = URL.createObjectURL(blob);
         
         setAudioFile({ blob, url, name });
+        setAudioSource('recording');
         if (streamRef.current) {
           streamRef.current.getTracks().forEach(t => t.stop());
           streamRef.current = null;
@@ -197,6 +200,9 @@ export default function CoverLetterPage() {
         setRecording(false);
         setStatus('error');
         setErrorMessage('녹음 장치 오류가 발생했습니다. 마이크 연결을 확인한 후 다시 시도해주세요.');
+        trackEvent('voice_recording_failed', {
+          reason: 'recorder_error',
+        });
       };
       stream.getAudioTracks().forEach(track => {
         track.onended = () => {
@@ -208,6 +214,7 @@ export default function CoverLetterPage() {
       });
       
       recorder.start();
+      trackEvent('voice_recording_started');
       setRecording(true);
       setRecordingTime(0);
       timerRef.current = window.setInterval(() => {
@@ -223,7 +230,13 @@ export default function CoverLetterPage() {
         });
       }, 1000);
       
-    } catch (err) {
+    } catch (err: unknown) {
+      const reason = err instanceof DOMException && err.name === 'NotAllowedError'
+        ? 'permission_denied'
+        : err instanceof DOMException && err.name === 'NotFoundError'
+          ? 'device_not_found'
+          : 'microphone_unavailable';
+      trackEvent('voice_recording_failed', { reason });
       if (mountedRef.current) {
         toast({
           title: "마이크 접근 오류",
@@ -266,6 +279,8 @@ export default function CoverLetterPage() {
     
     const url = URL.createObjectURL(file);
     setAudioFile({ blob: file, url, name: file.name });
+    setAudioSource('file');
+    trackEvent('voice_file_selected');
   };
 
   const resetAll = () => {
@@ -273,6 +288,7 @@ export default function CoverLetterPage() {
       URL.revokeObjectURL(audioFile.url);
     }
     setAudioFile(null);
+    setAudioSource(null);
     setTranscript('');
     setCoverLetter('');
     setStatus('idle');
@@ -298,10 +314,16 @@ export default function CoverLetterPage() {
       setTranscript(result.transcript);
       setCoverLetter(result.coverLetter);
       setStatus('success');
+      trackEvent('cover_letter_generated', {
+        source: audioSource ?? 'unknown',
+      });
       
     } catch (err: unknown) {
       setStatus('error');
       setErrorMessage(err instanceof Error ? err.message : "자기소개서 생성 중 오류가 발생했습니다.");
+      trackEvent('cover_letter_generation_failed', {
+        source: audioSource ?? 'unknown',
+      });
     }
   };
 
@@ -336,6 +358,7 @@ export default function CoverLetterPage() {
             title: "이력서 반영 완료",
             description: "생성된 자기소개서가 선택한 이력서에 저장되었습니다.",
           });
+          trackEvent('cover_letter_applied_to_resume');
           setLocation(`/resumes/${resumeId}`);
         },
         onError: () => {
