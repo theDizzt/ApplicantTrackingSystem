@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Mic, Square, UploadCloud, Copy, RefreshCw, AlertCircle, CheckCircle2, Loader2, Save } from 'lucide-react';
+import { Mic, Square, UploadCloud, Copy, RefreshCw, AlertCircle, CheckCircle2, Loader2, Save, ChevronLeft, ChevronRight } from 'lucide-react';
 import { useToast } from '@/hooks/use-toast';
 import { getGetResumeQueryKey, getListResumesQueryKey, useListResumes, useUpdateResume } from '@workspace/api-client-react';
 import { useQueryClient } from '@tanstack/react-query';
@@ -77,6 +77,11 @@ export default function CoverLetterPage() {
   const [errorMessage, setErrorMessage] = useState('');
   const [selectedResumeId, setSelectedResumeId] = useState('');
 
+  const [guidedResumeId, setGuidedResumeId] = useState('');
+  const [guidedPrompts, setGuidedPrompts] = useState<string[]>([]);
+  const [currentPromptIndex, setCurrentPromptIndex] = useState(0);
+  const [isFetchingPrompts, setIsFetchingPrompts] = useState(false);
+
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const timerRef = useRef<number | null>(null);
@@ -110,6 +115,47 @@ export default function CoverLetterPage() {
       setSelectedResumeId(String(resumes[0].id));
     }
   }, [resumes, selectedResumeId]);
+
+  useEffect(() => {
+    if (resumes?.length && !resumes.some(resume => String(resume.id) === guidedResumeId)) {
+      setGuidedResumeId(String(resumes[0].id));
+    }
+  }, [resumes, guidedResumeId]);
+
+  const fetchGuidedPrompts = async () => {
+    if (!guidedResumeId) return;
+    setSelectedResumeId(guidedResumeId);
+    setIsFetchingPrompts(true);
+    setErrorMessage('');
+    
+    try {
+      const response = await fetch('/api/cover-letter/guided-prompts', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ resumeId: Number(guidedResumeId) }),
+        credentials: 'include'
+      });
+      
+      if (!response.ok) {
+        const data = await response.json().catch(() => ({}));
+        throw new Error(data.error || `서버 오류 (${response.status})`);
+      }
+      
+      const result = await response.json();
+      setGuidedPrompts(result.prompts || []);
+      setCurrentPromptIndex(0);
+    } catch (err: unknown) {
+      toast({
+        title: "가이드 질문 생성 실패",
+        description: err instanceof Error ? err.message : "질문을 불러오는데 실패했습니다.",
+        variant: "destructive"
+      });
+    } finally {
+      setIsFetchingPrompts(false);
+    }
+  };
 
   const startRecording = async () => {
     if (acquiringMic || recording) return;
@@ -237,6 +283,7 @@ export default function CoverLetterPage() {
     setStatus('idle');
     setErrorMessage('');
     setRecordingTime(0);
+    setCurrentPromptIndex(0);
   };
 
   const generateCoverLetter = async () => {
@@ -346,10 +393,143 @@ export default function CoverLetterPage() {
             
             {!audioFile ? (
               <Tabs defaultValue="record" className="w-full">
-                <TabsList className="grid w-full grid-cols-2 max-w-md mx-auto mb-8 bg-slate-100/50">
+                <TabsList className="grid w-full grid-cols-3 max-w-lg mx-auto mb-8 bg-slate-100/50">
                   <TabsTrigger value="record" data-testid="tab-record" className="data-[state=active]:bg-white data-[state=active]:shadow-sm">음성 녹음</TabsTrigger>
                   <TabsTrigger value="upload" data-testid="tab-upload" className="data-[state=active]:bg-white data-[state=active]:shadow-sm">파일 업로드</TabsTrigger>
+                  <TabsTrigger value="guided" data-testid="tab-guided" className="data-[state=active]:bg-white data-[state=active]:shadow-sm">음성 가이드 녹음</TabsTrigger>
                 </TabsList>
+                
+                <TabsContent value="guided" className="flex flex-col border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50 hover:bg-slate-50 transition-colors p-6 sm:p-8">
+                  {guidedPrompts.length === 0 ? (
+                    <div className="flex flex-col items-center justify-center py-8">
+                      <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-6 text-primary">
+                        <Mic className="w-8 h-8" />
+                      </div>
+                      <h3 className="text-lg font-semibold text-slate-900 mb-2">맞춤형 질문으로 시작하기</h3>
+                      <p className="text-sm text-slate-500 mb-8 text-center max-w-sm">
+                        선택하신 이력서를 바탕으로 대답하기 쉬운 질문을 만들어 드립니다. 질문에 답하면서 자연스럽게 자기소개서를 완성해보세요.
+                      </p>
+                      
+                      <div className="w-full max-w-sm space-y-4">
+                        <Select value={guidedResumeId} onValueChange={setGuidedResumeId} disabled={resumesLoading || !resumes?.length}>
+                          <SelectTrigger className="bg-white" data-testid="select-guided-resume">
+                            <SelectValue placeholder={resumesLoading ? "이력서를 불러오는 중..." : "이력서를 선택하세요"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {resumes?.map(resume => (
+                              <SelectItem key={resume.id} value={String(resume.id)}>
+                                {resume.title}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        
+                        <Button 
+                          className="w-full shadow-sm" 
+                          size="lg" 
+                          onClick={fetchGuidedPrompts}
+                          disabled={!guidedResumeId || isFetchingPrompts || !resumes?.length}
+                          data-testid="button-fetch-prompts"
+                        >
+                          {isFetchingPrompts ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : null}
+                          가이드 질문 생성
+                        </Button>
+                        {!resumes?.length && !resumesLoading && (
+                          <p className="text-xs text-center text-slate-500 mt-2">
+                            먼저 이력서를 등록해주세요.
+                          </p>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col">
+                      <div className="flex items-center justify-between mb-6">
+                        <span className="text-sm font-medium text-slate-500 bg-white px-3 py-1 rounded-full border shadow-sm">
+                          질문 {currentPromptIndex + 1} / {guidedPrompts.length}
+                        </span>
+                        <Button 
+                          variant="ghost" 
+                          size="sm" 
+                          className="text-slate-500 hover:text-slate-700"
+                          onClick={() => setGuidedPrompts([])}
+                          disabled={recording}
+                          data-testid="button-reset-prompts"
+                        >
+                          <RefreshCw className="w-4 h-4 mr-2" />
+                          질문 다시 생성
+                        </Button>
+                      </div>
+                      
+                      <div className="bg-white p-6 sm:p-8 rounded-xl border shadow-sm mb-8 min-h-[160px] flex items-center justify-center text-center">
+                        <p className="text-lg sm:text-xl font-medium text-slate-800 leading-relaxed">
+                          {guidedPrompts[currentPromptIndex]}
+                        </p>
+                      </div>
+                      
+                      <div className="flex items-center justify-between mb-8">
+                        <Button 
+                          variant="outline" 
+                          onClick={() => setCurrentPromptIndex(p => Math.max(0, p - 1))}
+                          disabled={currentPromptIndex === 0}
+                          className="bg-white"
+                          data-testid="button-prev-prompt"
+                        >
+                          <ChevronLeft className="w-4 h-4 mr-1" />
+                          이전 질문
+                        </Button>
+                        <div className="flex space-x-1">
+                          {guidedPrompts.map((_, idx) => (
+                            <div 
+                              key={idx} 
+                              className={`w-2 h-2 rounded-full transition-colors ${idx === currentPromptIndex ? 'bg-primary' : 'bg-slate-200'}`}
+                            />
+                          ))}
+                        </div>
+                        <Button 
+                          variant="outline" 
+                          onClick={() => setCurrentPromptIndex(p => Math.min(guidedPrompts.length - 1, p + 1))}
+                          disabled={currentPromptIndex === guidedPrompts.length - 1}
+                          className="bg-white"
+                          data-testid="button-next-prompt"
+                        >
+                          다음 질문
+                          <ChevronRight className="w-4 h-4 ml-1" />
+                        </Button>
+                      </div>
+
+                      <div className="flex flex-col items-center pt-6 border-t border-slate-200/60">
+                        <div className="text-4xl font-mono font-light mb-6 text-slate-700 tracking-wider">
+                          {formatTime(recordingTime)}
+                        </div>
+                        
+                        {!recording ? (
+                          <Button 
+                            size="lg" 
+                            className="rounded-full w-20 h-20 bg-primary hover:bg-primary/90 hover:scale-105 transition-all duration-300 shadow-lg"
+                            onClick={startRecording}
+                            disabled={acquiringMic}
+                            data-testid="button-start-guided-recording"
+                          >
+                            {acquiringMic ? <Loader2 className="w-8 h-8 animate-spin" /> : <Mic className="w-8 h-8" />}
+                          </Button>
+                        ) : (
+                          <Button 
+                            size="lg" 
+                            variant="destructive"
+                            className="rounded-full w-20 h-20 animate-pulse hover:animate-none hover:scale-105 transition-all duration-300 shadow-lg"
+                            onClick={stopRecording}
+                            data-testid="button-stop-guided-recording"
+                          >
+                            <Square className="w-6 h-6 fill-current" />
+                          </Button>
+                        )}
+                        <div className="mt-6 text-sm text-slate-500 font-medium">
+                          {!recording ? "마이크 버튼을 눌러 답변 녹음을 시작하세요" : "녹음 중입니다. 질문을 넘기며 계속 답변할 수 있습니다."}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </TabsContent>
                 
                 <TabsContent value="record" className="flex flex-col items-center py-12 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50 hover:bg-slate-50 transition-colors">
                   <div className="text-5xl font-mono font-light mb-8 text-slate-700 tracking-wider" data-testid="text-timer">

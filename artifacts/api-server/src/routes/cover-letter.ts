@@ -4,10 +4,13 @@ import os from "os";
 import path from "path";
 import { promisify } from "util";
 import { Router, type IRouter, type RequestHandler } from "express";
+import { and, eq } from "drizzle-orm";
 import multer from "multer";
 import OpenAI, { toFile } from "openai";
+import { db, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { DEFAULT_STT_MODEL, getAI, getSetting } from "../lib/openai";
+import { resumeHtmlToText } from "../lib/resume-text";
 
 const execFileAsync = promisify(execFile);
 const router: IRouter = Router();
@@ -108,6 +111,100 @@ async function transcribeAudio(
     return { text: result.text, usedModel: DEFAULT_STT_MODEL };
   }
 }
+
+const FALLBACK_GUIDED_PROMPTS = [
+  "지금까지 어떤 환경에서 살아왔고, 그 과정에서 형성된 가치관은 무엇인지 이야기해 주세요.",
+  "학교생활에서 가장 기억에 남는 경험과 그 경험을 통해 배운 점을 이야기해 주세요.",
+  "지금까지 겪은 가장 어려운 일은 무엇이었으며, 어떻게 해결했는지 구체적으로 이야기해 주세요.",
+  "본인의 강점이 잘 드러났던 경험과 그 강점을 지원 업무에서 어떻게 활용할지 이야기해 주세요.",
+  "지원한 회사와 직무를 선택한 이유, 그리고 입사를 위해 준비해 온 내용을 이야기해 주세요.",
+  "입사 후 어떤 방식으로 일하고 성장하며 회사에 기여하고 싶은지 이야기해 주세요.",
+];
+
+function parseGuidedPrompts(content: string): string[] {
+  try {
+    const parsed = JSON.parse(content) as { prompts?: unknown[] };
+    const prompts = Array.isArray(parsed.prompts) ? parsed.prompts : [];
+    return [...new Set(prompts
+      .map(item => typeof item === "string"
+        ? item
+        : typeof (item as { question?: unknown })?.question === "string"
+          ? (item as { question: string }).question
+          : "")
+      .map(question => question.trim())
+      .filter(question => question.length >= 10))]
+      .slice(0, 8);
+  } catch {
+    return [];
+  }
+}
+
+router.post("/cover-letter/guided-prompts", requireAuth, async (req, res): Promise<void> => {
+  const resumeId = Number(req.body?.resumeId);
+  if (!Number.isInteger(resumeId) || resumeId <= 0) {
+    res.status(400).json({ error: "질문을 만들 이력서를 선택해주세요." });
+    return;
+  }
+
+  const [resume] = await db.select().from(resumesTable).where(and(
+    eq(resumesTable.id, resumeId),
+    eq(resumesTable.userId, req.session.userId!),
+  ));
+  if (!resume) {
+    res.status(404).json({ error: "이력서를 찾을 수 없습니다." });
+    return;
+  }
+
+  const coverLetterText = resumeHtmlToText(resume.coverLetter);
+  const resumeText = resumeHtmlToText(resume.content);
+  if (!coverLetterText && !resumeText) {
+    res.status(422).json({ error: "선택한 이력서에 분석할 내용이 없습니다. 이력서 내용을 먼저 작성해주세요." });
+    return;
+  }
+
+  try {
+    const ai = await getAI();
+    const response = await ai.openai.chat.completions.create({
+      model: ai.model,
+      messages: [
+        {
+          role: "system",
+          content: `당신은 한국 취업 준비생이 자기소개서에 쓸 경험을 편안하게 말하도록 돕는 전문 커리어 코치입니다.
+제공된 이력서와 기존 자기소개서를 분석해 음성 녹음용 질문을 6~8개 만드세요.
+기존 자기소개서 내용에 연결되는 후속 질문을 최우선으로 하고, 그 다음 이력서의 학력·경력·프로젝트·성과·지원 방향을 활용하세요.
+성장 과정, 학교생활, 어려움을 해결한 경험, 강점과 역량, 지원 동기, 입사 후 일하는 방식과 포부가 고르게 드러나야 합니다.
+이력서에 구체적인 사실이 있으면 그 사실을 직접 언급해 더 자세한 상황·행동·결과를 말하도록 질문하세요.
+정보가 없는 주제는 사실을 지어내거나 단정하지 말고, 사용자가 자유롭게 경험을 꺼낼 수 있는 질문으로 작성하세요.
+한 질문에는 한 가지 주제만 담고, 사용자가 그대로 듣고 답하기 쉬운 존댓말을 사용하세요.
+반드시 JSON 형식으로만 반환하세요: { "prompts": ["질문 1", "질문 2"] }`,
+        },
+        {
+          role: "user",
+          content: `이력서 제목: ${resume.title}
+
+기존 자기소개서(가장 우선해서 질문에 반영):
+${coverLetterText || "(작성된 자기소개서 없음)"}
+
+이력서 내용:
+${resumeText || "(작성된 이력서 본문 없음)"}`,
+        },
+      ],
+      response_format: { type: "json_object" },
+      max_completion_tokens: 3000,
+    });
+
+    const generated = parseGuidedPrompts(response.choices[0]?.message?.content ?? "{}");
+    const prompts = [...generated];
+    for (const fallback of FALLBACK_GUIDED_PROMPTS) {
+      if (prompts.length >= 6) break;
+      if (!prompts.includes(fallback)) prompts.push(fallback);
+    }
+    res.json({ prompts: prompts.slice(0, 8) });
+  } catch (error) {
+    req.log.error({ err: error, resumeId }, "Failed to generate guided recording prompts");
+    res.status(502).json({ error: "이력서 맞춤 질문을 만들지 못했습니다. 잠시 후 다시 시도해주세요." });
+  }
+});
 
 router.post(
   "/cover-letter/generate",
