@@ -1,34 +1,46 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Toaster } from '@/components/ui/toaster';
 import { TooltipProvider } from '@/components/ui/tooltip';
-import NotFound from '@/pages/not-found';
 import { Route, Switch, Router as WouterRouter } from 'wouter';
-
-import LandingPage from '@/pages/landing';
-import LoginPage from '@/pages/login';
-import RegisterPage from '@/pages/register';
-import AdminLoginPage from '@/pages/admin/login';
-import AdminPage from '@/pages/admin/index';
 
 import { AppShell } from '@/components/layout/app-shell';
 import { AuthGuard } from '@/components/auth-guard';
+import { Skeleton } from '@/components/ui/skeleton';
 
-import Dashboard from '@/pages/dashboard';
-import CompaniesPage from '@/pages/companies';
-import CompanyDetail from '@/pages/company-detail';
-import ResumesPage from '@/pages/resumes';
-import ResumeDetail from '@/pages/resume-detail';
-import AnalysesPage from '@/pages/analyses';
-import NewAnalysisPage from '@/pages/analysis-new';
-import AnalysisDetail from '@/pages/analysis-detail';
-import InterviewsPage from '@/pages/interviews';
-import NewInterviewPage from '@/pages/interview-new';
-import InterviewDetail from '@/pages/interview-detail';
-import CoverLetterPage from '@/pages/cover-letter';
-import SubscriptionPage from '@/pages/subscription';
+const LandingPage = lazy(() => import('@/pages/landing'));
+const LoginPage = lazy(() => import('@/pages/login'));
+const RegisterPage = lazy(() => import('@/pages/register'));
+const AdminLoginPage = lazy(() => import('@/pages/admin/login'));
+const AdminPage = lazy(() => import('@/pages/admin/index'));
+const Dashboard = lazy(() => import('@/pages/dashboard'));
+const CompaniesPage = lazy(() => import('@/pages/companies'));
+const CompanyDetail = lazy(() => import('@/pages/company-detail'));
+const ResumesPage = lazy(() => import('@/pages/resumes'));
+const ResumeDetail = lazy(() => import('@/pages/resume-detail'));
+const AnalysesPage = lazy(() => import('@/pages/analyses'));
+const NewAnalysisPage = lazy(() => import('@/pages/analysis-new'));
+const AnalysisDetail = lazy(() => import('@/pages/analysis-detail'));
+const InterviewsPage = lazy(() => import('@/pages/interviews'));
+const NewInterviewPage = lazy(() => import('@/pages/interview-new'));
+const InterviewDetail = lazy(() => import('@/pages/interview-detail'));
+const CoverLetterPage = lazy(() => import('@/pages/cover-letter'));
+const SubscriptionPage = lazy(() => import('@/pages/subscription'));
+const NotFound = lazy(() => import('@/pages/not-found'));
 
 const queryClient = new QueryClient();
+
+function RouteFallback() {
+  return (
+    <div className="min-h-screen bg-slate-50 p-6" role="status" aria-label="화면 불러오는 중">
+      <div className="mx-auto max-w-5xl space-y-4">
+        <Skeleton className="h-10 w-48" />
+        <Skeleton className="h-48 w-full" />
+        <Skeleton className="h-32 w-full" />
+      </div>
+    </div>
+  );
+}
 
 function ProtectedRoute(props: { path: string; component: React.ComponentType<any> }) {
   return (
@@ -84,7 +96,9 @@ function App() {
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router />
+          <Suspense fallback={<RouteFallback />}>
+            <Router />
+          </Suspense>
         </WouterRouter>
         <Toaster />
       </TooltipProvider>
