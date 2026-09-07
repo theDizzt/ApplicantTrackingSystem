@@ -28,6 +28,40 @@ const INPUT_COST_PER_1M_USD = 2.5;
 const OUTPUT_COST_PER_1M_USD = 10.0;
 const USD_TO_KRW = 1_350;
 
+type AIHealthCheckResult = Awaited<ReturnType<typeof checkAIHealth>>;
+
+const AI_HEALTH_PUBLIC_ERRORS: Record<Exclude<AIHealthCheckResult["code"], "ok">, string> = {
+  no_key: "AI API 키가 설정되지 않았습니다. 관리자 페이지의 AI 설정에서 키를 등록해주세요.",
+  auth_error: "AI API 키가 유효하지 않습니다. 관리자 페이지의 AI 설정을 확인해주세요.",
+  unreachable: "AI 서버에 연결할 수 없습니다. AI 설정과 서버 상태를 확인해주세요.",
+  config_error: "AI 설정을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
+};
+
+function getPublicAIHealthError(result: Pick<AIHealthCheckResult, "ok" | "code">) {
+  return result.ok || result.code === "ok" ? undefined : AI_HEALTH_PUBLIC_ERRORS[result.code];
+}
+
+function serializeAIHealthCheck(result: AIHealthCheckResult) {
+  const error = getPublicAIHealthError(result);
+  return {
+    ok: result.ok,
+    code: result.code,
+    ...(error !== undefined ? { error } : {}),
+  };
+}
+
+function serializeAIHealthStatus(status: NonNullable<ReturnType<typeof getAIHealthStatus>>) {
+  const error = getPublicAIHealthError(status);
+  return {
+    checked: true as const,
+    ok: status.ok,
+    code: status.code,
+    ...(error !== undefined ? { error } : {}),
+    checkedAt: status.checkedAt,
+    downSince: status.downSince,
+  };
+}
+
 declare module "express-session" {
   interface SessionData {
     isAdmin?: boolean;
@@ -324,7 +358,7 @@ router.put("/admin/settings/ai", requireAdmin, async (req, res): Promise<void> =
 router.get("/admin/settings/ai/health", requireAdmin, async (_req, res): Promise<void> => {
   invalidateAICache();
   const health = await checkAIHealth();
-  res.json(health);
+  res.json(serializeAIHealthCheck(health));
 });
 
 // 주기적 헬스체크의 마지막 결과 조회 (대시보드 경고 배너용 — 즉시 응답)
@@ -335,7 +369,7 @@ router.get("/admin/settings/ai/health-status", requireAdmin, async (_req, res): 
     res.json({ checked: false });
     return;
   }
-  res.json({ checked: true, ...status });
+  res.json(serializeAIHealthStatus(status));
 });
 
 router.get("/admin/settings/alerts/delivery-status", requireAdmin, async (_req, res): Promise<void> => {

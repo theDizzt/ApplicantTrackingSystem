@@ -2,7 +2,9 @@ import express, { type Request } from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getDeliveryStatus } = vi.hoisted(() => ({
+const { checkAIHealth, getAIHealthStatus, getDeliveryStatus } = vi.hoisted(() => ({
+  checkAIHealth: vi.fn(),
+  getAIHealthStatus: vi.fn(),
   getDeliveryStatus: vi.fn(),
 }));
 
@@ -20,11 +22,11 @@ vi.mock("../lib/openai", () => ({
   getSetting: vi.fn(),
   saveSetting: vi.fn(),
   invalidateAICache: vi.fn(),
-  checkAIHealth: vi.fn(),
+  checkAIHealth,
 }));
 
 vi.mock("../lib/ai-health-monitor", () => ({
-  getAIHealthStatus: vi.fn(),
+  getAIHealthStatus,
 }));
 
 vi.mock("../lib/guided-prompt-monitor", () => ({
@@ -53,6 +55,108 @@ function makeApp(isAdmin: boolean) {
   app.use(adminRouter);
   return app;
 }
+
+describe("admin AI health response contracts", () => {
+  beforeEach(() => {
+    checkAIHealth.mockReset();
+    getAIHealthStatus.mockReset();
+  });
+
+  it("returns only the immediate healthy check fields", async () => {
+    checkAIHealth.mockResolvedValue({
+      ok: true,
+      code: "ok",
+      baseUrl: "http://internal-ai:11434/v1",
+      authorization: "Bearer private-token",
+      requestBody: { model: "private-model" },
+      responseBody: { models: ["private-model"] },
+    });
+
+    const response = await request(makeApp(true)).get("/admin/settings/ai/health");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ ok: true, code: "ok" });
+  });
+
+  it("returns only the immediate failed check fields needed by the admin screen", async () => {
+    checkAIHealth.mockResolvedValue({
+      ok: false,
+      code: "unreachable",
+      error: "AI 서버(http://internal-ai:11434)에 연결 실패: private response",
+      url: "http://internal-ai:11434/v1/models",
+      headers: { authorization: "Bearer private-token" },
+      request: "private request",
+      response: "private response",
+    });
+
+    const response = await request(makeApp(true)).get("/admin/settings/ai/health");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      ok: false,
+      code: "unreachable",
+      error: "AI 서버에 연결할 수 없습니다. AI 설정과 서버 상태를 확인해주세요.",
+    });
+  });
+
+  it("returns a fixed unchecked shape before the first periodic check", async () => {
+    getAIHealthStatus.mockReturnValue(null);
+
+    const response = await request(makeApp(true)).get("/admin/settings/ai/health-status");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ checked: false });
+  });
+
+  it("returns only the periodic healthy status fields", async () => {
+    getAIHealthStatus.mockReturnValue({
+      ok: true,
+      code: "ok",
+      checkedAt: "2026-09-07T01:00:00.000Z",
+      downSince: null,
+      baseUrl: "http://internal-ai:11434/v1",
+      authorization: "Bearer private-token",
+      responseBody: "private response",
+    });
+
+    const response = await request(makeApp(true)).get("/admin/settings/ai/health-status");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      checked: true,
+      ok: true,
+      code: "ok",
+      checkedAt: "2026-09-07T01:00:00.000Z",
+      downSince: null,
+    });
+  });
+
+  it("returns only the periodic failed status fields needed by the banner", async () => {
+    getAIHealthStatus.mockReturnValue({
+      ok: false,
+      code: "auth_error",
+      error: "Bearer private-token 인증에 실패했습니다.",
+      checkedAt: "2026-09-07T01:05:00.000Z",
+      downSince: "2026-09-07T01:00:00.000Z",
+      url: "http://internal-ai:11434/v1/models",
+      headers: { authorization: "Bearer private-token" },
+      requestBody: "private request",
+      responseBody: "private response",
+    });
+
+    const response = await request(makeApp(true)).get("/admin/settings/ai/health-status");
+
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({
+      checked: true,
+      ok: false,
+      code: "auth_error",
+      error: "AI API 키가 유효하지 않습니다. 관리자 페이지의 AI 설정을 확인해주세요.",
+      checkedAt: "2026-09-07T01:05:00.000Z",
+      downSince: "2026-09-07T01:00:00.000Z",
+    });
+  });
+});
 
 describe("admin alert delivery status contract", () => {
   beforeEach(() => {
