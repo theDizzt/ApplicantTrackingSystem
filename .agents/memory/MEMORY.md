@@ -9,3 +9,4 @@
 - [채용 사이트 공고 본문 수집](job-portal-detail-pages.md) — 사람인/잡코리아 본문은 별도 상세 URL에 있음; 겉 페이지 내비 텍스트가 길이 휴리스틱을 속이므로 상세 페이지를 무조건 우선할 것
 - [api-server 통합 테스트 패턴](api-server-test-mocks.md) — admin 라우터를 vitest에서 직접 띄우는 법: db/미들웨어/openai 모듈 mock + 가짜 Ollama(11434) + 레지스트리 fetch stub
 - [심사 한도·특권 안전성](analysis-quota-entitlements.md) — 무제한 권한은 구독과 분리하고, 월 리셋·차감은 행 잠금 단일 트랜잭션으로 처리
+- [OpenAPI 바이너리 업로드 코드 생성](openapi-binary-upload-codegen.md) — multipart binary는 클라이언트 Blob·서버 Zod File을 생성하므로 공유 타입 빌드에 DOM 타입이 필요

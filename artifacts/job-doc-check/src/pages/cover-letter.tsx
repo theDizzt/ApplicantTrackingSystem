@@ -8,6 +8,7 @@ import { useToast } from '@/hooks/use-toast';
 import {
   getGetResumeQueryKey,
   getListResumesQueryKey,
+  useGenerateCoverLetter,
   useGenerateGuidedPrompts,
   useListResumes,
   useUpdateResume,
@@ -71,6 +72,7 @@ export default function CoverLetterPage() {
   const [, setLocation] = useLocation();
   const { data: resumes, isLoading: resumesLoading } = useListResumes();
   const updateResume = useUpdateResume();
+  const generateCoverLetterMutation = useGenerateCoverLetter();
   const generateGuidedPrompts = useGenerateGuidedPrompts();
   
   const [recording, setRecording] = useState(false);
@@ -285,28 +287,19 @@ export default function CoverLetterPage() {
     setStatus('processing');
     setErrorMessage('');
     
-    const formData = new FormData();
-    formData.append('audio', audioFile.blob, audioFile.name);
-    
     try {
-      const response = await fetch('/api/cover-letter/generate', {
-        method: 'POST',
-        body: formData,
-        credentials: 'include'
+      const audio = audioFile.blob instanceof File
+        ? audioFile.blob
+        : new File([audioFile.blob], audioFile.name, { type: audioFile.blob.type });
+      const result = await generateCoverLetterMutation.mutateAsync({
+        data: { audio },
       });
-      
-      if (!response.ok) {
-        const data = await response.json().catch(() => ({}));
-        throw new Error(data.error || `서버 오류 (${response.status})`);
-      }
-      
-      const result = await response.json();
-      setTranscript(result.transcript || '');
-      setCoverLetter(result.coverLetter || '');
+
+      setTranscript(result.transcript);
+      setCoverLetter(result.coverLetter);
       setStatus('success');
       
     } catch (err: unknown) {
-      console.error(err);
       setStatus('error');
       setErrorMessage(err instanceof Error ? err.message : "자기소개서 생성 중 오류가 발생했습니다.");
     }

@@ -201,6 +201,15 @@ export interface GuidedPromptsResult {
   usedFallback: boolean;
 }
 
+export interface CoverLetterAudioInput {
+  audio: Blob;
+}
+
+export interface CoverLetterGenerationResult {
+  transcript: string;
+  coverLetter: string;
+}
+
 export type AnalysisStatus = typeof AnalysisStatus[keyof typeof AnalysisStatus];
 
 

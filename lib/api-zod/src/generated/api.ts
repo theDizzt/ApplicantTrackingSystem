@@ -422,6 +422,19 @@ export const DeleteResumeResponse = zod.void()
 
 
 /**
+ * @summary Generate a cover letter from an audio recording
+ */
+export const GenerateCoverLetterBody = zod.object({
+  "audio": zod.instanceof(File)
+})
+
+export const GenerateCoverLetterResponse = zod.object({
+  "transcript": zod.string(),
+  "coverLetter": zod.string()
+})
+
+
+/**
  * @summary Generate guided recording prompts from a resume
  */
 

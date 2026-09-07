@@ -16,6 +16,8 @@ export * from './authUserSubscriptionStatus';
 export * from './company';
 export * from './companyInput';
 export * from './companyUpdate';
+export * from './coverLetterAudioInput';
+export * from './coverLetterGenerationResult';
 export * from './dashboardSummary';
 export * from './errorResponse';
 export * from './fetchPostingsInput';

@@ -8,7 +8,11 @@ import { and, eq } from "drizzle-orm";
 import multer from "multer";
 import OpenAI, { toFile } from "openai";
 import { db, resumesTable } from "@workspace/db";
-import { GenerateGuidedPromptsBody, GenerateGuidedPromptsResponse } from "@workspace/api-zod";
+import {
+  GenerateCoverLetterResponse,
+  GenerateGuidedPromptsBody,
+  GenerateGuidedPromptsResponse,
+} from "@workspace/api-zod";
 import { requireAuth } from "../middlewares/auth";
 import {
   recordGuidedPromptGeneration,
@@ -338,7 +342,7 @@ ${transcript.slice(0, 30000)}
       const coverLetter = cleanGeneratedText(completion.choices[0]?.message?.content ?? "");
       if (!coverLetter) throw new Error("AI가 빈 자기소개서를 반환했습니다.");
 
-      res.json({ transcript, coverLetter });
+      res.json(GenerateCoverLetterResponse.parse({ transcript, coverLetter }));
     } catch (error) {
       req.log.error({ err: error }, "Cover letter voice generation failed");
       res.status(502).json({

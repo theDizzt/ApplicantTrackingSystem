@@ -27,6 +27,8 @@ import type {
   Company,
   CompanyInput,
   CompanyUpdate,
+  CoverLetterAudioInput,
+  CoverLetterGenerationResult,
   DashboardSummary,
   ErrorResponse,
   FetchPostingsInput,
@@ -1688,6 +1690,79 @@ export const useDeleteResume = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteResumeMutationOptions(options));
+    }
+
+export const getGenerateCoverLetterUrl = () => {
+
+
+
+
+  return `/api/cover-letter/generate`
+}
+
+/**
+ * @summary Generate a cover letter from an audio recording
+ */
+export const generateCoverLetter = async (coverLetterAudioInput: CoverLetterAudioInput, options?: RequestInit): Promise<CoverLetterGenerationResult> => {
+    const formData = new FormData();
+formData.append(`audio`, coverLetterAudioInput.audio);
+
+  return customFetch<CoverLetterGenerationResult>(getGenerateCoverLetterUrl(),
+  {
+    ...options,
+    method: 'POST'
+    ,
+    body: formData
+  }
+);}
+
+
+
+
+
+export const getGenerateCoverLetterMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateCoverLetter>>, TError,{data: BodyType<CoverLetterAudioInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof generateCoverLetter>>, TError,{data: BodyType<CoverLetterAudioInput>}, TContext> => {
+
+const mutationKey = ['generateCoverLetter'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof generateCoverLetter>>, {data: BodyType<CoverLetterAudioInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  generateCoverLetter(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type GenerateCoverLetterMutationResult = NonNullable<Awaited<ReturnType<typeof generateCoverLetter>>>
+    export type GenerateCoverLetterMutationBody = BodyType<CoverLetterAudioInput>
+    export type GenerateCoverLetterMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Generate a cover letter from an audio recording
+ */
+export const useGenerateCoverLetter = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof generateCoverLetter>>, TError,{data: BodyType<CoverLetterAudioInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof generateCoverLetter>>,
+        TError,
+        {data: BodyType<CoverLetterAudioInput>},
+        TContext
+      > => {
+      return useMutation(getGenerateCoverLetterMutationOptions(options));
     }
 
 export const getGenerateGuidedPromptsUrl = () => {

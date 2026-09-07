@@ -501,6 +501,61 @@ paths:
           description: Deleted
 
   # Cover letter
+  /cover-letter/generate:
+    post:
+      operationId: generateCoverLetter
+      tags: [cover-letter]
+      summary: Generate a cover letter from an audio recording
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/CoverLetterAudioInput"
+      responses:
+        "200":
+          description: Generated cover letter
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/CoverLetterGenerationResult"
+        "400":
+          description: Audio file is missing or invalid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Audio file is too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Unsupported audio format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: Audio does not contain enough speech
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "429":
+          description: Too many concurrent audio jobs
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "502":
+          description: Speech transcription or cover letter generation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
   /cover-letter/guided-prompts:
     post:
       operationId: generateGuidedPrompts
@@ -1086,6 +1141,23 @@ components:
             type: string
         usedFallback:
           type: boolean
+
+    CoverLetterAudioInput:
+      type: object
+      required: [audio]
+      properties:
+        audio:
+          type: string
+          format: binary
+
+    CoverLetterGenerationResult:
+      type: object
+      required: [transcript, coverLetter]
+      properties:
+        transcript:
+          type: string
+        coverLetter:
+          type: string
 
     # Analyses
     Analysis:
