@@ -6,7 +6,7 @@
 #  로컬 또는 서버 환경에 직접 설치합니다. (Docker 불필요)
 #
 #  구성 요소:
-#    - Node.js 20 + pnpm (모노레포 빌드)
+#    - Node.js 22 + pnpm 10.26.1 (모노레포 빌드)
 #    - PostgreSQL 15+ (데이터베이스)
 #    - API 서버 (Express, systemd 서비스로 등록)
 #    - 웹 프론트엔드 (정적 빌드, Nginx로 서빙)
@@ -93,23 +93,23 @@ install_base_packages() {
     # poppler-utils: 스캔 PDF OCR, ffmpeg: 음성 자기소개서 오디오 정규화
     if [ "$OS_FAMILY" = "debian" ]; then
         $SUDO apt-get update -y
-        $SUDO apt-get install -y curl ca-certificates gnupg git build-essential openssl acl zstd poppler-utils ffmpeg
+        $SUDO apt-get install -y curl ca-certificates gnupg git build-essential openssl apache2-utils acl zstd poppler-utils ffmpeg
     else
-        $SUDO $PKG install -y curl ca-certificates git gcc-c++ make openssl acl zstd poppler-utils ffmpeg
+        $SUDO $PKG install -y curl ca-certificates git gcc-c++ make openssl httpd-tools acl zstd poppler-utils ffmpeg
     fi
     echo -e "  ${GREEN}완료${NC}"
     echo ""
 }
 
 # ----------------------------------------
-# 3. Node.js 20 + pnpm 설치
+# 3. Node.js 22 + pnpm 설치
 # ----------------------------------------
 install_nodejs() {
-    echo -e "${CYAN}[3/8] Node.js 20 + pnpm 설치${NC}"
+    echo -e "${CYAN}[3/8] Node.js 22 + pnpm 설치${NC}"
     NEED_NODE=true
     if command -v node &>/dev/null; then
         NODE_MAJOR=$(node -v | sed 's/v\([0-9]*\).*/\1/')
-        if [ "$NODE_MAJOR" -ge 20 ]; then
+        if [ "$NODE_MAJOR" -eq 22 ]; then
             echo -e "  Node.js $(node -v) 이미 설치됨"
             NEED_NODE=false
         fi
@@ -117,16 +117,16 @@ install_nodejs() {
 
     if [ "$NEED_NODE" = true ]; then
         if [ "$OS_FAMILY" = "debian" ]; then
-            curl -fsSL https://deb.nodesource.com/setup_20.x | $SUDO bash -
+            curl -fsSL https://deb.nodesource.com/setup_22.x | $SUDO bash -
             $SUDO apt-get install -y nodejs
         else
-            curl -fsSL https://rpm.nodesource.com/setup_20.x | $SUDO bash -
+            curl -fsSL https://rpm.nodesource.com/setup_22.x | $SUDO bash -
             $SUDO $PKG install -y nodejs
         fi
     fi
 
-    if ! command -v pnpm &>/dev/null; then
-        $SUDO npm install -g pnpm@10
+    if ! command -v pnpm &>/dev/null || [ "$(pnpm -v)" != "10.26.1" ]; then
+        $SUDO npm install -g pnpm@10.26.1
     fi
     echo -e "  Node: ${GREEN}$(node -v)${NC} / pnpm: ${GREEN}$(pnpm -v)${NC}"
     echo ""
@@ -217,6 +217,18 @@ setup_env() {
         echo -e "  ${YELLOW}기존 ${ENV_FILE} 발견 — 재사용합니다.${NC}"
         # 기존 파일에서 DATABASE_URL이 없으면 추가
         grep -q "^DATABASE_URL=" "$ENV_FILE" || echo "DATABASE_URL=${DATABASE_URL}" >> "$ENV_FILE"
+        if ! grep -q "^ADMIN_USERNAME=" "$ENV_FILE" || ! grep -q "^ADMIN_PASSWORD_HASH=" "$ENV_FILE"; then
+            read -p "  관리자 아이디 [admin]: " ADMIN_USERNAME
+            ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+            read -s -p "  관리자 비밀번호(8자 이상): " ADMIN_PASSWORD
+            echo ""
+            if [ "${#ADMIN_PASSWORD}" -lt 8 ]; then
+                echo -e "${RED}[오류] 관리자 비밀번호는 8자 이상이어야 합니다.${NC}"; exit 1
+            fi
+            ADMIN_PASSWORD_HASH=$(htpasswd -bnBC 12 "" "$ADMIN_PASSWORD" | tr -d ':\n')
+            echo "ADMIN_USERNAME=${ADMIN_USERNAME}" >> "$ENV_FILE"
+            echo "ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}" >> "$ENV_FILE"
+        fi
         echo ""
         return
     fi
@@ -226,12 +238,22 @@ setup_env() {
     echo -e "  ${YELLOW}AI API 키는 설치 후 관리자 페이지(/admin → AI 설정)에서 등록합니다.${NC}"
 
     SESSION_SECRET=$(openssl rand -hex 32)
+    read -p "  관리자 아이디 [admin]: " ADMIN_USERNAME
+    ADMIN_USERNAME=${ADMIN_USERNAME:-admin}
+    read -s -p "  관리자 비밀번호(8자 이상): " ADMIN_PASSWORD
+    echo ""
+    if [ "${#ADMIN_PASSWORD}" -lt 8 ]; then
+        echo -e "${RED}[오류] 관리자 비밀번호는 8자 이상이어야 합니다.${NC}"; exit 1
+    fi
+    ADMIN_PASSWORD_HASH=$(htpasswd -bnBC 12 "" "$ADMIN_PASSWORD" | tr -d ':\n')
 
     cat > "$ENV_FILE" <<EOF
 NODE_ENV=production
 PORT=${API_PORT}
 DATABASE_URL=${DATABASE_URL}
 SESSION_SECRET=${SESSION_SECRET}
+ADMIN_USERNAME=${ADMIN_USERNAME}
+ADMIN_PASSWORD_HASH=${ADMIN_PASSWORD_HASH}
 EOF
     chmod 600 "$ENV_FILE"
     echo -e "  ${GREEN}${ENV_FILE} 생성 완료${NC}"
@@ -341,7 +363,7 @@ server {
     listen ${WEB_PORT};
     server_name _;
 
-    client_max_body_size 20M;
+    client_max_body_size 50M;
 
     # API 프록시
     location /api/ {
@@ -351,7 +373,9 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$forwarded_proto;
-        proxy_read_timeout 300s;
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 600s;
+        proxy_read_timeout 600s;
     }
 
     # 정적 프론트엔드 (SPA)

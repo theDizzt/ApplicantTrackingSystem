@@ -68,9 +68,8 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     ports:
-      # 외부 접근 허용 (Web VM → DB VM 내부망 연결용)
-      # 방화벽에서 Web VM IP만 허용할 것
-      - "0.0.0.0:${DB_PORT:-5432}:5432"
+      # DB VM의 사설망 IP를 DB_HOST에 지정하고 Web VM IP만 방화벽으로 허용
+      - "${DB_HOST:-127.0.0.1}:${DB_PORT:-5432}:5432"
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ats_user} -d ${POSTGRES_DB:-atsdb}"]
       interval: 5s

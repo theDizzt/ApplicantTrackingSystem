@@ -12,12 +12,12 @@
 FROM node:22-slim AS deps
 
 # Install pnpm
-RUN npm install -g pnpm@10 --quiet
+RUN npm install -g pnpm@10.26.1 --quiet
 
 WORKDIR /workspace
 
 # Copy workspace manifests first (for layer caching)
-COPY package.json pnpm-workspace.yaml pnpm-lock.yaml ./
+COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 
 # Copy every package.json in the monorepo (keeps the pnpm virtual store happy)
 COPY lib/db/package.json                             ./lib/db/

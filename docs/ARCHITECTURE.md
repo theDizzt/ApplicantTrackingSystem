@@ -32,7 +32,7 @@
 │  라우트: auth · resumes · companies · company-posting ·    │
 │          analyses · career-analysis · interviews ·         │
 │          subscription · dashboard · spellcheck ·           │
-│          admin · health                                    │
+│          cover-letter · admin · health                     │
 │  미들웨어: express-session · bcrypt · pino-http            │
 │  스케줄러: node-cron (매주 월요일 09:00 KST)               │
 │  OCR: pdftoppm(poppler-utils) + 비전 모델                  │
@@ -82,6 +82,7 @@ workspace/
 | `src/scheduler.ts` | node-cron 주간 스케줄러 |
 | `src/routes/` | REST 라우트 핸들러 |
 | `src/lib/openai.ts` | OpenAI 호환 클라이언트 싱글턴 (주 모델 + 보조 모델 ai2_*/ai3_*) |
+| `src/lib/resume-text.ts` | 이력서·기존 자기소개서 HTML을 AI 입력용 일반 텍스트로 정규화 |
 | `src/lib/vision-ocr.ts` | 스캔(이미지) PDF·이미지 OCR. `MISTRAL_API_KEY` 있으면 Mistral OCR 우선, 없으면 pdftoppm PNG 변환 후 비전 모델 OCR |
 | `src/lib/mistral-ocr.ts` | Mistral OCR API 래퍼 (선택). `MISTRAL_API_KEY` 설정 시 활성화, 실패 시 비전 OCR로 폴백 |
 | `src/lib/similarity.ts` | 임베딩 기반 직무↔자소서 문장 유사도(0~100) |
@@ -105,6 +106,7 @@ workspace/
 | `src/components/rich-text-editor.tsx` | TipTap 에디터 래퍼 |
 | `src/components/career-analysis-panel.tsx` | 커리어 분석 결과 패널 |
 | `src/components/resume-print.tsx` | 이력서 PDF 출력용 컴포넌트(템플릿 3종, print CSS) |
+| `src/pages/cover-letter.tsx` | 음성 녹음·파일 업로드·가이드 질문 기반 자기소개서 생성 |
 | `vite.config.ts` | Vite 설정, 프록시, 베이스 경로 |
 
 ### `lib/db`
@@ -271,6 +273,12 @@ users ──────< resumes
 | GET | `/interviews/:id` | 면접 세션 상세 🔒 |
 | POST | `/interviews/:id/answers` | 답변 제출 → AI 피드백 🔒 |
 
+### Cover Letter
+| 메서드 | 경로 | 설명 |
+|---|---|---|
+| POST | `/cover-letter/guided-prompts` | 선택한 이력서·기존 자기소개서 기반 음성 가이드 질문 6~8개 생성 🔒 |
+| POST | `/cover-letter/generate` | 녹음/오디오 업로드 → ffmpeg 정규화 → STT → 자기소개서 생성 🔒 |
+
 ### Subscription
 | 메서드 | 경로 | 설명 |
 |---|---|---|
@@ -285,7 +293,7 @@ users ──────< resumes
 | POST | `/admin/login` · `/admin/logout` | 관리자 로그인/로그아웃 |
 | GET | `/admin/me` · `/admin/stats` · `/admin/users` | 관리자 세션·통계·사용자 |
 | GET/POST/PATCH/DELETE | `/admin/organizations…` | 조직 관리 🛡 |
-| GET/PUT | `/admin/settings/ai` | AI 공급자 설정 조회/저장(주·보조 모델 ai2_*/ai3_*) 🛡 |
+| GET/PUT | `/admin/settings/ai` | AI 공급자 설정 조회/저장(주·보조 모델 ai2_*/ai3_* 및 STT 모델) 🛡 |
 | GET | `/admin/settings/ai/health` · `/admin/settings/ai/health-status` | AI 헬스체크 🛡 |
 | POST | `/admin/settings/ai/test` | AI 연결 테스트 🛡 |
 
@@ -311,6 +319,7 @@ Wouter 기반 SPA. 베이스 경로: `import.meta.env.BASE_URL`
 | `/dashboard` | Dashboard | ✅ |
 | `/resumes` | ResumesPage | ✅ |
 | `/resumes/:id` | ResumeDetail | ✅ |
+| `/cover-letter` | CoverLetterPage | ✅ |
 | `/companies` | CompaniesPage | ✅ |
 | `/companies/:id` | CompanyDetail | ✅ |
 | `/analyses` | AnalysesPage | ✅ |
@@ -368,8 +377,30 @@ POST /resumes/:id/career-analysis  (이력서 등록·수정 시 자동 실행)
     ├─ 진행 중 재요청은 코얼레싱(중복 실행 방지)
     │
     └─ 결과(JSON) 저장 → resumes.career_analysis_result / career_analyzed_at
-       필드: strengths · ncsCategories · recommendedJobs · salaryGuide ·
+       필드: strengths · ncsCategories(NCS 1~8수준) · recommendedJobs · salaryGuide ·
              typoIssues · dateIssues · resumeSummary · summary
+```
+
+이력서 학술 정보는 논문 제목, 저자 순서, 학회/저널, Abstract를 구조화하고 가능한 경우 외부 서지 기록과 대조합니다. 추출된 Abstract는 서류 심사와 면접 질문의 추가 근거로 사용합니다.
+
+### 음성 자기소개서 흐름
+```
+POST /cover-letter/guided-prompts
+    │
+    ├─ 이력서 소유권 확인
+    ├─ 기존 자기소개서를 최우선 맥락으로 정규화
+    └─ 성장 과정·학교생활·문제 해결·강점·지원 동기·입사 후 포부 질문 6~8개
+       (AI 실패 또는 형식 오류 시 기본 질문으로 복구)
+
+POST /cover-letter/generate
+    │
+    ├─ 브라우저 녹음 또는 오디오 파일 수신 (최대 50MB, 녹음 최대 10분)
+    │    └─ API 인스턴스당 동시 음성 처리 2건, 초과 요청은 429 + Retry-After
+    ├─ 임시 파일 생성 → ffmpeg 정규화 (최대 90초)
+    ├─ 관리자 STT 모델로 전사
+    │    └─ 미지원 모델이면 gpt-4o-mini-transcribe로 한 번 재시도
+    ├─ 기존 관리자 AI 설정(getAI)으로 자기소개서 생성
+    └─ 임시 원본·변환 파일 삭제, 결과를 선택한 이력서에 반영
 ```
 
 ### 채용공고 수집 흐름
@@ -411,7 +442,7 @@ POST /companies/fetch-posting  (공고 URL 1건)
 ## 8. 인증 및 세션
 
 - **방식**: `express-session` (서버 사이드 세션)
-- **저장소**: 메모리 (단일 인스턴스 배포 가정)
+- **저장소**: PostgreSQL `user_sessions` 테이블(`connect-pg-simple`)
 - **비밀번호**: `bcrypt` (salt rounds 10)
 - **세션 데이터**: `req.session.userId` (users.id)
 - **인증 미들웨어**: `requireAuth` → userId 없으면 401 반환
@@ -426,12 +457,14 @@ POST /companies/fetch-posting  (공고 URL 1건)
 | `AI_INTEGRATIONS_OPENAI_API_KEY` | ✅ | 주 모델 API 키 (관리자 설정 미지정 시 폴백) |
 | `AI_INTEGRATIONS_OPENAI_BASE_URL` | ✅ | OpenAI 호환 API URL (관리자 설정 미지정 시 폴백) |
 | `SESSION_SECRET` | ✅ | express-session 서명 키 |
+| `ADMIN_USERNAME` | 운영 ✅ | 관리자 포털 아이디 |
+| `ADMIN_PASSWORD_HASH` | 운영 ✅ | bcrypt 관리자 비밀번호 해시 |
 | `DATABASE_URL` | ✅ | PostgreSQL 연결 문자열 (Replit DB 자동 제공) |
 | `PORT` | ✅ | 서버 포트 (Replit 자동 할당) |
 | `MISTRAL_API_KEY` | — | 선택 사항. 설정 시 스캔·이미지 문서 OCR에 Mistral OCR을 우선 사용 (미설정·실패 시 비전 모델 OCR로 폴백) |
 | `NODE_ENV` | — | `development` / `production` |
 
-> **AI 공급자 설정 우선순위**: 관리자 페이지(DB `settings` 테이블: `ai_api_key`/`ai_base_url`/`ai_model`)가 우선, 없으면 위 환경변수 폴백.
+> **AI 공급자 설정 우선순위**: 관리자 페이지(DB `settings` 테이블: `ai_api_key`/`ai_base_url`/`ai_model`)가 우선, 없으면 위 환경변수 폴백. STT 모델은 관리자 설정을 사용하며 기본값은 `gpt-4o-mini-transcribe`입니다.
 > 보조 심사 모델은 DB 설정 키 `ai2_*` / `ai3_*`로만 등록하며 환경변수 폴백은 없습니다.
 >
 > **런타임 의존성**: 스캔(이미지) PDF OCR 폴백에 `pdftoppm`(poppler-utils)이 필요합니다. Docker 이미지·설치 스크립트에 포함되어 있습니다.
@@ -459,6 +492,12 @@ POST /companies/fetch-posting  (공고 URL 1건)
 
 ### Docker / 온프렘 배포
 - 런타임 베이스 이미지: `node:22-slim`(Debian). Nginx·tini·curl과 **`poppler-utils`(pdftoppm, 스캔 PDF OCR)** 를 설치
+- 오디오 처리용 `ffmpeg`를 포함하며 앱·Nginx 모두 업로드 한도를 50MB로 통일
+- 앱 시작 전에 DB 마이그레이션을 완료해야 하며 스키마가 없으면 fail-fast
+- 세션 테이블도 Drizzle 스키마에 포함하며 앱 시작 시 임시 DDL을 실행하지 않음
+- `/healthz`는 Nginx→API→PostgreSQL `select 1`까지 성공해야 200 반환
 - 세션 쿠키 `secure: "auto"` + `trust proxy` — HTTPS(`X-Forwarded-Proto: https`)면 자동으로 Secure 쿠키, 평문 HTTP면 미적용
 - 컨테이너 Nginx는 상위 프록시의 `X-Forwarded-Proto` 를 패스스루(없으면 `$scheme`)
+- 브라우저 API는 동일 출처 `/api`를 사용하며 운영에서 API 포트와 DB 포트를 인터넷에 직접 공개하지 않음
+- 일반 Ubuntu VM 직접 설치는 Node.js 22, pnpm 10, PostgreSQL, Nginx, poppler-utils, ffmpeg를 사용
 - 자세한 내용은 `docs/DOCKER.md` 참고

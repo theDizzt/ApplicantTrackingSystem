@@ -16,7 +16,9 @@ const execFileAsync = promisify(execFile);
 const router: IRouter = Router();
 const MAX_AUDIO_BYTES = 50 * 1024 * 1024;
 const MAX_AUDIO_SECONDS = 10 * 60;
+const MAX_CONCURRENT_AUDIO_JOBS = 2;
 const ALLOWED_EXTENSIONS = new Set([".webm", ".wav", ".mp3", ".m4a", ".mp4", ".ogg", ".oga", ".aac", ".flac"]);
+let activeAudioJobs = 0;
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -45,6 +47,25 @@ const handleAudioUpload: RequestHandler = (req, res, next) => {
     req.log.warn({ err: error }, "Cover letter audio upload rejected");
     res.status(400).json({ error: "오디오 파일을 업로드하지 못했습니다." });
   });
+};
+
+const limitConcurrentAudioJobs: RequestHandler = (_req, res, next) => {
+  if (activeAudioJobs >= MAX_CONCURRENT_AUDIO_JOBS) {
+    res.setHeader("Retry-After", "15");
+    res.status(429).json({ error: "현재 음성 처리가 많습니다. 잠시 후 다시 시도해주세요." });
+    return;
+  }
+
+  activeAudioJobs += 1;
+  let released = false;
+  const release = () => {
+    if (released) return;
+    released = true;
+    activeAudioJobs = Math.max(0, activeAudioJobs - 1);
+  };
+  res.once("finish", release);
+  res.once("close", release);
+  next();
 };
 
 function getTranscriptionClient(): OpenAI {
@@ -248,6 +269,7 @@ ${resumeText || "(작성된 이력서 본문 없음)"}`,
 router.post(
   "/cover-letter/generate",
   requireAuth,
+  limitConcurrentAudioJobs,
   handleAudioUpload,
   async (req, res): Promise<void> => {
     if (!req.file) {

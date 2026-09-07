@@ -1,7 +1,7 @@
 #!/bin/sh
 # =============================================================================
 # 컨테이너 엔트리포인트
-# 순서: DB 연결 대기 → DB 스키마 마이그레이션 → Node.js 시작 → Nginx 시작
+# 순서: DB 연결 대기 → DB 스키마 확인 → Node.js 시작 → Nginx 시작
 # =============================================================================
 set -e
 
@@ -11,10 +11,10 @@ YELLOW='\033[1;33m'
 CYAN='\033[0;36m'
 NC='\033[0m'
 
-log()  { echo -e "${CYAN}[entrypoint]${NC} $*"; }
-ok()   { echo -e "${GREEN}[entrypoint]${NC} $*"; }
-warn() { echo -e "${YELLOW}[entrypoint]${NC} $*"; }
-err()  { echo -e "${RED}[entrypoint]${NC} $*" >&2; }
+log()  { printf '%b\n' "${CYAN}[entrypoint]${NC} $*"; }
+ok()   { printf '%b\n' "${GREEN}[entrypoint]${NC} $*"; }
+warn() { printf '%b\n' "${YELLOW}[entrypoint]${NC} $*"; }
+err()  { printf '%b\n' "${RED}[entrypoint]${NC} $*" >&2; }
 
 # ── 필수 환경변수 확인 ────────────────────────────────────────────────────────
 if [ -z "$DATABASE_URL" ]; then
@@ -65,9 +65,9 @@ TABLES_EXIST=$(node -e "
 " 2>/dev/null || echo "0")
 
 if [ "$TABLES_EXIST" = "0" ]; then
-    warn "DB 스키마가 없습니다. 마이그레이션을 실행하세요:"
-    warn "  docker compose exec app sh /app/migrate.sh"
-    warn "  (앱은 계속 시작됩니다. 스키마 없이 API 호출 시 오류가 발생합니다)"
+    err "DB 스키마가 없습니다. 앱 시작을 중단합니다."
+    err "먼저 마이그레이션을 실행하세요: docker compose run --rm migrate"
+    exit 1
 else
     ok "DB 스키마 확인 완료 (users 테이블 존재)"
 fi

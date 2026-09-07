@@ -31,7 +31,11 @@ async function parsePdf(buffer: Buffer): Promise<string> {
   const tmpOut = path.join(os.tmpdir(), `resume_${Date.now()}_out.txt`);
   try {
     await fs.writeFile(tmpIn, buffer);
-    await execFileAsync("pdftotext", ["-enc", "UTF-8", "-layout", tmpIn, tmpOut]);
+    await execFileAsync(
+      "pdftotext",
+      ["-enc", "UTF-8", "-layout", tmpIn, tmpOut],
+      { timeout: 60_000 },
+    );
     return await fs.readFile(tmpOut, "utf-8");
   } finally {
     await fs.unlink(tmpIn).catch(() => {});

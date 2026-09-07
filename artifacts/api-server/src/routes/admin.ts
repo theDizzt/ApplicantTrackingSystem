@@ -6,11 +6,15 @@ import { requireAdmin } from "../middlewares/admin";
 import { DEFAULT_STT_MODEL, getAI, getAIConfig, getSetting, saveSetting, invalidateAICache, checkAIHealth } from "../lib/openai";
 import { getAIHealthStatus } from "../lib/ai-health-monitor";
 
-// Admin credentials (hardcoded — change in production via env vars)
-const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? "park1058";
-const ADMIN_PASSWORD_HASH =
-  process.env.ADMIN_PASSWORD_HASH ??
-  "$2b$10$bXvyhksqpSdRmMO3LuGJE.xdVS9aWKfLw06YbPDFL/jqmt3dOcWLa";
+const isProduction = process.env.NODE_ENV === "production";
+const DEV_ADMIN_USERNAME = "park1058";
+const DEV_ADMIN_PASSWORD_HASH = "$2b$10$bXvyhksqpSdRmMO3LuGJE.xdVS9aWKfLw06YbPDFL/jqmt3dOcWLa";
+const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? (isProduction ? "" : DEV_ADMIN_USERNAME);
+const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH ?? (isProduction ? "" : DEV_ADMIN_PASSWORD_HASH);
+
+if (isProduction && (!ADMIN_USERNAME || !ADMIN_PASSWORD_HASH)) {
+  throw new Error("ADMIN_USERNAME and ADMIN_PASSWORD_HASH are required in production");
+}
 
 // Subscription pricing (must match subscription.ts)
 const PLAN_PRICES: Record<string, number> = { free: 0, basic: 9900, premium: 19900 };
