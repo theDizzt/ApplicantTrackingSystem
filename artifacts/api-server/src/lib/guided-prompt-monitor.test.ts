@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  getGuidedPromptDeliveryStatus,
   recordGuidedPromptGeneration,
   resetGuidedPromptMonitorForTests,
   waitForGuidedPromptAlertDeliveriesForTests,
@@ -175,5 +176,59 @@ describe("guided prompt generation monitor", () => {
     });
     expect(JSON.stringify(event)).not.toMatch(/userId|resumeId|resume|content/);
     vi.useRealTimers();
+  });
+
+  it("aggregates successful, permanent, and exhausted deliveries without sensitive data", async () => {
+    vi.mocked(fetch)
+      .mockResolvedValueOnce({ ok: true, status: 200 } as Response)
+      .mockResolvedValueOnce({ ok: false, status: 400 } as Response);
+
+    const noCooldown = { ...config, cooldownMs: 0 };
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 1_000, noCooldown);
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 2_000, noCooldown);
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 3_000, noCooldown);
+    await waitForGuidedPromptAlertDeliveriesForTests();
+
+    expect(getGuidedPromptDeliveryStatus()).toMatchObject({
+      total: 2,
+      succeeded: 1,
+      permanentFailures: 1,
+      retriesExhausted: 0,
+      failureRate: 0.5,
+      consecutiveFailures: 1,
+      lastOutcome: "permanent_failure",
+    });
+    const metrics = logger.info.mock.calls
+      .filter((call: any[]) => call[0].metric === "guided_prompt_alert_delivery_window")
+      .map((call: any[]) => call[0]);
+    expect(metrics).toHaveLength(2);
+    expect(JSON.stringify(metrics)).not.toContain(config.webhookUrl);
+    expect(JSON.stringify(metrics)).not.toMatch(/userId|resumeId|resume|content/);
+  });
+
+  it("emits independent channel health visibility after consecutive failures", async () => {
+    vi.mocked(fetch).mockResolvedValue({ ok: false, status: 400 } as Response);
+    const healthConfig = {
+      ...config,
+      cooldownMs: 0,
+      deliveryConsecutiveFailureThreshold: 2,
+      deliveryMinSamples: 10,
+    };
+
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 1_000, healthConfig);
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 2_000, healthConfig);
+    await recordGuidedPromptGeneration({ outcome: "fallback", failureType: "timeout" }, logger, 3_000, healthConfig);
+    await waitForGuidedPromptAlertDeliveriesForTests();
+
+    expect(logger.error).toHaveBeenCalledWith(expect.objectContaining({
+      operationalEvent: "guided_prompt_alert_channel_degraded",
+      status: expect.objectContaining({
+        permanentFailures: 2,
+        consecutiveFailures: 2,
+      }),
+    }), "Guided prompt alert channel health threshold exceeded");
+    const degradedEvent = logger.error.mock.calls
+      .find((call: any[]) => call[0].operationalEvent === "guided_prompt_alert_channel_degraded")?.[0];
+    expect(JSON.stringify(degradedEvent)).not.toContain(config.webhookUrl);
   });
 });

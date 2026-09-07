@@ -27,11 +27,21 @@ export type GuidedPromptAlertConfig = {
   minSamples: number;
   fallbackRateThreshold: number;
   failureThresholds: Record<GuidedPromptFailureType, number>;
+  deliveryWindowMs?: number;
+  deliveryMinSamples?: number;
+  deliveryFailureRateThreshold?: number;
+  deliveryConsecutiveFailureThreshold?: number;
+  deliveryHealthCooldownMs?: number;
 };
 
 const events: Event[] = [];
 const lastAlerts = new Map<string, number>();
 const pendingDeliveries = new Set<Promise<void>>();
+type DeliveryOutcome = "success" | "permanent_failure" | "retries_exhausted";
+type DeliveryEvent = { at: number; outcome: DeliveryOutcome; attempts: number };
+const deliveryEvents: DeliveryEvent[] = [];
+let consecutiveDeliveryFailures = 0;
+let lastDeliveryHealthAlertAt = -Infinity;
 const WEBHOOK_MAX_ATTEMPTS = 3;
 const WEBHOOK_RETRY_BASE_MS = 250;
 const WEBHOOK_TIMEOUT_MS = 5_000;
@@ -48,6 +58,7 @@ function readNumber(name: string, fallback: number, minimum = 0): number {
   return Number.isFinite(value) && value >= minimum ? value : fallback;
 }
 
+
 export function getGuidedPromptAlertConfig(): GuidedPromptAlertConfig {
   return {
     webhookUrl: process.env.GUIDED_PROMPT_ALERT_WEBHOOK_URL?.trim() || undefined,
@@ -63,7 +74,102 @@ export function getGuidedPromptAlertConfig(): GuidedPromptAlertConfig {
       invalid_response: Math.floor(readNumber("GUIDED_PROMPT_ALERT_INVALID_RESPONSE_COUNT", 5, 1)),
       unknown: Math.floor(readNumber("GUIDED_PROMPT_ALERT_UNKNOWN_COUNT", 5, 1)),
     },
+    deliveryWindowMs: readNumber("GUIDED_PROMPT_DELIVERY_WINDOW_MS", 60 * 60_000, 1),
+    deliveryMinSamples: Math.floor(readNumber("GUIDED_PROMPT_DELIVERY_MIN_SAMPLES", 5, 1)),
+    deliveryFailureRateThreshold: readNumber("GUIDED_PROMPT_DELIVERY_FAILURE_RATE", 0.5, 0),
+    deliveryConsecutiveFailureThreshold: Math.floor(
+      readNumber("GUIDED_PROMPT_DELIVERY_CONSECUTIVE_FAILURES", 3, 1),
+    ),
+    deliveryHealthCooldownMs: readNumber("GUIDED_PROMPT_DELIVERY_HEALTH_COOLDOWN_MS", 30 * 60_000, 0),
   };
+}
+
+export type GuidedPromptDeliveryStatus = {
+  windowMs: number;
+  total: number;
+  succeeded: number;
+  permanentFailures: number;
+  retriesExhausted: number;
+  failureRate: number;
+  consecutiveFailures: number;
+  lastOutcome?: DeliveryOutcome;
+  lastDeliveryAt?: string;
+};
+
+function getDeliverySettings(config: GuidedPromptAlertConfig) {
+  return {
+    windowMs: config.deliveryWindowMs ?? 60 * 60_000,
+    minSamples: config.deliveryMinSamples ?? 5,
+    failureRateThreshold: config.deliveryFailureRateThreshold ?? 0.5,
+    consecutiveFailureThreshold: config.deliveryConsecutiveFailureThreshold ?? 3,
+    healthCooldownMs: config.deliveryHealthCooldownMs ?? 30 * 60_000,
+  };
+}
+
+export function getGuidedPromptDeliveryStatus(
+  now = Date.now(),
+  config = getGuidedPromptAlertConfig(),
+): GuidedPromptDeliveryStatus {
+  const { windowMs } = getDeliverySettings(config);
+  const cutoff = now - windowMs;
+  while (deliveryEvents[0]?.at < cutoff) deliveryEvents.shift();
+  const succeeded = deliveryEvents.filter(event => event.outcome === "success").length;
+  const permanentFailures = deliveryEvents.filter(event => event.outcome === "permanent_failure").length;
+  const retriesExhausted = deliveryEvents.filter(event => event.outcome === "retries_exhausted").length;
+  const total = deliveryEvents.length;
+  const latest = deliveryEvents.at(-1);
+  return {
+    windowMs,
+    total,
+    succeeded,
+    permanentFailures,
+    retriesExhausted,
+    failureRate: total ? (permanentFailures + retriesExhausted) / total : 0,
+    consecutiveFailures: consecutiveDeliveryFailures,
+    ...(latest ? {
+      lastOutcome: latest.outcome,
+      lastDeliveryAt: new Date(latest.at).toISOString(),
+    } : {}),
+  };
+}
+
+function recordDeliveryOutcome(
+  outcome: DeliveryOutcome,
+  attempts: number,
+  logger: Logger,
+  config: GuidedPromptAlertConfig,
+): void {
+  const now = Date.now();
+  deliveryEvents.push({ at: now, outcome, attempts });
+  consecutiveDeliveryFailures = outcome === "success" ? 0 : consecutiveDeliveryFailures + 1;
+  const status = getGuidedPromptDeliveryStatus(now, config);
+  logger.info({
+    metric: "guided_prompt_alert_delivery_window",
+    ...status,
+  }, "Guided prompt alert delivery window metric");
+
+  const settings = getDeliverySettings(config);
+  const consecutiveThresholdExceeded =
+    status.consecutiveFailures >= settings.consecutiveFailureThreshold;
+  const failureRateThresholdExceeded =
+    status.total >= settings.minSamples &&
+    status.failureRate >= settings.failureRateThreshold;
+  if (
+    outcome !== "success" &&
+    (consecutiveThresholdExceeded || failureRateThresholdExceeded) &&
+    now - lastDeliveryHealthAlertAt >= settings.healthCooldownMs
+  ) {
+    lastDeliveryHealthAlertAt = now;
+    logger.error({
+      operationalEvent: "guided_prompt_alert_channel_degraded",
+      status,
+      thresholds: {
+        minSamples: settings.minSamples,
+        failureRate: settings.failureRateThreshold,
+        consecutiveFailures: settings.consecutiveFailureThreshold,
+      },
+    }, "Guided prompt alert channel health threshold exceeded");
+  }
 }
 
 function summarize(windowEvents: Event[]) {
@@ -94,6 +200,7 @@ async function deliverAlert(
   webhookUrl: string,
   payload: AlertPayload,
   logger: Logger,
+  config: GuidedPromptAlertConfig,
 ): Promise<void> {
   for (let attempt = 1; attempt <= WEBHOOK_MAX_ATTEMPTS; attempt += 1) {
     try {
@@ -104,6 +211,7 @@ async function deliverAlert(
         signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
       });
       if (response.ok) {
+        recordDeliveryOutcome("success", attempt, logger, config);
         logger.warn({
           alert: "guided_prompt_generation",
           reasons: payload.reasons,
@@ -115,6 +223,7 @@ async function deliverAlert(
       }
 
       if (response.status < 500) {
+        recordDeliveryOutcome("permanent_failure", attempt, logger, config);
         logger.error({
           operationalEvent: "guided_prompt_alert_delivery_failed",
           failureKind: "permanent_http_response",
@@ -125,6 +234,7 @@ async function deliverAlert(
       }
 
       if (attempt === WEBHOOK_MAX_ATTEMPTS) {
+        recordDeliveryOutcome("retries_exhausted", attempt, logger, config);
         logger.error({
           operationalEvent: "guided_prompt_alert_delivery_failed",
           failureKind: "retries_exhausted",
@@ -135,6 +245,7 @@ async function deliverAlert(
       }
     } catch {
       if (attempt === WEBHOOK_MAX_ATTEMPTS) {
+        recordDeliveryOutcome("retries_exhausted", attempt, logger, config);
         logger.error({
           operationalEvent: "guided_prompt_alert_delivery_failed",
           failureKind: "retries_exhausted",
@@ -152,8 +263,9 @@ function scheduleAlertDelivery(
   webhookUrl: string,
   payload: AlertPayload,
   logger: Logger,
+  config: GuidedPromptAlertConfig,
 ): void {
-  const delivery = deliverAlert(webhookUrl, payload, logger)
+  const delivery = deliverAlert(webhookUrl, payload, logger, config)
     .catch(() => {
       logger.error({
         operationalEvent: "guided_prompt_alert_delivery_failed",
@@ -212,7 +324,7 @@ export async function recordGuidedPromptGeneration(
     window: { durationMs: config.windowMs, endedAt: new Date(now).toISOString() },
     summary,
     reasons: actionable,
-  }, logger);
+  }, logger, config);
 }
 
 export async function waitForGuidedPromptAlertDeliveriesForTests(): Promise<void> {
@@ -223,4 +335,7 @@ export function resetGuidedPromptMonitorForTests(): void {
   events.length = 0;
   lastAlerts.clear();
   pendingDeliveries.clear();
+  deliveryEvents.length = 0;
+  consecutiveDeliveryFailures = 0;
+  lastDeliveryHealthAlertAt = -Infinity;
 }
