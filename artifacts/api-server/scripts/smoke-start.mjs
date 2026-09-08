@@ -20,6 +20,7 @@ const server = spawn(process.execPath, ["--enable-source-maps", serverEntry], {
 });
 
 let serverExit;
+let stopServerPromise;
 const serverExited = new Promise((resolve) => {
   server.once("exit", (code, signal) => {
     serverExit = { code, signal };
@@ -61,16 +62,24 @@ async function waitForHealthyServer() {
 }
 
 async function stopServer() {
-  if (serverExit) return;
+  if (serverExit) return serverExited;
+  if (stopServerPromise) return stopServerPromise;
 
-  signalServerTree("SIGTERM");
-  const forcedStop = setTimeout(() => {
-    if (!serverExit) signalServerTree("SIGKILL");
-  }, forceKillAfterMs);
-  forcedStop.unref();
+  stopServerPromise = (async () => {
+    signalServerTree("SIGTERM");
+    const forcedStop = setTimeout(() => {
+      if (!serverExit) signalServerTree("SIGKILL");
+    }, forceKillAfterMs);
+    forcedStop.unref();
 
-  await serverExited;
-  clearTimeout(forcedStop);
+    try {
+      await serverExited;
+    } finally {
+      clearTimeout(forcedStop);
+    }
+  })();
+
+  return stopServerPromise;
 }
 
 function signalServerTree(signal) {
@@ -81,6 +90,21 @@ function signalServerTree(signal) {
   } catch (error) {
     if (error?.code !== "ESRCH") throw error;
   }
+}
+
+for (const [signal, exitCode] of [
+  ["SIGTERM", 143],
+  ["SIGINT", 130],
+]) {
+  process.on(signal, () => {
+    void stopServer().then(
+      () => process.exit(exitCode),
+      (error) => {
+        console.error(`Failed to stop API server after ${signal}:`, error);
+        process.exit(1);
+      },
+    );
+  });
 }
 
 try {

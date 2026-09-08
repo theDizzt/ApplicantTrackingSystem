@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -66,6 +66,59 @@ function expectProcessStopped(pid: number) {
   expect(() => process.kill(pid, 0)).toThrow(
     expect.objectContaining({ code: "ESRCH" }),
   );
+}
+
+async function waitForPidFile(path: string): Promise<number> {
+  const deadline = Date.now() + 2_000;
+  while (Date.now() < deadline) {
+    try {
+      return Number(await readFile(path, "utf8"));
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      await new Promise((resolveWait) => setTimeout(resolveWait, 10));
+    }
+  }
+  throw new Error(`Timed out waiting for PID file: ${path}`);
+}
+
+async function runInterruptedSmokeCheck(
+  signal: "SIGTERM" | "SIGINT",
+  duplicateSignal = false,
+) {
+  const fixture = await createServerFixture(503, { spawnWorker: true });
+  const port = await getAvailablePort();
+  const smokeProcess = spawn(process.execPath, [smokeScript], {
+    env: {
+      ...process.env,
+      SMOKE_TEST_PORT: String(port),
+      SMOKE_TEST_TIMEOUT_MS: "5000",
+      SMOKE_TEST_FORCE_KILL_AFTER_MS: "50",
+      SMOKE_TEST_SERVER_ENTRY: fixture.entry,
+      SMOKE_TEST_PID_FILE: fixture.pidFile,
+      SMOKE_TEST_WORKER_PID_FILE: fixture.workerPidFile,
+    },
+    stdio: "ignore",
+  });
+  const smokeProcessExited = new Promise<{
+    code: number | null;
+    signal: string | null;
+  }>((resolveExit, reject) => {
+    smokeProcess.once("error", reject);
+    smokeProcess.once("exit", (code, exitSignal) =>
+      resolveExit({ code, signal: exitSignal }),
+    );
+  });
+
+  const [pid, workerPid] = await Promise.all([
+    waitForPidFile(fixture.pidFile),
+    waitForPidFile(fixture.workerPidFile),
+  ]);
+  smokeProcess.kill(signal);
+  if (duplicateSignal) smokeProcess.kill(signal);
+
+  const exit = await smokeProcessExited;
+
+  return { ...exit, pid, workerPid };
 }
 
 async function runSmokeCheck(
@@ -186,5 +239,27 @@ describe("smoke-start process cleanup", () => {
     expect(result.exitCode).toBe(0);
     expectProcessStopped(result.pid);
     expectProcessStopped(result.workerPid!);
+  });
+
+  it.each([
+    ["SIGTERM", 143],
+    ["SIGINT", 130],
+  ] as const)(
+    "stops the full process tree when smoke-start receives %s",
+    async (signal, expectedExitCode) => {
+      const result = await runInterruptedSmokeCheck(signal);
+
+      expect(result).toMatchObject({ code: expectedExitCode, signal: null });
+      expectProcessStopped(result.pid);
+      expectProcessStopped(result.workerPid);
+    },
+  );
+
+  it("safely handles duplicate shutdown signals", async () => {
+    const result = await runInterruptedSmokeCheck("SIGTERM", true);
+
+    expect(result).toMatchObject({ code: 143, signal: null });
+    expectProcessStopped(result.pid);
+    expectProcessStopped(result.workerPid);
   });
 });
