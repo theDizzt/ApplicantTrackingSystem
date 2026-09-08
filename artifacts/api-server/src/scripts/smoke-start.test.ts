@@ -210,6 +210,15 @@ describe("smoke-start process cleanup", () => {
     expectProcessStopped(result.pid);
   });
 
+  it("stops the full process tree after the health check times out", async () => {
+    const result = await runSmokeCheck(503, 400, { spawnWorker: true });
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.stderr).toContain("API server did not become healthy within 400ms");
+    expectProcessStopped(result.pid);
+    expectProcessStopped(result.workerPid!);
+  });
+
   it("force kills a child server that ignores SIGTERM", async () => {
     const result = await runSmokeCheck(200, 2_000, {
       ignoreSigterm: true,
