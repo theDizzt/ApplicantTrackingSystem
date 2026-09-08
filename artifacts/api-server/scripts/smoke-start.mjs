@@ -10,6 +10,7 @@ const serverEntry = process.env.SMOKE_TEST_SERVER_ENTRY ?? "./dist/index.mjs";
 
 const server = spawn(process.execPath, ["--enable-source-maps", serverEntry], {
   cwd: new URL("..", import.meta.url),
+  detached: true,
   env: {
     ...process.env,
     NODE_ENV: "production",
@@ -62,14 +63,24 @@ async function waitForHealthyServer() {
 async function stopServer() {
   if (serverExit) return;
 
-  server.kill("SIGTERM");
+  signalServerTree("SIGTERM");
   const forcedStop = setTimeout(() => {
-    if (!serverExit) server.kill("SIGKILL");
+    if (!serverExit) signalServerTree("SIGKILL");
   }, forceKillAfterMs);
   forcedStop.unref();
 
   await serverExited;
   clearTimeout(forcedStop);
+}
+
+function signalServerTree(signal) {
+  if (server.pid === undefined) return;
+
+  try {
+    process.kill(-server.pid, signal);
+  } catch (error) {
+    if (error?.code !== "ESRCH") throw error;
+  }
 }
 
 try {

@@ -28,17 +28,25 @@ async function getAvailablePort(): Promise<number> {
 
 async function createServerFixture(
   statusCode: number,
-  options: { ignoreSigterm?: boolean } = {},
+  options: { ignoreSigterm?: boolean; spawnWorker?: boolean } = {},
 ) {
   const directory = await mkdtemp(join(tmpdir(), "smoke-start-"));
   temporaryDirectories.push(directory);
   const entry = join(directory, "server.mjs");
   const pidFile = join(directory, "server.pid");
+  const workerPidFile = join(directory, "worker.pid");
   await writeFile(
     entry,
-    `import { writeFileSync } from "node:fs";
+    `import { spawn } from "node:child_process";
+import { writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 writeFileSync(process.env.SMOKE_TEST_PID_FILE, String(process.pid));
+${options.spawnWorker ? `const worker = spawn(process.execPath, ["-e", ${JSON.stringify(
+  options.ignoreSigterm
+    ? 'process.on("SIGTERM", () => {}); setInterval(() => {}, 1000)'
+    : 'setInterval(() => {}, 1000)',
+)}], { stdio: "ignore" });
+writeFileSync(process.env.SMOKE_TEST_WORKER_PID_FILE, String(worker.pid));` : ""}
 const server = createServer((_request, response) => {
   response.writeHead(${statusCode}, { "content-type": "text/plain" });
   response.end(${statusCode} === 200 ? "healthy" : "not ready");
@@ -51,7 +59,7 @@ process.on("SIGTERM", () => ${
     });
 `,
   );
-  return { entry, pidFile };
+  return { entry, pidFile, workerPidFile };
 }
 
 function expectProcessStopped(pid: number) {
@@ -63,8 +71,18 @@ function expectProcessStopped(pid: number) {
 async function runSmokeCheck(
   statusCode: number,
   timeoutMs: number,
-  options: { ignoreSigterm?: boolean; forceKillAfterMs?: number } = {},
-): Promise<{ pid: number; stdout: string; stderr: string; exitCode: number }> {
+  options: {
+    ignoreSigterm?: boolean;
+    forceKillAfterMs?: number;
+    spawnWorker?: boolean;
+  } = {},
+): Promise<{
+  pid: number;
+  workerPid?: number;
+  stdout: string;
+  stderr: string;
+  exitCode: number;
+}> {
   const fixture = await createServerFixture(statusCode, options);
   const port = await getAvailablePort();
 
@@ -83,11 +101,15 @@ async function runSmokeCheck(
             }),
         SMOKE_TEST_SERVER_ENTRY: fixture.entry,
         SMOKE_TEST_PID_FILE: fixture.pidFile,
+        SMOKE_TEST_WORKER_PID_FILE: fixture.workerPidFile,
       },
       timeout: 5_000,
     });
     return {
       pid: Number(await readFile(fixture.pidFile, "utf8")),
+      workerPid: options.spawnWorker
+        ? Number(await readFile(fixture.workerPidFile, "utf8"))
+        : undefined,
       stdout: result.stdout,
       stderr: result.stderr,
       exitCode: 0,
@@ -100,6 +122,9 @@ async function runSmokeCheck(
     };
     return {
       pid: Number(await readFile(fixture.pidFile, "utf8")),
+      workerPid: options.spawnWorker
+        ? Number(await readFile(fixture.workerPidFile, "utf8"))
+        : undefined,
       stdout: result.stdout,
       stderr: result.stderr,
       exitCode: result.code,
@@ -141,5 +166,25 @@ describe("smoke-start process cleanup", () => {
     expect(result.exitCode).toBe(0);
     expect(result.stdout).toContain("API server smoke check passed: 200 healthy");
     expectProcessStopped(result.pid);
+  });
+
+  it("stops the full process tree after a graceful shutdown", async () => {
+    const result = await runSmokeCheck(200, 2_000, { spawnWorker: true });
+
+    expect(result.exitCode).toBe(0);
+    expectProcessStopped(result.pid);
+    expectProcessStopped(result.workerPid!);
+  });
+
+  it("force kills the full process tree when it ignores SIGTERM", async () => {
+    const result = await runSmokeCheck(200, 2_000, {
+      ignoreSigterm: true,
+      spawnWorker: true,
+      forceKillAfterMs: 50,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expectProcessStopped(result.pid);
+    expectProcessStopped(result.workerPid!);
   });
 });
