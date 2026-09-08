@@ -7,33 +7,3 @@ uri = "file://.local/outputs/Resume-Reviewer.pptx"
 type = "slides"
 title = "Resume Reviewer.pptx"
 logical_id = "5e8b7727-e943-4efa-a3a0-d5be2ff04892"
-
-[[outputs]]
-id = "bqyfsaizIjFRVB32044OV"
-uri = "file://attached_assets/%EA%B4%91%EC%9A%B4%EB%8C%80_%EC%B0%BD%EC%97%85%EC%A4%80%EB%B9%84%EC%95%84%EC%B9%B4%EB%8D%B0%EB%AF%B8_%EC%82%AC%EC%97%85%EA%B3%84%ED%9A%8D%EC%84%9C%EC%B4%88%EC%95%88_MyATS.docx"
-type = "word_document"
-title = "광운대 창업 준비 아카데미 사업계획서 초안 (My ATS)"
-description = "P-S-S 양식(문제 인식·실현가능성·성장전략)에 맞춰 My ATS를 창업 아이템으로 작성한 신청서 초안 DOCX"
-logical_id = "b27e9a09-2a70-4993-b891-09147acf2267"
-
-[[outputs]]
-id = "7VZ9PeyjoJdZKWP9DVoTf"
-uri = "file://attached_assets/generated_images/myats-app-logo-600.png"
-type = "image"
-title = "My ATS 앱 로고"
-description = "밝은 화면용 600×600px PNG 앱 아이콘입니다."
-logical_id = "3f438595-3a50-4ac6-bd86-d5bdd2b16604"
-
-[[outputs]]
-id = "Uxu1Mz_l-8wULyNLeE6Cc"
-uri = "file://attached_assets/generated_images/myats-app-logo-dark-600.png"
-type = "image"
-title = "My ATS 다크모드 앱 로고"
-description = "어두운 화면용 600×600px PNG 앱 아이콘입니다."
-logical_id = "64a69922-a378-49d8-9000-4515ff2f5b1b"
-content_hash = "sha256:d9abbce544a6d39cefde3d65fb7854a2e8d26ad6b4a8266f98b3f7842e9a1701"
-size = 30866
-mtime_ms = 1788768272898
-storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:7e0ca8f2-94ba-4b18-b93c-88443a5c9635/64a69922-a378-49d8-9000-4515ff2f5b1b/d2c97ccb-ab35-415c-a1db-85240eaccf9e"
-storage_version_token = "1788768315147645"
-content_type = "image/png"

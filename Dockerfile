@@ -41,7 +41,6 @@ WORKDIR /workspace
 
 # Copy source code
 COPY lib/                   ./lib/
-COPY attached_assets/       ./attached_assets/
 COPY artifacts/api-server/  ./artifacts/api-server/
 COPY artifacts/job-doc-check/ ./artifacts/job-doc-check/
 
