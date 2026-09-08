@@ -640,6 +640,111 @@ describe("guided prompt PostgreSQL monitor store", () => {
     vi.clearAllMocks();
   });
 
+  it("rolls back a PostgreSQL clock failure without leaving event or cooldown state", async () => {
+    const databaseNow = new Date("2026-09-07T12:00:00.000Z");
+    const committedEvents: Array<{ outcome: string; failureType: string | null }> = [];
+    const committedAlertStates = new Set<string>();
+    let pendingEvent: { outcome: string; failureType: string | null } | undefined;
+    const pendingAlertStates = new Set<string>();
+    let clockAttempts = 0;
+    const queries: string[] = [];
+    const client = {
+      query: vi.fn(async (sql: string, values?: unknown[]) => {
+        queries.push(sql);
+        if (sql === "SELECT clock_timestamp() AS now") {
+          clockAttempts += 1;
+          if (clockAttempts === 1) throw new Error("database clock unavailable");
+          return { rows: [{ now: databaseNow }] };
+        }
+        if (sql.startsWith("INSERT INTO guided_prompt_generation_events")) {
+          pendingEvent = {
+            outcome: values?.[1] as string,
+            failureType: values?.[2] as string | null,
+          };
+        }
+        if (sql.includes("COUNT(*)::text")) {
+          const events = [...committedEvents, ...(pendingEvent ? [pendingEvent] : [])];
+          const count = (failureType?: string) =>
+            String(events.filter(event => failureType
+              ? event.failureType === failureType
+              : event.outcome === "fallback").length);
+          return {
+            rows: [{
+              total: String(events.length),
+              generated: String(events.filter(event => event.outcome === "generated").length),
+              fallback: count(),
+              authentication: count("authentication"),
+              rate_limit: count("rate_limit"),
+              timeout: count("timeout"),
+              upstream: count("upstream"),
+              invalid_response: count("invalid_response"),
+              unknown: count("unknown"),
+            }],
+          };
+        }
+        if (sql.includes("RETURNING reason_key")) {
+          const reasonKey = values?.[0] as string;
+          if (committedAlertStates.has(reasonKey)) return { rows: [], rowCount: 0 };
+          pendingAlertStates.add(reasonKey);
+          return { rows: [{ reason_key: reasonKey }], rowCount: 1 };
+        }
+        if (sql === "COMMIT") {
+          if (pendingEvent) committedEvents.push(pendingEvent);
+          for (const reasonKey of pendingAlertStates) committedAlertStates.add(reasonKey);
+          pendingEvent = undefined;
+          pendingAlertStates.clear();
+        }
+        if (sql === "ROLLBACK") {
+          pendingEvent = undefined;
+          pendingAlertStates.clear();
+        }
+        return { rows: [], rowCount: 0 };
+      }),
+      release: vi.fn(),
+    };
+    const postgresStore = createPostgresGuidedPromptMonitorStore({
+      connect: vi.fn().mockResolvedValue(client),
+    } as any);
+    const alertConfig = {
+      ...config,
+      minSamples: 1,
+      failureThresholds: { ...config.failureThresholds, rate_limit: 1 },
+    };
+
+    await expect(postgresStore.recordAndClaimAlerts(
+      { at: 1, outcome: "fallback", failureType: "rate_limit" },
+      alertConfig,
+    )).rejects.toThrow("database clock unavailable");
+
+    expect(queries).toEqual([
+      "BEGIN",
+      "SELECT pg_advisory_xact_lock(hashtext($1))",
+      "SELECT clock_timestamp() AS now",
+      "ROLLBACK",
+    ]);
+    expect(committedEvents).toEqual([]);
+    expect(committedAlertStates.size).toBe(0);
+
+    const recovered = await postgresStore.recordAndClaimAlerts(
+      { at: 2, outcome: "fallback", failureType: "rate_limit" },
+      alertConfig,
+    );
+
+    expect(recovered.summary).toMatchObject({
+      total: 1,
+      fallback: 1,
+      failures: expect.objectContaining({ rate_limit: 1 }),
+    });
+    expect(recovered.actionable).toEqual(expect.arrayContaining([
+      { kind: "fallback_rate", actual: 1, threshold: alertConfig.fallbackRateThreshold },
+      { kind: "failure_count", failureType: "rate_limit", actual: 1, threshold: 1 },
+    ]));
+    expect(committedEvents).toEqual([{ outcome: "fallback", failureType: "rate_limit" }]);
+    expect(committedAlertStates).toEqual(new Set(["fallback_rate", "failure_count:rate_limit"]));
+    expect(client.release).toHaveBeenCalledTimes(2);
+    expect(queries.at(-1)).toBe("COMMIT");
+  });
+
   it("shares concurrent counts and cooldown state without storing user or resume data", async () => {
     const schema = `guided_prompt_clock_test_${process.pid}`;
     await pool.query(`DROP SCHEMA IF EXISTS "${schema}" CASCADE`);
