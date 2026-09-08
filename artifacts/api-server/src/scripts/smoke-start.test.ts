@@ -26,7 +26,10 @@ async function getAvailablePort(): Promise<number> {
   return address.port;
 }
 
-async function createServerFixture(statusCode: number) {
+async function createServerFixture(
+  statusCode: number,
+  options: { ignoreSigterm?: boolean } = {},
+) {
   const directory = await mkdtemp(join(tmpdir(), "smoke-start-"));
   temporaryDirectories.push(directory);
   const entry = join(directory, "server.mjs");
@@ -41,7 +44,11 @@ const server = createServer((_request, response) => {
   response.end(${statusCode} === 200 ? "healthy" : "not ready");
 });
 server.listen(Number(process.env.PORT), "127.0.0.1");
-process.on("SIGTERM", () => server.close(() => process.exit(0)));
+process.on("SIGTERM", () => ${
+      options.ignoreSigterm
+        ? "{}"
+        : "server.close(() => process.exit(0))"
+    });
 `,
   );
   return { entry, pidFile };
@@ -56,8 +63,9 @@ function expectProcessStopped(pid: number) {
 async function runSmokeCheck(
   statusCode: number,
   timeoutMs: number,
+  options: { ignoreSigterm?: boolean; forceKillAfterMs?: number } = {},
 ): Promise<{ pid: number; stdout: string; stderr: string; exitCode: number }> {
-  const fixture = await createServerFixture(statusCode);
+  const fixture = await createServerFixture(statusCode, options);
   const port = await getAvailablePort();
 
   try {
@@ -66,6 +74,13 @@ async function runSmokeCheck(
         ...process.env,
         SMOKE_TEST_PORT: String(port),
         SMOKE_TEST_TIMEOUT_MS: String(timeoutMs),
+        ...(options.forceKillAfterMs === undefined
+          ? {}
+          : {
+              SMOKE_TEST_FORCE_KILL_AFTER_MS: String(
+                options.forceKillAfterMs,
+              ),
+            }),
         SMOKE_TEST_SERVER_ENTRY: fixture.entry,
         SMOKE_TEST_PID_FILE: fixture.pidFile,
       },
@@ -114,6 +129,17 @@ describe("smoke-start process cleanup", () => {
 
     expect(result.exitCode).not.toBe(0);
     expect(result.stderr).toContain("API server did not become healthy within 400ms");
+    expectProcessStopped(result.pid);
+  });
+
+  it("force kills a child server that ignores SIGTERM", async () => {
+    const result = await runSmokeCheck(200, 2_000, {
+      ignoreSigterm: true,
+      forceKillAfterMs: 50,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain("API server smoke check passed: 200 healthy");
     expectProcessStopped(result.pid);
   });
 });

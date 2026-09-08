@@ -2,6 +2,9 @@ import { spawn } from "node:child_process";
 
 const port = process.env.SMOKE_TEST_PORT ?? "43123";
 const timeoutMs = Number(process.env.SMOKE_TEST_TIMEOUT_MS ?? "15000");
+const forceKillAfterMs = Number(
+  process.env.SMOKE_TEST_FORCE_KILL_AFTER_MS ?? "5000",
+);
 const healthUrl = `http://127.0.0.1:${port}/api/healthz`;
 const serverEntry = process.env.SMOKE_TEST_SERVER_ENTRY ?? "./dist/index.mjs";
 
@@ -62,7 +65,7 @@ async function stopServer() {
   server.kill("SIGTERM");
   const forcedStop = setTimeout(() => {
     if (!serverExit) server.kill("SIGKILL");
-  }, 5_000);
+  }, forceKillAfterMs);
   forcedStop.unref();
 
   await serverExited;
