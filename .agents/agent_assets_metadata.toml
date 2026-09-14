@@ -7,3 +7,17 @@ uri = "file://.local/outputs/Resume-Reviewer.pptx"
 type = "slides"
 title = "Resume Reviewer.pptx"
 logical_id = "5e8b7727-e943-4efa-a3a0-d5be2ff04892"
+
+[[outputs]]
+id = "gKg-Smbgl6cLnI-aqFypG"
+uri = "file://artifacts/myats-instagram-video/My_ATS_Instagram_4x5.mp4"
+type = "video"
+title = "My ATS 인스타그램 홍보 영상 (4:5)"
+description = "인스타그램 피드용 1080×1350, 30초, 24fps MP4 영상입니다."
+logical_id = "305a6cd1-3c71-4d71-8c0d-6bffc3794476"
+content_hash = "sha256:75f24a6e85bb54161f31f9b357acc81f4fcc6774d0f166dc9ca9600369c93f5d"
+size = 1397755
+mtime_ms = 1789386221039
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:7e0ca8f2-94ba-4b18-b93c-88443a5c9635/305a6cd1-3c71-4d71-8c0d-6bffc3794476/6025071e-b977-444d-a985-66b712d2b360"
+storage_version_token = "1789386525796159"
+content_type = "video/mp4"
