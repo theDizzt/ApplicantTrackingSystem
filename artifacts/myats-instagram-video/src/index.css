@@ -1,0 +1,59 @@
+@font-face {
+  font-family: "Noto Sans KR";
+  src: url("/myats-instagram-video/fonts/NotoSansKR-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Noto Sans KR";
+  src: url("/myats-instagram-video/fonts/NotoSansKR-ExtraBold.ttf") format("truetype");
+  font-weight: 800;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  font-family: "Noto Sans KR", sans-serif;
+  color: #f5f6f8;
+  background: #07142f;
+  font-synthesis: none;
+  text-rendering: geometricPrecision;
+}
+
+* { box-sizing: border-box; }
+html, body, #root { width: 100%; min-height: 100%; margin: 0; }
+body { min-height: 100dvh; overflow: hidden; background: #07142f; }
+
+.video-root {
+  position: relative;
+  width: min(100vw, 80vh);
+  height: min(125vw, 100vh);
+  aspect-ratio: 4 / 5;
+  overflow: hidden;
+  margin: auto;
+  background: #07142f;
+  isolation: isolate;
+}
+
+.grain {
+  position: absolute;
+  inset: 0;
+  opacity: .13;
+  pointer-events: none;
+  z-index: 9;
+  mix-blend-mode: screen;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.5'/%3E%3C/svg%3E");
+}
+
+.font-display { font-family: "Noto Sans KR", sans-serif; font-weight: 800; }
+.safe { position: absolute; inset: 8% 8% 10%; }
+.eyebrow { letter-spacing: .14em; font-size: clamp(9px, 1.15vw, 15px); font-weight: 800; }
+.micro { letter-spacing: .08em; font-size: clamp(8px, 1vw, 13px); }
+
+@media (max-aspect-ratio: 4/5) {
+  .video-root { width: 100vw; height: 125vw; }
+}
+@media (min-aspect-ratio: 4/5) {
+  .video-root { height: 100vh; width: 80vh; }
+}

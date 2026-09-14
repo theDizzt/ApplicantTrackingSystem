@@ -1,0 +1,28 @@
+kind = "video"
+videoAspectRatio = "4:5"
+previewPath = "/myats-instagram-video/"
+title = "My ATS Instagram Feed Film"
+version = "1.0.0"
+id = "artifacts/myats-instagram-video"
+router = "path"
+
+[[services]]
+name = "video"
+paths = [ "/myats-instagram-video/" ]
+localPort = 24115
+
+[services.development]
+run = "pnpm --filter @workspace/myats-instagram-video run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/myats-instagram-video", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/myats-instagram-video/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "24115"
+BASE_PATH = "/myats-instagram-video/"

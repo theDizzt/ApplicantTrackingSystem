@@ -1,0 +1,24 @@
+{
+  "name": "@workspace/myats-instagram-video",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --config vite.config.ts --host 0.0.0.0",
+    "build": "vite build --config vite.config.ts"
+  },
+  "dependencies": {
+    "framer-motion": "catalog:",
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "catalog:",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@types/node": "^25.9.5",
+    "typescript": "^5.9.3",
+    "vite": "catalog:"
+  }
+}

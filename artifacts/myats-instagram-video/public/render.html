@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8" />
+  <style>
+    @font-face{font-family:noto;src:url('./fonts/NotoSansKR-Regular.ttf')}@font-face{font-family:noto;src:url('./fonts/NotoSansKR-ExtraBold.ttf');font-weight:800}
+    *{box-sizing:border-box}html,body{margin:0;width:1080px;height:1350px;overflow:hidden;background:#07142f}
+    body{font-family:noto,sans-serif;color:#f5f6f8}.frame{position:relative;width:1080px;height:1350px;overflow:hidden;background:linear-gradient(135deg,#07142f,#0b1d45 64%,#07142f)}
+    .frame:before{content:"";position:absolute;inset:0;opacity:.16;background:linear-gradient(rgba(160,190,255,.11) 1px,transparent 1px),linear-gradient(90deg,rgba(160,190,255,.11) 1px,transparent 1px);background-size:81px 81px}
+    .orb{position:absolute;width:650px;height:650px;border-radius:50%;filter:blur(2px);opacity:.35;background:radial-gradient(circle at 35% 28%,#2b63ff,transparent 68%);transition:transform 1s ease}
+    .orb.one{left:580px;top:-160px}.orb.two{left:-210px;top:650px;background:radial-gradient(circle at 55% 44%,#145281,transparent 67%)}
+    .grain{position:absolute;inset:0;opacity:.08;mix-blend-mode:screen;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence baseFrequency='.8' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")}
+    .safe{position:absolute;inset:110px 90px 125px}.scene{position:absolute;inset:0;opacity:0;transform:translateY(30px);transition:opacity .6s ease,transform .8s cubic-bezier(.16,1,.3,1)}.scene.active{opacity:1;transform:translateY(0)}
+    .eyebrow{font-size:16px;letter-spacing:.14em;font-weight:800;color:#6f9cff;display:flex;gap:13px;align-items:center}.eyebrow i{width:36px;height:2px;background:currentColor}
+    h1,h2,p{margin:0}.display{font-weight:800;letter-spacing:-.09em}.muted{color:#aab8d4}.cyan{color:#72f0f3}.gold{color:#ffcc83}.mint{color:#a8f3e1}
+    .logo{position:absolute;top:110px;left:90px;display:flex;gap:14px;align-items:center}.logo img{width:70px;height:55px;object-fit:contain;object-position:left center}.logo b{font-size:24px;letter-spacing:-.07em}.logo small{display:block;color:#aab8d4;font-size:12px;letter-spacing:.08em;margin-top:3px}
+    .line{height:1px;background:linear-gradient(90deg,#2b63ff,transparent);position:absolute;bottom:125px;left:90px;width:900px}
+    .card{background:#f5f2eb;color:#081530;border-radius:20px;box-shadow:0 28px 54px rgba(0,0,0,.26)}.darkcard{background:#101f43;border:1px solid rgba(111,156,255,.36);border-radius:20px}
+    .bars{display:flex;align-items:center;gap:10px;height:70px}.bars i{width:15px;border-radius:10px;background:#2b63ff;display:block}.bars i:nth-child(n+18){background:#c7d2e4}
+  </style>
+</head>
+<body>
+<div class="frame">
+  <div class="orb one"></div><div class="orb two"></div><div class="grain"></div>
+  <div class="scene scene0 active">
+    <div class="logo"><img src="./assets/myats-logo.png"><div><b>My ATS</b><small>AI 서류 심사관</small></div></div>
+    <div class="safe" style="padding-top:330px">
+      <div class="eyebrow">지원 전, 먼저 읽는 것</div>
+      <h1 class="display" style="font-size:92px;line-height:1.08;margin-top:28px">내 서류,<br><span class="cyan">합격에 가까운가?</span></h1>
+      <p class="muted" style="font-size:23px;line-height:1.75;margin-top:42px">이력서와 채용공고를 함께 읽는<br>AI 서류 심사관, My ATS</p>
+    </div><div class="line"></div>
+  </div>
+  <div class="scene scene1">
+    <div class="safe">
+      <div class="eyebrow" style="color:#72f0f3">01 / 서류 심사</div>
+      <h2 class="display" style="font-size:67px;line-height:1.13;margin-top:26px">채용공고의 언어로<br><span class="cyan">내 이력서를 다시 보다</span></h2>
+      <div class="card" style="position:absolute;top:345px;left:0;width:900px;padding:48px 54px">
+        <div style="display:flex;justify-content:space-between;color:#66708a;font-size:16px"><span>서류 심사 리포트</span><b style="color:#20a7bb">분석 완료</b></div><div style="height:1px;background:#dbe0e9;margin:28px 0 34px"></div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:50px"><div style="border-right:1px solid #dbe0e9"><span class="muted" style="color:#66708a;font-size:14px">종합 점수</span><div class="display" style="font-size:104px;line-height:1;color:#103b9b;margin-top:12px">82<span style="font-size:30px;letter-spacing:0;color:#66708a">/100</span></div></div>
+        <div style="display:grid;gap:20px">
+          <div><div style="display:flex;justify-content:space-between;color:#53617b;font-size:14px;margin-bottom:7px"><span>직무 적합도</span><b style="color:#103b9b">87</b></div><div style="height:6px;background:#dbe0e9;border-radius:99px;overflow:hidden"><div style="width:87%;height:100%;background:#2b63ff;border-radius:99px"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;color:#53617b;font-size:14px;margin-bottom:7px"><span>언어 품질</span><b style="color:#103b9b">78</b></div><div style="height:6px;background:#dbe0e9;border-radius:99px;overflow:hidden"><div style="width:78%;height:100%;background:#29d7e8;border-radius:99px"></div></div></div>
+          <div><div style="display:flex;justify-content:space-between;color:#53617b;font-size:14px;margin-bottom:7px"><span>유사도</span><b style="color:#103b9b">81</b></div><div style="height:6px;background:#dbe0e9;border-radius:99px;overflow:hidden"><div style="width:81%;height:100%;background:#2b63ff;border-radius:99px"></div></div></div>
+        </div></div>
+        <div style="margin-top:35px;padding:20px 22px;background:#e8edf6;border-radius:10px;color:#263451;font-size:15px"><span style="color:#2b63ff">+</span> 공고 핵심 키워드 6개가 반영됐어요</div>
+      </div>
+    </div>
+  </div>
+  <div class="scene scene2">
+    <div class="safe"><div class="eyebrow">02 / AI 면접 연습</div><h2 class="display" style="font-size:76px;line-height:1.1;margin-top:28px">회사마다<br><span style="color:#6f9cff">다른 질문</span>이 필요하니까</h2>
+      <div style="position:absolute;top:520px;left:0;width:900px;display:grid;gap:18px">
+        <div class="darkcard" style="padding:28px 32px;display:flex;gap:26px;font-size:22px"><b style="color:#29d7e8">01</b><span>지원 직무에서 가장 먼저 해결하고 싶은 문제는?</span><span style="margin-left:auto;color:#6f9cff">↗</span></div>
+        <div class="darkcard" style="padding:28px 32px;display:flex;gap:26px;font-size:22px;background:#244ba5"><b style="color:#29d7e8">02</b><span>우리 조직의 방식과 맞닿은 경험은?</span><span style="margin-left:auto;color:#6f9cff">↗</span></div>
+        <div class="darkcard" style="padding:28px 32px;display:flex;gap:26px;font-size:22px"><b style="color:#29d7e8">03</b><span>입사 후 90일, 무엇을 바꾸고 싶나요?</span><span style="margin-left:auto;color:#6f9cff">↗</span></div>
+      </div><div class="line"></div>
+    </div>
+  </div>
+  <div class="scene scene3">
+    <div class="safe"><div class="eyebrow" style="color:#ffbd5b">03 / 커리어 분석</div><h2 class="display" style="font-size:72px;line-height:1.12;margin-top:28px">지금의 경험이<br><span class="gold">어디로 이어질지</span></h2>
+      <div class="darkcard" style="position:absolute;top:505px;left:0;width:900px;padding:52px 54px"><div style="color:#aab8d4;font-size:16px">↗ &nbsp;커리어 인사이트</div><div style="display:grid;grid-template-columns:1.1fr .9fr;gap:50px;margin-top:40px"><div><span style="color:#8290ad;font-size:14px">추천 NCS 수준</span><div class="display gold" style="font-size:108px;line-height:1;margin-top:13px">Lv. 5</div><span style="font-size:19px">서비스 기획 · 데이터 기반</span></div><div style="border-left:1px solid rgba(170,184,212,.23);padding-left:38px"><span style="color:#8290ad;font-size:14px">연봉 가이드</span><div class="display" style="font-size:58px;line-height:1;margin-top:27px">4,200<span style="font-size:23px;letter-spacing:0;color:#aab8d4">만원+</span></div><span style="color:#8290ad;font-size:15px">경력·지역 기준 참고</span></div></div><div style="margin-top:44px;display:flex;gap:12px"><span style="border:1px solid #ffbd5b;border-radius:99px;padding:10px 18px;color:#ffcc83;font-size:14px">추천 직무 3개</span><span style="border:1px solid #6b7892;border-radius:99px;padding:10px 18px;color:#aab8d4;font-size:14px">강점 키워드 8개</span><span style="border:1px solid #6b7892;border-radius:99px;padding:10px 18px;color:#aab8d4;font-size:14px">표현·날짜 이슈</span></div></div>
+    </div>
+  </div>
+  <div class="scene scene4">
+    <div class="safe"><div class="eyebrow" style="color:#a8f3e1">04 / 음성 자기소개서</div><h2 class="display" style="font-size:78px;line-height:1.12;margin-top:28px">말하듯 자연스럽게,<br><span class="mint">나답게 쓰는</span> 자소서</h2>
+      <div class="card" style="position:absolute;top:540px;left:0;width:900px;padding:50px 54px"><div style="display:flex;justify-content:space-between;align-items:center"><div style="display:flex;align-items:center;gap:18px;font-size:19px;font-weight:800"><span style="width:46px;height:46px;display:grid;place-items:center;border-radius:50%;background:#dff7f1;color:#1e9386">●</span>음성 가이드 녹음</div><span style="color:#1e9386;font-size:15px">00:42 / 10:00</span></div><div class="bars" style="margin:38px 0"></div><div style="height:1px;background:#dbe0e9;margin-bottom:26px"></div><div style="color:#53617b;font-size:15px"><span style="color:#1e9386">•</span> &nbsp;음성을 전사하고 내 이력서에 반영합니다</div></div><div style="position:absolute;right:0;bottom:7%;color:#a8f3e1;font-size:15px">생각을 녹음하면, 문장이 됩니다</div></div>
+  </div>
+  <div class="scene scene5">
+    <div class="safe" style="display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center"><div style="width:190px;height:190px;border-radius:38px;background:#f5f2eb;display:grid;place-items:center;box-shadow:0 25px 60px rgba(0,0,0,.24)"><img src="./assets/myats-app-logo.png" style="width:80%;height:80%;object-fit:contain"></div><div class="display" style="font-size:86px;line-height:1;margin-top:70px">My ATS</div><div style="color:#aab8d4;font-size:19px;letter-spacing:.08em;margin-top:18px">AI 서류 심사관</div><div style="width:540px;height:1px;background:linear-gradient(90deg,transparent,#6f9cff,transparent);margin:65px 0"></div><p style="font-size:25px;line-height:1.7">더 정확하게 지원하고,<br><span style="color:#6f9cff">더 나답게 준비하세요.</span></p><div style="margin-top:100px;color:#8290ad;font-size:15px;letter-spacing:.06em">resume · interview · career · voice</div></div>
+  </div>
+</div>
+<script>
+  const q = new URLSearchParams(location.search), f = Number(q.get('f') || 0), fps = 12;
+  const durations = [4.2,4.8,4.7,5,5,4.8], total = durations.reduce((a,b)=>a+b,0), t=(f/fps)%total;
+  let cur=0, acc=0; durations.some((d,i)=>{if(t<acc+d){cur=i;return true}acc+=d;return false});
+  document.querySelectorAll('.scene').forEach((el,i)=>el.classList.toggle('active',i===cur));
+  document.querySelector('.bars').innerHTML=Array.from({length:34},(_,i)=>`<i style="height:${8+(i%5)*9}px"></i>`).join('');
+  document.querySelector('.orb.one').style.transform=`translate(${Math.sin(t*.6)*28}px,${Math.cos(t*.45)*22}px) scale(${1+Math.sin(t*.4)*.04})`;
+  document.querySelector('.orb.two').style.transform=`translate(${Math.cos(t*.38)*22}px,${Math.sin(t*.52)*32}px)`;
+</script>
+</body></html>
