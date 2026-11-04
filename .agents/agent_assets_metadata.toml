@@ -21,3 +21,17 @@ mtime_ms = 1789386221039
 storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:7e0ca8f2-94ba-4b18-b93c-88443a5c9635/305a6cd1-3c71-4d71-8c0d-6bffc3794476/6025071e-b977-444d-a985-66b712d2b360"
 storage_version_token = "1789386525796159"
 content_type = "video/mp4"
+
+[[outputs]]
+id = "AzD1iVMboKZOoYU_W1v-j"
+uri = "file://generated-artifacts/myats-homepage.html"
+type = "html"
+title = "My ATS 홈페이지 단일 HTML"
+description = "현재 공개 홈 화면만 포함한 다운로드용 단일 HTML 파일입니다. 스타일과 로고가 파일에 포함되어 있어 별도 프로젝트 소스 없이 브라우저에서 열 수 있습니다."
+logical_id = "88954248-17eb-4a0f-9044-416d07e3cd12"
+content_hash = "sha256:12e2b4ab8bfb272e29d84580a0c22eebd7162ee3113832b99cfa42ffa953d149"
+size = 207655
+mtime_ms = 1793790324951
+storage_uri = "gcs://replit-rams-assets-pike/rams/assets/repl:7e0ca8f2-94ba-4b18-b93c-88443a5c9635/88954248-17eb-4a0f-9044-416d07e3cd12/ec5a434e-3381-48dd-ac68-c303e3af2bc8"
+storage_version_token = "1793790353745195"
+content_type = "text/html"

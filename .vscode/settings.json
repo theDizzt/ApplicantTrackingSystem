@@ -1,0 +1,19 @@
+{
+  "npm.packageManager": "pnpm",
+  "typescript.tsdk": "node_modules/typescript/lib",
+  "typescript.enablePromptUseWorkspaceTsdk": true,
+  "files.eol": "\n",
+  "editor.tabSize": 2,
+  "editor.formatOnSave": false,
+  "files.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "generated-artifacts": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "**/dist": true,
+    "generated-artifacts": true,
+    ".git": true
+  }
+}
