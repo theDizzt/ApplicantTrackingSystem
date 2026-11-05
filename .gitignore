@@ -52,3 +52,7 @@ Thumbs.db
 # Docker 환경변수 (시크릿 포함 — 절대 커밋 금지)
 .env
 .env.local
+
+# Replit 홈 디렉터리 잔여물
+.config/
+attached_assets/
