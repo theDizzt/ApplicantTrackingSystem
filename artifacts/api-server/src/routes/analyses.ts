@@ -8,6 +8,7 @@ import { logger } from "../lib/logger";
 import { extractUrls, analyzeUrls, formatUrlAnalysisForPrompt } from "../lib/url-analyzer";
 import { jobSimilarityScore } from "../lib/similarity";
 import { consumeAnalysisQuota, syncSubscription } from "../lib/subscription-limits";
+import { EVIDENCE_RULES, sanitizeRequirementChecks, sanitizeScoreFactors } from "../lib/score-evidence";
 import type OpenAI from "openai";
 
 const router: IRouter = Router();
@@ -350,8 +351,12 @@ async function runAnalysis(
   "languageScore": 0-100,
   "languageFeedback": "국어 품질 피드백 (한국어, 3~5문장)",
   "aiWritingScore": 0-100 (높을수록 인간 작성),
-  "aiWritingFeedback": "진정성 피드백 (한국어, 2~3문장)"
+  "aiWritingFeedback": "진정성 피드백 (한국어, 2~3문장)",
+  "scoreFactors": [{"area": "technical" | "language" | "aiWriting", "effect": "plus" | "minus", "reason": "점수 영향 이유 (한국어 1문장)", "quote": "이력서 원문 인용"}, ...]
 }
+
+${EVIDENCE_RULES}
+- area는 technical(기술 역량), language(국어 품질), aiWriting(진정성) 세 가지를 모두 다루세요.
 
 technicalSkills 구성 규칙 (반드시 순서대로 적용):
 1. 지원 회사 정보(채용 공고)에 요구 기술이 명시되어 있으면, 그 기술들을 항목으로 구성하세요.
@@ -381,8 +386,11 @@ techTermIssues는 이력서의 기술 스택·보유 기술 항목에 적힌 용
   ],
   "strengths": "강점 요약 (한국어, 2~3문장)",
   "concerns": "확인 필요 사항 (한국어, 1~2문장)",
-  "summary": "종합 인성 평가 (한국어, 3~5문장)"
-}`;
+  "summary": "종합 인성 평가 (한국어, 3~5문장)",
+  "scoreFactors": [{"area": "personality", "effect": "plus" | "minus", "reason": "점수 영향 이유 (한국어 1문장)", "quote": "자기소개서·이력서 원문 인용"}, ...]
+}
+
+${EVIDENCE_RULES}`;
 
   // ── 심사 3: 직무·조직 적합도 + 연봉 산정 + 예상 직급 + 졸업년도 격차 + 지원 동기 매칭 ──
   const prompt3System = `당신은 채용 심사 전문가입니다. 이력서를 분석하여 아래 모든 항목을 평가하세요.
@@ -429,8 +437,18 @@ techTermIssues는 이력서의 기술 스택·보유 기술 항목에 적힌 용
     "highlights": ["잘 매칭된 구체적 내용 (최대 3개, 없으면 빈 배열)"],
     "weaknesses": ["실제 회사와 연관성이 부족하거나 개선이 필요한 부분 (최대 3개, 없으면 빈 배열)"],
     "hasCoverLetter": true/false (자기소개서 내용 존재 여부)
-  }
+  },
+  "requirementChecks": [{"requirement": "공고의 요건 (짧게)", "kind": "required" | "preferred", "status": "met" | "partial" | "unmet", "evidence": "충족 근거가 된 이력서 원문 인용 (unmet이면 빈 문자열)", "comment": "판단 이유 (한국어 1문장)"}, ...],
+  "scoreFactors": [{"area": "jobMatch" | "motivation", "effect": "plus" | "minus", "reason": "점수 영향 이유 (한국어 1문장)", "quote": "이력서 원문 인용"}, ...]
 }
+
+requirementChecks 작성 규칙:
+- 채용 공고(자격 요건·우대 사항·직무 내용·인재상)에서 핵심 요건을 3~10개 뽑아, 지원자가 충족하는지 판정하세요. kind는 필수 요건이면 required, 우대 사항이면 preferred입니다.
+- 공고에 요건이 명시되지 않았다면 직무 수행에 꼭 필요한 요건을 추론해 작성하세요.
+- jobMatchScore는 이 요건 충족 결과와 일관되어야 합니다.
+
+${EVIDENCE_RULES}
+- area는 jobMatch(직무 적합도), motivation(지원 동기 매칭) 두 가지를 모두 다루세요.
 
 graduationGap 판정 규칙 (반드시 순서대로 적용):
 1. 이력서에 경력사항(회사 근무 이력)이 있는 경우: 졸업 후 공백 분석은 하지 않습니다.
@@ -563,6 +581,16 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
     }))
     .filter((t) => t.term !== "" || t.issue !== "");
 
+  // ── 점수 근거 (가점·감점 요인 + 공고 요건 충족 여부) ─────────────────────
+  // 각 점수를 매긴 호출이 그 근거도 함께 반환한다. 인용문은 원문과 대조해 검증 여부를 표시한다.
+  const evidenceSource = [resume.content ?? "", resume.coverLetter ?? ""].join("\n");
+  const scoreFactors = [
+    ...sanitizeScoreFactors(r1.scoreFactors, ["technical", "language", "aiWriting"], evidenceSource),
+    ...sanitizeScoreFactors(r2.scoreFactors, ["personality"], evidenceSource),
+    ...sanitizeScoreFactors(r3.scoreFactors, ["jobMatch", "motivation"], evidenceSource),
+  ];
+  const requirementChecks = sanitizeRequirementChecks(r3.requirementChecks, evidenceSource);
+
   const richAnalysisResult = JSON.stringify({
     documentChecks,
     technicalSkills:     Array.isArray(r1.technicalSkills) ? r1.technicalSkills : [],
@@ -610,6 +638,7 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
     },
     modelOpinions,
     jobSimilarity,
+    scoreEvidence: { factors: scoreFactors, requirements: requirementChecks },
   });
 
   await db.update(analysesTable).set({

@@ -8,6 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import {
   ChevronLeft, CheckCircle2, XCircle, AlertTriangle,
   Link2, ExternalLink, TrendingUp, Banknote, GraduationCap, Heart, RotateCcw, Users,
+  ListChecks, PlusCircle, MinusCircle, Quote as QuoteIcon,
 } from "lucide-react"
 
 // ── 타입 ──────────────────────────────────────────────────────────────────
@@ -78,6 +79,21 @@ interface RichAnalysis {
     threshold: number
     opinion: string | null
   }
+  scoreEvidence?: {
+    factors: ScoreFactor[]
+    requirements: RequirementCheck[]
+  }
+}
+
+type ScoreArea = "technical" | "language" | "aiWriting" | "personality" | "jobMatch" | "motivation"
+interface ScoreFactor {
+  area: ScoreArea; effect: "plus" | "minus"
+  reason: string; quote: string; quoteVerified: boolean
+}
+interface RequirementCheck {
+  requirement: string; kind: "required" | "preferred"
+  status: "met" | "partial" | "unmet"
+  evidence: string; evidenceVerified: boolean; comment: string
 }
 
 // ── 공통 UI ───────────────────────────────────────────────────────────────
@@ -122,6 +138,109 @@ function barColor(s: number) {
 }
 
 function wan(n: number) { return `${n.toLocaleString()}만원` }
+
+// ── 점수 근거 ─────────────────────────────────────────────────────────────
+const AREA_LABELS: Record<ScoreArea, string> = {
+  jobMatch: "직무 적합도", technical: "기술 역량", motivation: "지원 동기",
+  personality: "인성", language: "국어 품질", aiWriting: "진정성",
+}
+const AREA_ORDER: ScoreArea[] = ["jobMatch", "technical", "motivation", "personality", "language", "aiWriting"]
+
+const REQ_STATUS: Record<RequirementCheck["status"], { label: string; cls: string; Icon: typeof CheckCircle2 }> = {
+  met:     { label: "충족",      cls: "bg-emerald-50 text-emerald-700 ring-emerald-200", Icon: CheckCircle2 },
+  partial: { label: "부분 충족", cls: "bg-amber-50 text-amber-700 ring-amber-200",       Icon: AlertTriangle },
+  unmet:   { label: "미충족",    cls: "bg-red-50 text-red-600 ring-red-200",             Icon: XCircle },
+}
+
+function EvidenceQuote({ text, verified }: { text: string; verified: boolean }) {
+  if (!text) return null
+  return (
+    <div className="mt-1 flex items-start gap-1.5 text-xs">
+      <QuoteIcon className="w-3 h-3 mt-0.5 shrink-0 text-slate-400" />
+      <span className="text-slate-500 italic break-words">{text}</span>
+      {!verified && (
+        <span className="shrink-0 rounded px-1.5 py-px text-[10px] font-semibold bg-slate-100 text-slate-500"
+          title="AI가 인용한 문장을 이력서·자기소개서 원문에서 찾지 못했습니다">원문 미확인</span>
+      )}
+    </div>
+  )
+}
+
+function ScoreEvidenceCard({ evidence }: { evidence: NonNullable<RichAnalysis["scoreEvidence"]> }) {
+  const { factors, requirements } = evidence
+  if (factors.length === 0 && requirements.length === 0) return null
+
+  const metCount = requirements.filter(r => r.status === "met").length
+  const areas = AREA_ORDER.filter(a => factors.some(f => f.area === a))
+
+  return (
+    <Card className="rounded-2xl border border-indigo-100 shadow-sm">
+      <CardHeader className="pb-2 pt-5 px-6">
+        <CardTitle className="text-base font-bold flex items-center gap-2">
+          <ListChecks className="w-4 h-4 text-indigo-600" />왜 이 점수가 나왔나요?
+        </CardTitle>
+      </CardHeader>
+      <CardContent className="px-6 pb-6 space-y-6">
+        {requirements.length > 0 && (
+          <div>
+            <div className="flex items-baseline justify-between mb-2">
+              <h4 className="text-sm font-bold text-slate-800">채용 공고 요건 충족도</h4>
+              <span className="text-xs text-slate-500">{requirements.length}개 중 <b className="text-slate-700">{metCount}개</b> 충족</span>
+            </div>
+            <ul className="divide-y divide-slate-100 rounded-xl border border-slate-100">
+              {requirements.map((r, i) => {
+                const s = REQ_STATUS[r.status]
+                return (
+                  <li key={i} className="flex flex-col sm:flex-row sm:items-start gap-2 px-4 py-3">
+                    <span className={`shrink-0 inline-flex items-center gap-1 self-start rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${s.cls}`}>
+                      <s.Icon className="w-3 h-3" />{s.label}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-slate-800">
+                        {r.requirement}
+                        {r.kind === "preferred" && <span className="ml-1.5 text-[11px] font-medium text-slate-400">우대</span>}
+                      </p>
+                      {r.comment && <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">{r.comment}</p>}
+                      <EvidenceQuote text={r.evidence} verified={r.evidenceVerified} />
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
+
+        {areas.length > 0 && (
+          <div>
+            <h4 className="text-sm font-bold text-slate-800 mb-2">항목별 가점·감점 요인</h4>
+            <div className="grid gap-3 md:grid-cols-2">
+              {areas.map(area => (
+                <div key={area} className="rounded-xl border border-slate-100 p-4">
+                  <p className="text-xs font-bold text-slate-500 mb-2">{AREA_LABELS[area]}</p>
+                  <ul className="space-y-2.5">
+                    {factors.filter(f => f.area === area)
+                      .sort((a, b) => (a.effect === b.effect ? 0 : a.effect === "plus" ? -1 : 1))
+                      .map((f, i) => (
+                        <li key={i} className="flex items-start gap-2">
+                          {f.effect === "plus"
+                            ? <PlusCircle className="w-4 h-4 mt-0.5 shrink-0 text-emerald-500" />
+                            : <MinusCircle className="w-4 h-4 mt-0.5 shrink-0 text-red-500" />}
+                          <div className="min-w-0">
+                            <p className="text-sm text-slate-700 leading-relaxed">{f.reason}</p>
+                            <EvidenceQuote text={f.quote} verified={f.quoteVerified} />
+                          </div>
+                        </li>
+                      ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
 // ── 메인 ─────────────────────────────────────────────────────────────────
 export default function AnalysisDetail() {
@@ -281,6 +400,9 @@ export default function AnalysisDetail() {
               </Card>
             ))}
           </div>
+
+          {/* ── 점수 근거 ── */}
+          {rich?.scoreEvidence && <ScoreEvidenceCard evidence={rich.scoreEvidence} />}
 
           {/* ── 서류 기본 점검 ── */}
           {rich?.documentChecks && (rich.documentChecks.photoMissing || rich.documentChecks.coverLetterTooShort) && (
