@@ -183,9 +183,9 @@ function RejectionReportCard({ report, passed }: { report: RejectionReport; pass
                   </div>
                   <p className="mt-2 text-sm text-slate-600 leading-relaxed">{r.detail}</p>
                   {r.fix && (
-                    <div className="mt-2 flex items-start gap-2 rounded-lg bg-blue-50/70 px-3 py-2">
-                      <Wrench className="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-600" />
-                      <p className="text-xs text-blue-900 leading-relaxed"><b>보완 방법</b> · {r.fix}</p>
+                    <div className="mt-2 flex items-start gap-2 rounded-lg bg-green-50/70 px-3 py-2">
+                      <Wrench className="w-3.5 h-3.5 mt-0.5 shrink-0 text-green-600" />
+                      <p className="text-xs text-green-900 leading-relaxed"><b>보완 방법</b> · {r.fix}</p>
                     </div>
                   )}
                 </li>
@@ -249,10 +249,10 @@ function ScoreEvidenceCard({ evidence }: { evidence: NonNullable<RichAnalysis["s
   const areas = AREA_ORDER.filter(a => factors.some(f => f.area === a))
 
   return (
-    <Card className="rounded-2xl border border-indigo-100 shadow-sm">
+    <Card className="rounded-2xl border border-teal-100 shadow-sm">
       <CardHeader className="pb-2 pt-5 px-6">
         <CardTitle className="text-base font-bold flex items-center gap-2">
-          <ListChecks className="w-4 h-4 text-indigo-600" />왜 이 점수가 나왔나요?
+          <ListChecks className="w-4 h-4 text-teal-600" />왜 이 점수가 나왔나요?
         </CardTitle>
       </CardHeader>
       <CardContent className="px-6 pb-6 space-y-6">
@@ -385,8 +385,8 @@ export default function AnalysisDetail() {
               </span>
             )}
             {isProcessing && (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-0.5 text-sm font-semibold text-blue-600 ring-1 ring-blue-200 animate-pulse">
-                <span className="w-2 h-2 rounded-full bg-blue-500" />분석 중
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-green-50 px-3 py-0.5 text-sm font-semibold text-green-600 ring-1 ring-green-200 animate-pulse">
+                <span className="w-2 h-2 rounded-full bg-green-500" />분석 중
               </span>
             )}
             {isFailed && (
@@ -413,7 +413,7 @@ export default function AnalysisDetail() {
       {isProcessing && (
         <Card className="rounded-2xl border-0 shadow-sm">
           <CardContent className="flex flex-col items-center justify-center py-24 text-center">
-            <div className="w-14 h-14 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-6" />
+            <div className="w-14 h-14 border-4 border-green-600 border-t-transparent rounded-full animate-spin mb-6" />
             <h3 className="text-xl font-bold">검증된 AI 3개가 서류를 분석하고 있습니다</h3>
             <p className="text-slate-500 max-w-sm mt-2 text-sm leading-relaxed">
               기술 역량·인성·직무 적합도·예상 연봉을 병렬 심사합니다. 약 30~60초 소요됩니다.
@@ -529,7 +529,7 @@ export default function AnalysisDetail() {
                     </div>
                   </div>
                   {rank?.applicable && rank.rank && (
-                    <div className="rounded-xl bg-blue-700 text-white px-5 py-3 text-center">
+                    <div className="rounded-xl bg-green-700 text-white px-5 py-3 text-center">
                       <div className="text-xs font-medium opacity-80 mb-0.5">예상 직급</div>
                       <div className="text-xl font-black tracking-tight">{rank.rank}</div>
                     </div>
@@ -624,7 +624,7 @@ export default function AnalysisDetail() {
             <Card className="rounded-2xl border border-slate-100 shadow-sm">
               <CardHeader className="pb-2 pt-5 px-6">
                 <CardTitle className="text-base font-bold flex items-center gap-2">
-                  <TrendingUp className="w-4 h-4 text-blue-600" />기술별 점수
+                  <TrendingUp className="w-4 h-4 text-green-600" />기술별 점수
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-6 pb-5 space-y-2.5">
@@ -671,7 +671,7 @@ export default function AnalysisDetail() {
             <Card className="rounded-2xl border border-slate-100 shadow-sm">
               <CardHeader className="pb-2 pt-5 px-6">
                 <CardTitle className="text-base font-bold flex items-center gap-2">
-                  <Users className="w-4 h-4 text-indigo-600" />AI 심사 의견
+                  <Users className="w-4 h-4 text-teal-600" />AI 심사 의견
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-6 pb-5 space-y-3">
@@ -750,17 +750,17 @@ export default function AnalysisDetail() {
             <Card className="rounded-2xl border border-slate-100 shadow-sm">
               <CardHeader className="pb-2 pt-5 px-6">
                 <CardTitle className="text-base font-bold flex items-center gap-2">
-                  <Link2 className="w-4 h-4 text-blue-600" />온라인 기술 역량 확인 (GitHub·URL)
+                  <Link2 className="w-4 h-4 text-green-600" />온라인 기술 역량 확인 (GitHub·URL)
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-6 pb-5 space-y-3">
                 {urlResults.map((r, i) => (
                   <div key={i} className="flex items-start gap-2.5 flex-wrap">
-                    <span className={`shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-xs font-bold ${r.type === "github" ? "bg-slate-900 text-white" : "bg-blue-100 text-blue-700"}`}>
+                    <span className={`shrink-0 inline-flex items-center rounded-md px-2 py-0.5 text-xs font-bold ${r.type === "github" ? "bg-slate-900 text-white" : "bg-green-100 text-green-700"}`}>
                       {r.type === "github" ? "GitHub" : "URL"}
                     </span>
                     <a href={r.url} target="_blank" rel="noreferrer"
-                      className="flex items-center gap-1 text-sm text-blue-600 hover:underline break-all">
+                      className="flex items-center gap-1 text-sm text-green-600 hover:underline break-all">
                       {r.url}<ExternalLink className="w-3 h-3 shrink-0 opacity-60" />
                     </a>
                     {r.accessible
@@ -781,7 +781,7 @@ export default function AnalysisDetail() {
                     {r.githubData!.topLanguages.length > 0 && (
                       <div className="flex flex-wrap gap-1.5">
                         {r.githubData!.topLanguages.map(lang => (
-                          <span key={lang} className="text-xs px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-medium">{lang}</span>
+                          <span key={lang} className="text-xs px-2 py-0.5 rounded-full bg-green-50 text-green-700 font-medium">{lang}</span>
                         ))}
                       </div>
                     )}
@@ -796,9 +796,9 @@ export default function AnalysisDetail() {
                   </div>
                 ))}
                 {rich?.urlAiEvaluation && (
-                  <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 mt-1">
-                    <p className="text-xs font-bold text-blue-700 mb-1">AI 평가</p>
-                    <p className="text-sm text-blue-900 leading-relaxed">{rich.urlAiEvaluation}</p>
+                  <div className="rounded-xl bg-green-50 border border-green-100 px-4 py-3 mt-1">
+                    <p className="text-xs font-bold text-green-700 mb-1">AI 평가</p>
+                    <p className="text-sm text-green-900 leading-relaxed">{rich.urlAiEvaluation}</p>
                   </div>
                 )}
               </CardContent>

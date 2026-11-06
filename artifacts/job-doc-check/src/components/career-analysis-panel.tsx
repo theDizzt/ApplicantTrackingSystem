@@ -196,7 +196,7 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
     <Card className="border-slate-200 h-full flex flex-col max-h-[850px] overflow-y-auto sticky top-6 custom-scrollbar">
       <CardHeader className="sticky top-0 z-10 bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/75 border-b pb-4">
         <CardTitle className="flex items-center gap-2">
-          <Compass className="w-5 h-5 text-indigo-600" />
+          <Compass className="w-5 h-5 text-teal-600" />
           커리어 분석
           {career?.analyzedAt && (
             <span className="ml-auto text-xs font-normal text-slate-400">
@@ -207,7 +207,7 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
       </CardHeader>
       <CardContent className="space-y-6 pt-6">
         {inProgress ? (
-          <div className="rounded-xl bg-indigo-50 border border-indigo-100 px-4 py-8 flex flex-col items-center justify-center gap-4 text-sm text-indigo-700 h-64">
+          <div className="rounded-xl bg-teal-50 border border-teal-100 px-4 py-8 flex flex-col items-center justify-center gap-4 text-sm text-teal-700 h-64">
             <Loader2 className="w-10 h-10 animate-spin" />
             <span className="font-medium">AI가 이력서를 분석하고 있습니다...</span>
             <span className="text-xs opacity-80">이 작업은 약 1~2분 정도 소요됩니다.</span>
@@ -215,7 +215,7 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
         ) : !result ? (
           <div className="space-y-4 py-8">
             <div className="flex flex-col items-center justify-center text-center space-y-4">
-              <div className="w-16 h-16 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-600 mb-2">
+              <div className="w-16 h-16 rounded-full bg-teal-100 flex items-center justify-center text-teal-600 mb-2">
                 <Sparkles className="w-8 h-8" />
               </div>
               <h3 className="font-bold text-lg text-slate-800">AI 커리어 분석을 시작해보세요</h3>
@@ -241,15 +241,15 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
           <>
             <div className="space-y-5">
               {result.resumeSummary && (
-                <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 space-y-2">
-                  <h3 className="text-sm font-bold text-indigo-800 flex items-center gap-2"><Sparkles className="w-4 h-4" />AI 요약</h3>
+                <div className="rounded-xl border border-teal-100 bg-teal-50/60 p-4 space-y-2">
+                  <h3 className="text-sm font-bold text-teal-800 flex items-center gap-2"><Sparkles className="w-4 h-4" />AI 요약</h3>
                   <p className="text-sm text-slate-700 leading-relaxed">{result.resumeSummary}</p>
                 </div>
               )}
               <div className="space-y-2">
                 <h3 className="text-sm font-bold text-slate-700">추천 직업</h3>
                 <div className="flex flex-wrap gap-2">
-                  {result.recommendedJobs.slice(0, 3).map((job, i) => <Badge key={i} variant="outline" className="border-indigo-200 bg-indigo-50 text-indigo-700">{job.job} · {job.fitScore}</Badge>)}
+                  {result.recommendedJobs.slice(0, 3).map((job, i) => <Badge key={i} variant="outline" className="border-teal-200 bg-teal-50 text-teal-700">{job.job} · {job.fitScore}</Badge>)}
                 </div>
               </div>
               {result.salaryGuide && (result.salaryGuide.min > 0 || result.salaryGuide.max > 0) && (
@@ -262,7 +262,7 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
               <Dialog open={showDetails} onOpenChange={setShowDetails}>
                 <Button variant="outline" onClick={() => setShowDetails(true)} className="w-full gap-2">세부 분석 보기 <Compass className="w-4 h-4" /></Button>
                 <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
-                  <DialogHeader><DialogTitle className="flex items-center gap-2"><Compass className="w-5 h-5 text-indigo-600" />세부 커리어 분석</DialogTitle><DialogDescription>이력서에서 발견한 근거와 분석 결과를 자세히 확인하세요.</DialogDescription></DialogHeader>
+                  <DialogHeader><DialogTitle className="flex items-center gap-2"><Compass className="w-5 h-5 text-teal-600" />세부 커리어 분석</DialogTitle><DialogDescription>이력서에서 발견한 근거와 분석 결과를 자세히 확인하세요.</DialogDescription></DialogHeader>
                   <div className="space-y-8 pt-2">
             {/* 강점 */}
             <div className="space-y-3">
@@ -282,15 +282,15 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
             {/* NCS 직업군 */}
             <div className="space-y-3">
               <h3 className="flex items-center gap-2 text-sm font-bold text-slate-700">
-                <Compass className="w-4 h-4 text-indigo-500" />NCS 적합 직무
+                <Compass className="w-4 h-4 text-teal-500" />NCS 적합 직무
               </h3>
               <div className="grid gap-3">
                 {result.ncsCategories.map((c, i) => (
-                  <div key={i} className="rounded-lg border border-indigo-100 bg-indigo-50/50 p-3.5 space-y-2">
+                  <div key={i} className="rounded-lg border border-teal-100 bg-teal-50/50 p-3.5 space-y-2">
                     <div className="flex flex-wrap items-center gap-1.5">
-                      <Badge className="bg-indigo-600 hover:bg-indigo-600 text-xs py-0.5">{c.major}</Badge>
+                      <Badge className="bg-teal-600 hover:bg-teal-600 text-xs py-0.5">{c.major}</Badge>
                       {c.middle && (
-                        <Badge variant="outline" className="text-xs py-0.5 border-indigo-200 text-indigo-700 bg-white">
+                        <Badge variant="outline" className="text-xs py-0.5 border-teal-200 text-teal-700 bg-white">
                           {c.middle}
                         </Badge>
                       )}
@@ -325,7 +325,7 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
                         </div>
                         <div className="h-2 w-full rounded-full bg-slate-100 overflow-hidden">
                           <div
-                            className="h-full rounded-full bg-indigo-500"
+                            className="h-full rounded-full bg-teal-500"
                             style={{ width: `${j.fitScore}%` }}
                           />
                         </div>
@@ -467,8 +467,8 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
 
             {/* 종합 조언 */}
             {result.summary && (
-              <div className="rounded-xl bg-indigo-50/60 border border-indigo-100 p-5 space-y-2.5">
-                <h3 className="text-sm font-bold text-indigo-800 flex items-center gap-2">
+              <div className="rounded-xl bg-teal-50/60 border border-teal-100 p-5 space-y-2.5">
+                <h3 className="text-sm font-bold text-teal-800 flex items-center gap-2">
                   <Sparkles className="w-4 h-4" />
                   종합 조언
                 </h3>

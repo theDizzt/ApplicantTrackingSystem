@@ -86,7 +86,7 @@ function ClassificationBadges({
         <span key={cl} className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", CAREER_COLORS[cl] ?? "bg-slate-100 text-slate-600")}>{cl}</span>
       ))}
       {educationLevel && (
-        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-700">{educationLevel} 이상</span>
+        <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-teal-100 text-teal-700">{educationLevel} 이상</span>
       )}
       {(recruitmentField ?? []).map(rf => (
         <span key={rf} className={cn("text-[10px] font-semibold px-2 py-0.5 rounded-full", FIELD_COLORS[rf] ?? "bg-slate-100 text-slate-600")}>{rf}</span>
@@ -358,11 +358,11 @@ export default function CompaniesPage() {
 
       {/* ── 추천 + 동기화 패널 ── */}
       {!isLoading && (companies?.length ?? 0) > 0 && (
-        <Card className="border-blue-100 bg-gradient-to-r from-blue-50/60 to-indigo-50/40">
+        <Card className="border-green-100 bg-gradient-to-r from-green-50/60 to-teal-50/40">
           <CardContent className="py-4 px-5">
             <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 justify-between">
               <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                <RefreshCw className="w-4 h-4 text-blue-500 shrink-0" />
+                <RefreshCw className="w-4 h-4 text-green-500 shrink-0" />
                 <span>
                   {syncedLabel ? (
                     <>마지막 업데이트 <strong className="text-foreground">{syncedLabel}</strong> · 다음 업데이트 <strong className="text-foreground">{nextMonday}</strong></>
@@ -400,7 +400,7 @@ export default function CompaniesPage() {
                   size="sm"
                   onClick={handleRecommend}
                   disabled={recommend.isPending || !selectedResume}
-                  className="gap-1.5 bg-blue-600 hover:bg-blue-700 text-white"
+                  className="gap-1.5 bg-green-600 hover:bg-green-700 text-white"
                 >
                   <Star className="w-3.5 h-3.5" />
                   {recommend.isPending ? "분석 중…" : "이력서로 추천 받기"}
@@ -411,7 +411,7 @@ export default function CompaniesPage() {
               </div>
             </div>
             {recommend.isPending && (
-              <p className="text-xs text-blue-600 mt-2 animate-pulse">
+              <p className="text-xs text-green-600 mt-2 animate-pulse">
                 AI가 이력서와 각 회사 채용 공고를 비교 분석 중입니다…
               </p>
             )}
@@ -573,7 +573,7 @@ export default function CompaniesPage() {
               key={company.id}
               className={cn(
                 "flex flex-col transition-shadow",
-                company.isRecommended ? "ring-2 ring-blue-400/60 shadow-md shadow-blue-100" : ""
+                company.isRecommended ? "ring-2 ring-green-400/60 shadow-md shadow-green-100" : ""
               )}
             >
               <CardHeader className="pb-2">
@@ -581,7 +581,7 @@ export default function CompaniesPage() {
                   <Building2 className="w-5 h-5 text-primary shrink-0 mt-0.5" />
                   <span className="flex-1 leading-snug">{company.name}</span>
                   {company.isRecommended && (
-                    <Badge className="shrink-0 gap-1 bg-blue-600 hover:bg-blue-600 text-white text-[11px] px-2 py-0.5">
+                    <Badge className="shrink-0 gap-1 bg-green-600 hover:bg-green-600 text-white text-[11px] px-2 py-0.5">
                       <Star className="w-3 h-3 fill-white" />추천
                     </Badge>
                   )}

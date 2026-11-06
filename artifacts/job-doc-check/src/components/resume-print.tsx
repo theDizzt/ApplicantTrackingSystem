@@ -245,14 +245,14 @@ const PRINT_STYLES = `
 .rp-doc-modern { font-family: "Noto Sans KR", "Malgun Gothic", sans-serif; color: #1e293b; }
 .rp-title-modern {
   font-size: 19pt; font-weight: 800; color: #0f172a; margin: 0;
-  padding-left: 5mm; border-left: 4px solid #2563eb;
+  padding-left: 5mm; border-left: 4px solid #15803d;
 }
 .rp-section-label-modern {
   display: inline-block; font-size: 10pt; font-weight: 700; color: #ffffff;
-  background: #2563eb; padding: 1mm 4mm; border-radius: 4px; margin-bottom: 3mm;
+  background: #15803d; padding: 1mm 4mm; border-radius: 4px; margin-bottom: 3mm;
 }
 .rp-heading-modern {
-  font-size: 11pt; font-weight: 700; color: #1d4ed8; margin: 4mm 0 1.5mm;
+  font-size: 11pt; font-weight: 700; color: #166534; margin: 4mm 0 1.5mm;
   padding-left: 3mm; border-left: 3px solid #93c5fd;
 }
 .rp-doc-modern .rp-section { padding-left: 4mm; border-left: 2px solid #e2e8f0; }
@@ -286,8 +286,8 @@ const PRINT_STYLES = `
 .rp-thumb-line.short { width: 70%; }
 .rp-thumb-classic .rp-thumb-title { background: #111; margin: 0 auto; width: 60%; }
 .rp-thumb-classic .rp-thumb-rule { background: #111; }
-.rp-thumb-modern .rp-thumb-title { background: #2563eb; width: 55%; }
-.rp-thumb-modern .rp-thumb-label { background: #2563eb; border-radius: 3px; width: 30%; }
+.rp-thumb-modern .rp-thumb-title { background: #15803d; width: 55%; }
+.rp-thumb-modern .rp-thumb-label { background: #15803d; border-radius: 3px; width: 30%; }
 .rp-thumb-modern .rp-thumb-rule { background: #93c5fd; }
 .rp-thumb-minimal .rp-thumb-title { background: #d1d5db; width: 65%; height: 12px; }
 .rp-thumb-minimal .rp-thumb-rule { background: transparent; }
@@ -324,7 +324,7 @@ function PrintView(props: {
       <style>{PRINT_STYLES}</style>
       <div className="rp-print-area" role="dialog" aria-modal="true">
         <div className="rp-toolbar">
-          <Button onClick={() => window.print()} className="gap-2 bg-blue-600 hover:bg-blue-700">
+          <Button onClick={() => window.print()} className="gap-2 bg-green-600 hover:bg-green-700">
             <Printer className="w-4 h-4" />
             인쇄 / PDF 저장
           </Button>
@@ -377,8 +377,8 @@ export function ResumePrintDialog(props: {
                 onClick={() => startPrint(t.id)}
                 className={cn(
                   "group flex flex-col rounded-xl border border-slate-200 bg-slate-50/50 p-3 text-left",
-                  "transition-all hover:border-blue-400 hover:shadow-md focus:outline-none",
-                  "focus-visible:ring-2 focus-visible:ring-blue-500",
+                  "transition-all hover:border-green-400 hover:shadow-md focus:outline-none",
+                  "focus-visible:ring-2 focus-visible:ring-green-500",
                 )}
               >
                 <div className="mb-3 rounded-lg bg-white p-2 shadow-sm ring-1 ring-slate-100">
@@ -386,7 +386,7 @@ export function ResumePrintDialog(props: {
                 </div>
                 <div className="flex items-center gap-1.5 font-bold text-slate-800">
                   {t.name}
-                  <Check className="w-3.5 h-3.5 text-blue-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                  <Check className="w-3.5 h-3.5 text-green-600 opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
                 <p className="mt-0.5 text-xs text-slate-500 leading-snug">{t.desc}</p>
               </button>
