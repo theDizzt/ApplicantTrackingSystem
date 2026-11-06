@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import {
   ChevronLeft, CheckCircle2, XCircle, AlertTriangle,
   Link2, ExternalLink, TrendingUp, Banknote, GraduationCap, Heart, RotateCcw, Users,
-  ListChecks, PlusCircle, MinusCircle, Quote as QuoteIcon,
+  ListChecks, PlusCircle, MinusCircle, Quote as QuoteIcon, ShieldAlert, Wrench, Sparkles,
 } from "lucide-react"
 
 // ── 타입 ──────────────────────────────────────────────────────────────────
@@ -83,6 +83,14 @@ interface RichAnalysis {
     factors: ScoreFactor[]
     requirements: RequirementCheck[]
   }
+  rejectionReport?: RejectionReport
+}
+
+interface RejectionReport {
+  summary: string
+  reasons: { title: string; severity: "high" | "medium" | "low"; detail: string; fix: string }[]
+  appealPoints: { strength: string; howToAppeal: string }[]
+  source: "ai" | "rules"
 }
 
 type ScoreArea = "technical" | "language" | "aiWriting" | "personality" | "jobMatch" | "motivation"
@@ -138,6 +146,73 @@ function barColor(s: number) {
 }
 
 function wan(n: number) { return `${n.toLocaleString()}만원` }
+
+// ── 불합격 예상 원인 ──────────────────────────────────────────────────────
+const SEVERITY: Record<RejectionReport["reasons"][number]["severity"], { label: string; cls: string; dot: string }> = {
+  high:   { label: "치명적", cls: "bg-red-50 text-red-600 ring-red-200",       dot: "bg-red-500" },
+  medium: { label: "주의",   cls: "bg-amber-50 text-amber-700 ring-amber-200", dot: "bg-amber-400" },
+  low:    { label: "경미",   cls: "bg-slate-50 text-slate-600 ring-slate-200", dot: "bg-slate-400" },
+}
+
+function RejectionReportCard({ report, passed }: { report: RejectionReport; passed: boolean }) {
+  const { reasons, appealPoints, summary } = report
+  if (reasons.length === 0 && appealPoints.length === 0) return null
+
+  return (
+    <Card className="rounded-2xl border border-red-100 shadow-sm bg-gradient-to-br from-red-50/40 to-white">
+      <CardHeader className="pb-2 pt-5 px-6">
+        <CardTitle className="text-base font-bold flex items-center gap-2">
+          <ShieldAlert className="w-4 h-4 text-red-500" />
+          {passed ? "탈락 위험 요인" : "불합격 예상 원인"}{reasons.length > 0 ? ` Top ${reasons.length}` : ""}
+        </CardTitle>
+        {summary && <p className="text-sm text-slate-600 leading-relaxed mt-1">{summary}</p>}
+      </CardHeader>
+      <CardContent className="px-6 pb-6 space-y-5">
+        {reasons.length > 0 && (
+          <ol className="space-y-3">
+            {reasons.map((r, i) => {
+              const s = SEVERITY[r.severity]
+              return (
+                <li key={i} className="rounded-xl border border-slate-100 bg-white p-4">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-slate-900 text-xs font-bold text-white">{i + 1}</span>
+                    <p className="text-sm font-bold text-slate-900">{r.title}</p>
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ring-1 ${s.cls}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${s.dot}`} />{s.label}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm text-slate-600 leading-relaxed">{r.detail}</p>
+                  {r.fix && (
+                    <div className="mt-2 flex items-start gap-2 rounded-lg bg-blue-50/70 px-3 py-2">
+                      <Wrench className="w-3.5 h-3.5 mt-0.5 shrink-0 text-blue-600" />
+                      <p className="text-xs text-blue-900 leading-relaxed"><b>보완 방법</b> · {r.fix}</p>
+                    </div>
+                  )}
+                </li>
+              )
+            })}
+          </ol>
+        )}
+
+        {appealPoints.length > 0 && (
+          <div>
+            <h4 className="text-sm font-bold text-slate-800 mb-2 flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4 text-emerald-500" />이렇게 어필하세요
+            </h4>
+            <ul className="grid gap-2 md:grid-cols-3">
+              {appealPoints.map((a, i) => (
+                <li key={i} className="rounded-xl border border-emerald-100 bg-emerald-50/40 p-3">
+                  <p className="text-sm font-bold text-emerald-800">{a.strength}</p>
+                  <p className="mt-1 text-xs text-slate-600 leading-relaxed">{a.howToAppeal}</p>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
 
 // ── 점수 근거 ─────────────────────────────────────────────────────────────
 const AREA_LABELS: Record<ScoreArea, string> = {
@@ -402,6 +477,9 @@ export default function AnalysisDetail() {
           </div>
 
           {/* ── 점수 근거 ── */}
+          {rich?.rejectionReport && (
+            <RejectionReportCard report={rich.rejectionReport} passed={analysis.overallResult === "pass"} />
+          )}
           {rich?.scoreEvidence && <ScoreEvidenceCard evidence={rich.scoreEvidence} />}
 
           {/* ── 서류 기본 점검 ── */}

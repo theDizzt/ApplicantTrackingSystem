@@ -9,6 +9,14 @@ import { extractUrls, analyzeUrls, formatUrlAnalysisForPrompt } from "../lib/url
 import { jobSimilarityScore } from "../lib/similarity";
 import { consumeAnalysisQuota, syncSubscription } from "../lib/subscription-limits";
 import { EVIDENCE_RULES, sanitizeRequirementChecks, sanitizeScoreFactors } from "../lib/score-evidence";
+import {
+  REJECTION_REPORT_SYSTEM,
+  buildRejectionReportInput,
+  buildRuleBasedReport,
+  sanitizeRejectionReport,
+  type RejectionReport,
+  type RejectionSignals,
+} from "../lib/rejection-report";
 import type OpenAI from "openai";
 
 const router: IRouter = Router();
@@ -472,6 +480,81 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
 
   const overallScoreNum = typeof r3.overallScore === "number" ? r3.overallScore : 0;
 
+  // ── 서류 기본 점검 (규칙 기반) ──────────────────────────────────────────
+  // 자기소개서 분량: 공백 제외 글자 수 기준 300자 미만이면 부족으로 판단
+  const coverLetterCharCount = (resume.coverLetter ?? "").replace(/\s/g, "").length;
+  const documentChecks = {
+    photoMissing: !resume.photoUrl,
+    coverLetterLength: coverLetterCharCount,
+    coverLetterTooShort: coverLetterCharCount < 300,
+  };
+
+  // ── 점수 근거 (가점·감점 요인 + 공고 요건 충족 여부) ─────────────────────
+  // 각 점수를 매긴 호출이 그 근거도 함께 반환한다. 인용문은 원문과 대조해 검증 여부를 표시한다.
+  const evidenceSource = [resume.content ?? "", resume.coverLetter ?? ""].join("\n");
+  const scoreFactors = [
+    ...sanitizeScoreFactors(r1.scoreFactors, ["technical", "language", "aiWriting"], evidenceSource),
+    ...sanitizeScoreFactors(r2.scoreFactors, ["personality"], evidenceSource),
+    ...sanitizeScoreFactors(r3.scoreFactors, ["jobMatch", "motivation"], evidenceSource),
+  ];
+  const requirementChecks = sanitizeRequirementChecks(r3.requirementChecks, evidenceSource);
+
+  // ── 직무 문장 유사도 (Task4) — 아래 모델별 의견과 병렬로 계산 ───────────────
+  const applicantText =
+    (resume.coverLetter && resume.coverLetter.trim())
+      ? resume.coverLetter
+      : (resume.content ?? "");
+  const JOB_SIM_THRESHOLD = 60;
+  const jobSimPromise: Promise<number | null> = company.jobDescription
+    ? jobSimilarityScore(company.jobDescription, applicantText)
+    : Promise.resolve(null);
+
+  // ── 불합격 예상 원인 리포트 — 모델별 의견과 병렬 실행 ─────────────────────
+  // 1단계 결과만 요약해 넘긴다. AI 요약이 실패하면 규칙 기반 리포트로 대체한다(심사는 막지 않음).
+  const gapEarly = r3.graduationGap as Record<string, unknown> | undefined;
+  const reportPromise = (async (): Promise<{ report: RejectionReport; inputTokens: number; outputTokens: number }> => {
+    let simScore: number | null = null;
+    try { simScore = await jobSimPromise; } catch { /* 아래에서 다시 await하며 처리 */ }
+    const signals: RejectionSignals = {
+      overallScore: typeof r3.overallScore === "number" ? r3.overallScore : null,
+      passed: String(r3.overallResult ?? "fail") === "pass",
+      scores: {
+        jobMatch:    typeof r3.jobMatchScore === "number" ? r3.jobMatchScore : null,
+        technical:   Array.isArray(r1.technicalSkills) && r1.technicalSkills.length > 0
+          ? Math.round(
+              (r1.technicalSkills as { score?: unknown }[])
+                .reduce((s, t) => s + (typeof t.score === "number" ? t.score : 0), 0) / r1.technicalSkills.length,
+            )
+          : null,
+        motivation:  typeof (r3.motivationMatch as Record<string, unknown> | undefined)?.score === "number"
+          ? (r3.motivationMatch as { score: number }).score : null,
+        personality: typeof r2.personalityScore === "number" ? r2.personalityScore : null,
+        language:    typeof r1.languageScore === "number" ? r1.languageScore : null,
+        aiWriting:   typeof r1.aiWritingScore === "number" ? r1.aiWritingScore : null,
+      },
+      requirements: requirementChecks,
+      factors: scoreFactors,
+      documentChecks,
+      jobSimilarity: { score: simScore, threshold: JOB_SIM_THRESHOLD },
+      graduationGap: {
+        isLongGap: gapEarly?.isLongGap === true,
+        gapType:   typeof gapEarly?.gapType === "string" ? gapEarly.gapType : "",
+        gapYears:  typeof gapEarly?.gapYears === "number" ? gapEarly.gapYears : 0,
+      },
+    };
+    try {
+      const res = await callAI([
+        { role: "system", content: REJECTION_REPORT_SYSTEM },
+        { role: "user", content: buildRejectionReportInput(signals, companyText) },
+      ]);
+      const report = sanitizeRejectionReport(res.data) ?? buildRuleBasedReport(signals);
+      return { report, inputTokens: res.inputTokens, outputTokens: res.outputTokens };
+    } catch (err) {
+      logger.warn({ analysisId, err }, "Rejection report AI call failed (falling back to rule-based report)");
+      return { report: buildRuleBasedReport(signals), inputTokens: 0, outputTokens: 0 };
+    }
+  })();
+
   // ── 모델별 의견 (Task3) ──────────────────────────────────────────────────
   // 지원자의 구독 상태를 확인한다(한도 소비 없음). 무료 플랜은 보조 모델이 없으므로
   // 동일한 주 모델을 서로 다른 페르소나(인성 평가관·역량 평가관)로 두 번 호출한다.
@@ -538,22 +621,19 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
     });
   }
 
-  // ── 직무 문장 유사도 (Task4) ─────────────────────────────────────────────
-  const applicantText =
-    (resume.coverLetter && resume.coverLetter.trim())
-      ? resume.coverLetter
-      : (resume.content ?? "");
-  const jobSimScore = company.jobDescription
-    ? await jobSimilarityScore(company.jobDescription, applicantText)
-    : null;
+  const jobSimScore = await jobSimPromise;
   const jobSimilarity: { score: number | null; threshold: number; opinion: string | null } = {
     score: jobSimScore,
-    threshold: 60,
+    threshold: JOB_SIM_THRESHOLD,
     opinion:
-      jobSimScore !== null && jobSimScore <= 60
+      jobSimScore !== null && jobSimScore <= JOB_SIM_THRESHOLD
         ? `공고의 직무 내용과 지원자의 자기소개서(입사 후 포부 등)의 직무 관련성이 낮습니다 (유사도 ${jobSimScore}점). 지원 직무 이해도를 면접에서 확인해 보세요.`
         : null,
   };
+
+  const rejection = await reportPromise;
+  totalInputTokens  += rejection.inputTokens;
+  totalOutputTokens += rejection.outputTokens;
 
   const orgFit = r3.organizationalFit as Record<string, unknown> | undefined;
   const salaryRaw = r3.salaryAnalysis as Record<string, unknown> | undefined;
@@ -561,15 +641,6 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
   const gapRaw    = r3.graduationGap  as Record<string, unknown> | undefined;
 
   const motivRaw = r3.motivationMatch as Record<string, unknown> | undefined;
-
-  // ── 서류 기본 점검 (규칙 기반) ──────────────────────────────────────────
-  // 자기소개서 분량: 공백 제외 글자 수 기준 300자 미만이면 부족으로 판단
-  const coverLetterCharCount = (resume.coverLetter ?? "").replace(/\s/g, "").length;
-  const documentChecks = {
-    photoMissing: !resume.photoUrl,
-    coverLetterLength: coverLetterCharCount,
-    coverLetterTooShort: coverLetterCharCount < 300,
-  };
 
   // AI가 반환한 기술 용어 검증 결과를 문자열 필드만 남기고 정제
   const techTermIssues = (Array.isArray(r1.techTermIssues) ? r1.techTermIssues : [])
@@ -580,16 +651,6 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
       suggestion: typeof t.suggestion === "string" ? t.suggestion : "",
     }))
     .filter((t) => t.term !== "" || t.issue !== "");
-
-  // ── 점수 근거 (가점·감점 요인 + 공고 요건 충족 여부) ─────────────────────
-  // 각 점수를 매긴 호출이 그 근거도 함께 반환한다. 인용문은 원문과 대조해 검증 여부를 표시한다.
-  const evidenceSource = [resume.content ?? "", resume.coverLetter ?? ""].join("\n");
-  const scoreFactors = [
-    ...sanitizeScoreFactors(r1.scoreFactors, ["technical", "language", "aiWriting"], evidenceSource),
-    ...sanitizeScoreFactors(r2.scoreFactors, ["personality"], evidenceSource),
-    ...sanitizeScoreFactors(r3.scoreFactors, ["jobMatch", "motivation"], evidenceSource),
-  ];
-  const requirementChecks = sanitizeRequirementChecks(r3.requirementChecks, evidenceSource);
 
   const richAnalysisResult = JSON.stringify({
     documentChecks,
@@ -639,6 +700,7 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
     modelOpinions,
     jobSimilarity,
     scoreEvidence: { factors: scoreFactors, requirements: requirementChecks },
+    rejectionReport: rejection.report,
   });
 
   await db.update(analysesTable).set({
