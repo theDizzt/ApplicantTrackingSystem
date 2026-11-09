@@ -27,6 +27,8 @@ export interface RequirementCheck {
   evidence: string;
   evidenceVerified: boolean;
   comment: string;
+  /** posting: 채용 공고에 적힌 요건 · inferred: 공고에 없어 AI가 직무 지식으로 추정한 요건 */
+  source: "posting" | "inferred";
 }
 
 const MAX_FACTORS_PER_AREA = 5;
@@ -89,7 +91,15 @@ export function sanitizeScoreFactors(
   return out;
 }
 
-export function sanitizeRequirementChecks(raw: unknown, sourceText: string): RequirementCheck[] {
+/**
+ * @param postingAvailable 회사에 채용 공고 내용이 등록되어 있는지. 없으면 모든 요건을
+ *   AI 추정(inferred)으로 처리한다 — 모델이 posting이라고 답해도 근거가 될 공고가 없기 때문.
+ */
+export function sanitizeRequirementChecks(
+  raw: unknown,
+  sourceText: string,
+  postingAvailable = true,
+): RequirementCheck[] {
   if (!Array.isArray(raw)) return [];
   const source = normalizeForMatch(sourceText);
   const out: RequirementCheck[] = [];
@@ -111,6 +121,7 @@ export function sanitizeRequirementChecks(raw: unknown, sourceText: string): Req
       evidence,
       evidenceVerified: evidence !== "" && isQuoteInSource(evidence, source),
       comment: str(r.comment),
+      source: postingAvailable && r.source !== "inferred" ? "posting" : "inferred",
     });
   }
   return out;

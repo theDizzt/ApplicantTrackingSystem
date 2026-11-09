@@ -446,13 +446,14 @@ ${EVIDENCE_RULES}`;
     "weaknesses": ["실제 회사와 연관성이 부족하거나 개선이 필요한 부분 (최대 3개, 없으면 빈 배열)"],
     "hasCoverLetter": true/false (자기소개서 내용 존재 여부)
   },
-  "requirementChecks": [{"requirement": "공고의 요건 (짧게)", "kind": "required" | "preferred", "status": "met" | "partial" | "unmet", "evidence": "충족 근거가 된 이력서 원문 인용 (unmet이면 빈 문자열)", "comment": "판단 이유 (한국어 1문장)"}, ...],
+  "requirementChecks": [{"requirement": "공고의 요건 (짧게)", "kind": "required" | "preferred", "status": "met" | "partial" | "unmet", "evidence": "충족 근거가 된 이력서 원문 인용 (unmet이면 빈 문자열)", "comment": "판단 이유 (한국어 1문장)", "source": "posting" | "inferred"}, ...],
   "scoreFactors": [{"area": "jobMatch" | "motivation", "effect": "plus" | "minus", "reason": "점수 영향 이유 (한국어 1문장)", "quote": "이력서 원문 인용"}, ...]
 }
 
 requirementChecks 작성 규칙:
 - 채용 공고(자격 요건·우대 사항·직무 내용·인재상)에서 핵심 요건을 3~10개 뽑아, 지원자가 충족하는지 판정하세요. kind는 필수 요건이면 required, 우대 사항이면 preferred입니다.
 - 공고에 요건이 명시되지 않았다면 직무 수행에 꼭 필요한 요건을 추론해 작성하세요.
+- source: 채용 공고(지원 회사 정보)에 적힌 요건이면 "posting", 공고에 없어 직무 지식으로 추론한 요건이면 "inferred"입니다. 공고 문구에서 확인할 수 없는 요건을 posting으로 표시하지 마세요.
 - jobMatchScore는 이 요건 충족 결과와 일관되어야 합니다.
 
 ${EVIDENCE_RULES}
@@ -497,7 +498,11 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
     ...sanitizeScoreFactors(r2.scoreFactors, ["personality"], evidenceSource),
     ...sanitizeScoreFactors(r3.scoreFactors, ["jobMatch", "motivation"], evidenceSource),
   ];
-  const requirementChecks = sanitizeRequirementChecks(r3.requirementChecks, evidenceSource);
+  const requirementChecks = sanitizeRequirementChecks(
+    r3.requirementChecks,
+    evidenceSource,
+    Boolean(company.jobDescription?.trim()),
+  );
 
   // ── 직무 문장 유사도 (Task4) — 아래 모델별 의견과 병렬로 계산 ───────────────
   const applicantText =

@@ -54,8 +54,32 @@ describe("sanitizeRequirementChecks", () => {
       SOURCE,
     );
     expect(result).toEqual([
-      { requirement: "협업 경험", kind: "required", status: "met", evidence: "팀원 4명과 협업하여 배포 주기를", evidenceVerified: true, comment: "충족" },
-      { requirement: "AWS 운영", kind: "required", status: "unmet", evidence: "", evidenceVerified: false, comment: "근거 없음" },
+      { requirement: "협업 경험", kind: "required", status: "met", evidence: "팀원 4명과 협업하여 배포 주기를", evidenceVerified: true, comment: "충족", source: "posting" },
+      { requirement: "AWS 운영", kind: "required", status: "unmet", evidence: "", evidenceVerified: false, comment: "근거 없음", source: "posting" },
     ]);
+  });
+
+  it("keeps the inferred source reported by the model", () => {
+    const result = sanitizeRequirementChecks(
+      [
+        { requirement: "Java", status: "unmet", source: "posting" },
+        { requirement: "Git 협업", status: "unmet", source: "inferred" },
+        { requirement: "Spring", status: "unmet", source: "something-else" },
+      ],
+      SOURCE,
+    );
+    expect(result.map((r) => r.source)).toEqual(["posting", "inferred", "posting"]);
+  });
+
+  it("marks every requirement as inferred when the company has no posting text", () => {
+    const result = sanitizeRequirementChecks(
+      [
+        { requirement: "Java", status: "unmet", source: "posting" },
+        { requirement: "Git 협업", status: "unmet" },
+      ],
+      SOURCE,
+      false,
+    );
+    expect(result.map((r) => r.source)).toEqual(["inferred", "inferred"]);
   });
 });

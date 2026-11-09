@@ -8,7 +8,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import {
   ChevronLeft, CheckCircle2, XCircle, AlertTriangle,
   Link2, ExternalLink, TrendingUp, Banknote, GraduationCap, Heart, RotateCcw, Users,
-  ListChecks, PlusCircle, MinusCircle, Quote as QuoteIcon, ShieldAlert, Wrench, Sparkles,
+  ListChecks, PlusCircle, MinusCircle, Quote as QuoteIcon, ShieldAlert, Wrench, Sparkles, Info,
 } from "lucide-react"
 
 // ── 타입 ──────────────────────────────────────────────────────────────────
@@ -102,6 +102,8 @@ interface RequirementCheck {
   requirement: string; kind: "required" | "preferred"
   status: "met" | "partial" | "unmet"
   evidence: string; evidenceVerified: boolean; comment: string
+  /** 이전 심사 결과에는 없을 수 있음 — 없으면 공고 요건으로 간주 */
+  source?: "posting" | "inferred"
 }
 
 // ── 공통 UI ───────────────────────────────────────────────────────────────
@@ -246,6 +248,7 @@ function ScoreEvidenceCard({ evidence }: { evidence: NonNullable<RichAnalysis["s
   if (factors.length === 0 && requirements.length === 0) return null
 
   const metCount = requirements.filter(r => r.status === "met").length
+  const inferredCount = requirements.filter(r => r.source === "inferred").length
   const areas = AREA_ORDER.filter(a => factors.some(f => f.area === a))
 
   return (
@@ -262,6 +265,14 @@ function ScoreEvidenceCard({ evidence }: { evidence: NonNullable<RichAnalysis["s
               <h4 className="text-sm font-bold text-slate-800">채용 공고 요건 충족도</h4>
               <span className="text-xs text-slate-500">{requirements.length}개 중 <b className="text-slate-700">{metCount}개</b> 충족</span>
             </div>
+            {inferredCount > 0 && (
+              <p className="mb-2 flex items-start gap-1.5 rounded-lg bg-violet-50 px-3 py-2 text-xs text-violet-700">
+                <Info className="w-3.5 h-3.5 mt-px shrink-0" />
+                {inferredCount === requirements.length
+                  ? "채용 공고에 요건이 적혀 있지 않아, 아래 요건은 모두 AI가 직무를 기준으로 추정한 것입니다. 실제 회사 기준과 다를 수 있어요."
+                  : `${inferredCount}개 요건은 공고에 적혀 있지 않아 AI가 추정한 것입니다. 실제 회사 기준과 다를 수 있어요.`}
+              </p>
+            )}
             <ul className="divide-y divide-slate-100 rounded-xl border border-slate-100">
               {requirements.map((r, i) => {
                 const s = REQ_STATUS[r.status]
@@ -274,6 +285,10 @@ function ScoreEvidenceCard({ evidence }: { evidence: NonNullable<RichAnalysis["s
                       <p className="text-sm font-semibold text-slate-800">
                         {r.requirement}
                         {r.kind === "preferred" && <span className="ml-1.5 text-[11px] font-medium text-slate-400">우대</span>}
+                        {r.source === "inferred" && (
+                          <span className="ml-1.5 rounded px-1.5 py-px text-[10px] font-semibold bg-violet-50 text-violet-600 ring-1 ring-violet-200"
+                            title="채용 공고에 적혀 있지 않아 AI가 직무를 기준으로 추정한 요건입니다">공고 미기재 · AI 추정</span>
+                        )}
                       </p>
                       {r.comment && <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">{r.comment}</p>}
                       <EvidenceQuote text={r.evidence} verified={r.evidenceVerified} />

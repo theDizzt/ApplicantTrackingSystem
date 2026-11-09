@@ -55,6 +55,7 @@ export const REJECTION_REPORT_SYSTEM = `당신은 채용 담당자 출신의 취
 작성 규칙:
 - reasons는 탈락에 미치는 영향이 큰 순서로 최대 3개입니다. 미충족 필수 요건, 낮은 점수 영역, 감점 요인을 우선 보세요. 서로 겹치는 원인은 하나로 합치세요.
 - severity: 필수 요건 미충족·핵심 점수 50점 미만처럼 그것만으로 탈락할 수 있으면 high, 감점은 크지만 보완 가능하면 medium, 사소하면 low입니다.
+- [공고 미기재 · AI 추정] 표시가 붙은 요건은 회사가 실제로 요구한다는 근거가 없습니다. 이 요건의 미충족은 high로 두지 말고, 원인으로 쓸 때는 detail에 "공고에 명시되지 않은 추정 요건"임을 밝히세요. 공고에 적힌 요건을 우선하세요.
 - 심사 결과에 없는 사실을 지어내지 마세요. 스펙을 새로 쌓으라는 조언보다, 이미 가진 경험을 공고 요건에 맞춰 다시 쓰는 방법을 우선 제시하세요.
 - appealPoints는 가점 요인·충족 요건에서 찾은 강점 최대 3개입니다. 회사의 요건·인재상과 연결해 어필 방법을 쓰세요.`;
 
@@ -73,7 +74,8 @@ export function buildRejectionReportInput(signals: RejectionSignals, companyText
     lines.push("", "[공고 요건 충족 여부]");
     for (const r of signals.requirements) {
       const st = r.status === "met" ? "충족" : r.status === "partial" ? "부분 충족" : "미충족";
-      lines.push(`- (${r.kind === "required" ? "필수" : "우대"}) ${r.requirement}: ${st}${r.comment ? ` — ${r.comment}` : ""}`);
+      const origin = r.source === "inferred" ? " [공고 미기재 · AI 추정]" : "";
+      lines.push(`- (${r.kind === "required" ? "필수" : "우대"}) ${r.requirement}${origin}: ${st}${r.comment ? ` — ${r.comment}` : ""}`);
     }
   }
 
@@ -135,12 +137,18 @@ export function buildRuleBasedReport(signals: RejectionSignals): RejectionReport
     if (r.status === "met") continue;
     const required = r.kind === "required";
     const unmet = r.status === "unmet";
+    const inferred = r.source === "inferred";
+    // 공고에 없는 AI 추정 요건은 회사가 실제로 요구한다는 근거가 없으므로 최고 위험도로 올리지 않는다.
+    const severity: Severity = required && unmet && !inferred ? "high" : required || unmet ? "medium" : "low";
+    const baseDetail = r.comment || (inferred
+      ? `직무상 필요할 것으로 보이는 '${r.requirement}'을(를) 서류에서 충분히 확인할 수 없습니다.`
+      : `공고의 ${required ? "필수" : "우대"} 요건인 '${r.requirement}'을(를) 서류에서 충분히 확인할 수 없습니다.`);
     candidates.push({
       title: `${r.requirement} ${unmet ? "미충족" : "부분 충족"}`,
-      severity: required && unmet ? "high" : required || unmet ? "medium" : "low",
-      detail: r.comment || `공고의 ${required ? "필수" : "우대"} 요건인 '${r.requirement}'을(를) 서류에서 충분히 확인할 수 없습니다.`,
+      severity,
+      detail: inferred ? `${baseDetail} (공고에 명시되지 않은 AI 추정 요건)` : baseDetail,
       fix: `'${r.requirement}'과(와) 관련된 경험이 있다면 이력서·자기소개서에 구체적인 사례와 성과로 드러내세요.`,
-      weight: (required ? 20 : 10) + (unmet ? 10 : 0),
+      weight: (required ? 20 : 10) + (unmet ? 10 : 0) - (inferred ? 15 : 0),
     });
   }
 
@@ -186,7 +194,9 @@ export function buildRuleBasedReport(signals: RejectionSignals): RejectionReport
     if (r.status !== "met") continue;
     appealPoints.push({
       strength: r.requirement,
-      howToAppeal: `공고 요건인 '${r.requirement}'을(를) 충족하므로, 자기소개서와 면접에서 관련 경험을 앞세워 강조하세요.`,
+      howToAppeal: r.source === "inferred"
+        ? `직무에 필요한 '${r.requirement}' 역량을 갖췄으므로, 자기소개서와 면접에서 관련 경험을 앞세워 강조하세요.`
+        : `공고 요건인 '${r.requirement}'을(를) 충족하므로, 자기소개서와 면접에서 관련 경험을 앞세워 강조하세요.`,
     });
   }
   for (const f of signals.factors) {

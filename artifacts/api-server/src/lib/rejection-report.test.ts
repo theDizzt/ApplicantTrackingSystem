@@ -12,9 +12,9 @@ function signals(overrides: Partial<RejectionSignals> = {}): RejectionSignals {
     passed: false,
     scores: { jobMatch: 45, technical: 72, language: 80 },
     requirements: [
-      { requirement: "AWS 운영 경험", kind: "required", status: "unmet", evidence: "", evidenceVerified: false, comment: "클라우드 운영 경험이 없습니다." },
-      { requirement: "React 개발", kind: "required", status: "met", evidence: "React로 개발", evidenceVerified: true, comment: "" },
-      { requirement: "영어 회화", kind: "preferred", status: "partial", evidence: "", evidenceVerified: false, comment: "" },
+      { requirement: "AWS 운영 경험", kind: "required", status: "unmet", evidence: "", evidenceVerified: false, comment: "클라우드 운영 경험이 없습니다.", source: "posting" },
+      { requirement: "React 개발", kind: "required", status: "met", evidence: "React로 개발", evidenceVerified: true, comment: "", source: "posting" },
+      { requirement: "영어 회화", kind: "preferred", status: "partial", evidence: "", evidenceVerified: false, comment: "", source: "posting" },
     ],
     factors: [
       { area: "jobMatch", effect: "minus", reason: "직무 경험이 짧습니다.", quote: "", quoteVerified: false },
@@ -55,6 +55,35 @@ describe("buildRuleBasedReport", () => {
     }));
     expect(report.reasons).toEqual([]);
     expect(report.summary).toContain("뚜렷한 탈락 요인이 발견되지 않았습니다");
+  });
+
+  it("does not rank an AI-inferred unmet requirement as high severity", () => {
+    const report = buildRuleBasedReport(signals({
+      scores: { jobMatch: 75 },
+      factors: [],
+      documentChecks: { photoMissing: false, coverLetterTooShort: false, coverLetterLength: 900 },
+      jobSimilarity: { score: null, threshold: 60 },
+      requirements: [
+        { requirement: "Kubernetes 운영", kind: "required", status: "unmet", evidence: "", evidenceVerified: false, comment: "", source: "inferred" },
+        { requirement: "Java 개발", kind: "required", status: "unmet", evidence: "", evidenceVerified: false, comment: "", source: "posting" },
+      ],
+    }));
+    expect(report.reasons.map((r) => [r.title, r.severity])).toEqual([
+      ["Java 개발 미충족", "high"],
+      ["Kubernetes 운영 미충족", "medium"],
+    ]);
+    expect(report.reasons[1]!.detail).toContain("공고에 명시되지 않은 AI 추정 요건");
+  });
+});
+
+describe("buildRejectionReportInput — requirement source", () => {
+  it("labels AI-inferred requirements for the summarizer", () => {
+    const text = buildRejectionReportInput(signals({
+      requirements: [
+        { requirement: "Git 협업", kind: "required", status: "unmet", evidence: "", evidenceVerified: false, comment: "", source: "inferred" },
+      ],
+    }), "회사명: 테스트");
+    expect(text).toContain("- (필수) Git 협업 [공고 미기재 · AI 추정]: 미충족");
   });
 });
 
