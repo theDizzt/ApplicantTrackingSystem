@@ -6,6 +6,7 @@ const mocks = vi.hoisted(() => ({
   select: vi.fn(),
   insert: vi.fn(),
   update: vi.fn(),
+  delete: vi.fn(),
   selectResults: [] as unknown[][],
   insertResults: [] as unknown[][],
   aiCreate: vi.fn(),
@@ -61,6 +62,7 @@ function query(result: unknown) {
     from: vi.fn(() => chain),
     where: vi.fn(() => chain),
     orderBy: vi.fn(() => chain),
+    limit: vi.fn(() => chain),
     values: vi.fn((values: unknown) => {
       mocks.insertedValues.push(values);
       return chain;
@@ -87,9 +89,11 @@ vi.mock("@workspace/db", () => ({
     select: mocks.select,
     insert: mocks.insert,
     update: mocks.update,
+    delete: mocks.delete,
   },
   interviewSessionsTable: { id: "id", userId: "userId", resumeId: "resumeId", companyId: "companyId", createdAt: "createdAt" },
   interviewQuestionsTable: { id: "id", sessionId: "sessionId", order: "order" },
+  analysesTable: { userId: "userId", resumeId: "resumeId", companyId: "companyId", status: "status", createdAt: "createdAt", richAnalysisResult: "richAnalysisResult" },
   resumesTable: { id: "id", userId: "userId", title: "title", content: "content", coverLetter: "coverLetter" },
   companiesTable: { id: "id", userId: "userId", name: "name", talentProfile: "talentProfile", jobDescription: "jobDescription" },
 }));
@@ -98,6 +102,7 @@ vi.mock("drizzle-orm", () => ({
   and: vi.fn(() => ({})),
   desc: vi.fn(() => ({})),
   eq: vi.fn(() => ({})),
+  inArray: vi.fn(() => ({})),
 }));
 
 vi.mock("../lib/openai", () => ({
@@ -157,6 +162,7 @@ beforeEach(() => {
   mocks.select.mockImplementation(() => query(mocks.selectResults.shift() ?? []));
   mocks.insert.mockImplementation(() => query(mocks.insertResults.shift() ?? []));
   mocks.update.mockImplementation(() => query([]));
+  mocks.delete.mockImplementation(() => query([]));
   mocks.getSetting.mockResolvedValue(null);
 });
 
@@ -195,6 +201,7 @@ describe("interview routes", () => {
     setSelectResults([
       [{ id: 21, userId: 1, title: "백엔드 이력서", content: "지원자 경력", coverLetter: null }],
       [company],
+      [],
       [session], [{ title: "백엔드 이력서" }], [company], [],
     ]);
 
@@ -233,6 +240,7 @@ describe("interview routes", () => {
         }),
       }],
       [company],
+      [],
       [session], [{ title: "연구 이력서" }], [company], [],
     ]);
 
@@ -280,6 +288,101 @@ describe("interview routes", () => {
     const foreignSession = await request(makeApp()).post("/interviews/11/evaluate").set("x-user-id", "2");
     expect(foreignSession.status).toBe(404);
     expect(mocks.aiCreate).toHaveBeenCalledTimes(1);
+  });
+
+  it("asks about weaknesses from the latest document review and keeps only real weakness focus labels", async () => {
+    mocks.insertResults.push([session]);
+    mocks.aiCreate.mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({
+        questions: [
+          { question: "클라우드 운영 경험이 부족하다는 우려를 어떻게 보완하시겠습니까?", source: "weakness", focus: "AWS 운영 경험 미충족" },
+          { question: "지어낸 약점 질문입니다.", source: "weakness", focus: "존재하지 않는 약점" },
+        ],
+      }) } }],
+    });
+    setSelectResults([
+      [{ id: 21, userId: 1, title: "백엔드 이력서", content: "지원자 경력", coverLetter: null }],
+      [company],
+      [{ richAnalysisResult: JSON.stringify({
+        rejectionReport: { reasons: [{ title: "AWS 운영 경험 미충족", detail: "클라우드 운영 경험이 없습니다." }] },
+      }) }],
+      [session], [{ title: "백엔드 이력서" }], [company], [],
+    ]);
+
+    const response = await request(makeApp()).post("/interviews").set("x-user-id", "1").send({ resumeId: 21, companyId: 31 });
+    expect(response.status).toBe(201);
+    const prompt = mocks.aiCreate.mock.calls[0][0].messages.map((message: { content: string }) => message.content).join("\n");
+    expect(prompt).toContain("AWS 운영 경험 미충족 — 클라우드 운영 경험이 없습니다.");
+    const inserted = mocks.insertedValues.find((value) => Array.isArray(value)) as Array<{ question: string; focus: string | null }>;
+    expect(inserted[0]).toEqual(expect.objectContaining({ focus: "AWS 운영 경험 미충족" }));
+    expect(inserted[1]).toEqual(expect.objectContaining({ focus: null }));
+  });
+
+  it("creates a follow-up question for each evaluated answer and ignores existing follow-ups when checking completeness", async () => {
+    const base = { id: 41, sessionId: 11, question: "협업 경험은?", order: 1, answer: "팀과 협업했습니다.", feedback: null, score: null, parentQuestionId: null, depth: 0, focus: null };
+    const oldFollowUp = { id: 42, sessionId: 11, question: "이전 꼬리 질문", order: 1, answer: null, feedback: null, score: null, parentQuestionId: 41, depth: 1, focus: null };
+    mocks.aiCreate.mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({
+        overallScore: 70,
+        overallFeedback: "구체성이 부족합니다.",
+        evaluations: [{ questionId: 41, score: 70, feedback: "사례가 부족합니다.", followUp: "그 협업에서 본인이 맡은 역할은 무엇이었나요?" }],
+      }) } }],
+    });
+    setSelectResults([
+      [session], [{ title: "백엔드 이력서" }], [company], [base, oldFollowUp],
+      [company],
+      [session], [{ title: "백엔드 이력서" }], [company], [base],
+    ]);
+
+    const response = await request(makeApp()).post("/interviews/11/evaluate").set("x-user-id", "1");
+    expect(response.status).toBe(200);
+    const prompt = mocks.aiCreate.mock.calls[0][0].messages.map((message: { content: string }) => message.content).join("\n");
+    expect(prompt).not.toContain("이전 꼬리 질문");
+    expect(mocks.delete).toHaveBeenCalledTimes(1);
+    expect(mocks.insertedValues).toContainEqual([
+      expect.objectContaining({ question: "그 협업에서 본인이 맡은 역할은 무엇이었나요?", parentQuestionId: 41, depth: 1 }),
+    ]);
+  });
+
+  it("evaluates a follow-up answer with the full question chain and adds a deeper follow-up", async () => {
+    const base = { id: 41, sessionId: 11, question: "협업 경험은?", order: 1, answer: "팀과 협업했습니다.", feedback: "f", score: 70, parentQuestionId: null, depth: 0, focus: "협업 근거 부족" };
+    const followUp = { id: 42, sessionId: 11, question: "맡은 역할은?", order: 1, answer: null, feedback: null, score: null, parentQuestionId: 41, depth: 1, focus: "협업 근거 부족" };
+    mocks.aiCreate.mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({ score: 80, feedback: "역할이 분명합니다.", followUp: "갈등은 어떻게 풀었나요?" }) } }],
+    });
+    setSelectResults([
+      [{ ...session, status: "evaluated" }], [{ title: "백엔드 이력서" }], [company], [base, followUp],
+      [company],
+      [{ ...session, status: "evaluated" }], [{ title: "백엔드 이력서" }], [company], [base, followUp],
+    ]);
+
+    const response = await request(makeApp()).post("/interviews/11/follow-ups/42/answer").set("x-user-id", "1").send({ answer: "API 설계를 맡았습니다." });
+    expect(response.status).toBe(200);
+    const prompt = mocks.aiCreate.mock.calls[0][0].messages.map((message: { content: string }) => message.content).join("\n");
+    expect(prompt).toContain("기본 질문: 협업 경험은?\n답변: 팀과 협업했습니다.");
+    expect(prompt).toContain("꼬리 질문 1: 맡은 역할은?\n답변: API 설계를 맡았습니다.");
+    expect(prompt).toContain("확인하려는 약점: 협업 근거 부족");
+    expect(mocks.insertedValues).toContainEqual(expect.objectContaining({ question: "갈등은 어떻게 풀었나요?", parentQuestionId: 42, depth: 2 }));
+  });
+
+  it("stops at the maximum follow-up depth and rejects base questions on the follow-up endpoint", async () => {
+    const base = { id: 41, sessionId: 11, question: "Q", order: 1, answer: "A", feedback: "f", score: 70, parentQuestionId: null, depth: 0, focus: null };
+    const deepest = { id: 43, sessionId: 11, question: "마지막 꼬리 질문", order: 1, answer: null, feedback: null, score: null, parentQuestionId: 41, depth: 2, focus: null };
+    mocks.aiCreate.mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({ score: 60, feedback: "보완이 필요합니다.", followUp: "더 깊은 질문" }) } }],
+    });
+    setSelectResults([
+      [session], [{ title: "백엔드 이력서" }], [company], [base, deepest],
+      [company],
+      [session], [{ title: "백엔드 이력서" }], [company], [base, deepest],
+    ]);
+    const response = await request(makeApp()).post("/interviews/11/follow-ups/43/answer").set("x-user-id", "1").send({ answer: "답변입니다." });
+    expect(response.status).toBe(200);
+    expect(mocks.insert).not.toHaveBeenCalled();
+
+    setSelectResults([[session], [{ title: "백엔드 이력서" }], [company], [base]]);
+    const notFollowUp = await request(makeApp()).post("/interviews/11/follow-ups/41/answer").set("x-user-id", "1").send({ answer: "답변" });
+    expect(notFollowUp.status).toBe(404);
   });
 });
 

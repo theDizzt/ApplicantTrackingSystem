@@ -24,6 +24,7 @@ export * from './fetchPostingsInput';
 export * from './guidedPromptsInput';
 export * from './guidedPromptsResult';
 export * from './healthStatus';
+export * from './followUpAnswerInput';
 export * from './interviewInput';
 export * from './interviewQuestion';
 export * from './interviewSession';

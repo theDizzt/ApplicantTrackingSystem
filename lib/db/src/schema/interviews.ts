@@ -22,6 +22,11 @@ export const interviewQuestionsTable = pgTable("interview_questions", {
   answer: text("answer"),
   feedback: text("feedback"),
   score: integer("score"),
+  // 꼬리 질문: 어떤 질문의 답변에서 이어진 질문인지(null이면 기본 질문)와 몇 번째 꼬리인지(0 = 기본 질문)
+  parentQuestionId: integer("parent_question_id"),
+  depth: integer("depth").notNull().default(0),
+  // 질문 의도: 서류 심사에서 찾은 약점(탈락 원인) 등 이 질문을 묻는 이유
+  focus: text("focus"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

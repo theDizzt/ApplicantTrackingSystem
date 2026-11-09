@@ -68,6 +68,7 @@ router.get("/dashboard", requireAuth, async (req, res): Promise<void> => {
       questions: questions.map(q => ({
         id: q.id, question: q.question, order: q.order,
         answer: q.answer ?? null, feedback: q.feedback ?? null, score: q.score ?? null,
+        parentQuestionId: q.parentQuestionId ?? null, depth: q.depth ?? 0, focus: q.focus ?? null,
       })),
       overallScore: s.overallScore ?? null, overallFeedback: s.overallFeedback ?? null,
       resumeTitle: resumeMap[s.resumeId] ?? null, companyName: companyMap[s.companyId] ?? null,

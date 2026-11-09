@@ -591,7 +591,10 @@ export const ListInterviewsResponseItem = zod.object({
   "order": zod.number(),
   "answer": zod.string().nullish(),
   "feedback": zod.string().nullish(),
-  "score": zod.number().nullish()
+  "score": zod.number().nullish(),
+  "parentQuestionId": zod.number().nullish(),
+  "depth": zod.number().optional(),
+  "focus": zod.string().nullish()
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -623,7 +626,10 @@ export const CreateInterviewResponse = zod.object({
   "order": zod.number(),
   "answer": zod.string().nullish(),
   "feedback": zod.string().nullish(),
-  "score": zod.number().nullish()
+  "score": zod.number().nullish(),
+  "parentQuestionId": zod.number().nullish(),
+  "depth": zod.number().optional(),
+  "focus": zod.string().nullish()
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -653,7 +659,10 @@ export const GetInterviewResponse = zod.object({
   "order": zod.number(),
   "answer": zod.string().nullish(),
   "feedback": zod.string().nullish(),
-  "score": zod.number().nullish()
+  "score": zod.number().nullish(),
+  "parentQuestionId": zod.number().nullish(),
+  "depth": zod.number().optional(),
+  "focus": zod.string().nullish()
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -690,7 +699,10 @@ export const SubmitAnswersResponse = zod.object({
   "order": zod.number(),
   "answer": zod.string().nullish(),
   "feedback": zod.string().nullish(),
-  "score": zod.number().nullish()
+  "score": zod.number().nullish(),
+  "parentQuestionId": zod.number().nullish(),
+  "depth": zod.number().optional(),
+  "focus": zod.string().nullish()
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -720,7 +732,10 @@ export const EvaluateAnswersResponse = zod.object({
   "order": zod.number(),
   "answer": zod.string().nullish(),
   "feedback": zod.string().nullish(),
-  "score": zod.number().nullish()
+  "score": zod.number().nullish(),
+  "parentQuestionId": zod.number().nullish(),
+  "depth": zod.number().optional(),
+  "focus": zod.string().nullish()
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -729,6 +744,21 @@ export const EvaluateAnswersResponse = zod.object({
   "createdAt": zod.string(),
   "evaluatedAt": zod.string().nullish()
 })
+
+
+/**
+ * @summary Answer a follow-up question and get immediate feedback (may create a deeper follow-up)
+ */
+export const AnswerFollowUpParams = zod.object({
+  "id": zod.coerce.number(),
+  "questionId": zod.coerce.number()
+})
+
+export const AnswerFollowUpBody = zod.object({
+  "answer": zod.string().min(1)
+})
+
+export const AnswerFollowUpResponse = EvaluateAnswersResponse
 
 
 /**
@@ -778,7 +808,10 @@ export const GetDashboardResponse = zod.object({
   "order": zod.number(),
   "answer": zod.string().nullish(),
   "feedback": zod.string().nullish(),
-  "score": zod.number().nullish()
+  "score": zod.number().nullish(),
+  "parentQuestionId": zod.number().nullish(),
+  "depth": zod.number().optional(),
+  "focus": zod.string().nullish()
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),

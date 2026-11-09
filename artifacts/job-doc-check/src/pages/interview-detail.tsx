@@ -1,6 +1,9 @@
 import { useState, useEffect } from "react"
 import { useParams, Link } from "wouter"
-import { useGetInterview, useSubmitAnswers, useEvaluateAnswers, getGetInterviewQueryKey } from "@workspace/api-client-react"
+import {
+  useGetInterview, useSubmitAnswers, useEvaluateAnswers, useAnswerFollowUp, getGetInterviewQueryKey,
+  type InterviewQuestion,
+} from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -8,7 +11,92 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
-import { ChevronLeft, BrainCircuit, CheckCircle2 } from "lucide-react"
+import { ChevronLeft, BrainCircuit, CheckCircle2, CornerDownRight, Target } from "lucide-react"
+
+// ── 꼬리 질문 ────────────────────────────────────────────────────────────────
+/** 기본 질문 아래로 이어진 꼬리 질문들(얕은 것부터) */
+function followUpChain(questions: InterviewQuestion[], rootId: number): InterviewQuestion[] {
+  const chain: InterviewQuestion[] = []
+  let parentId = rootId
+  for (;;) {
+    const next = questions.find(q => q.parentQuestionId === parentId)
+    if (!next || chain.includes(next)) break
+    chain.push(next)
+    parentId = next.id
+  }
+  return chain
+}
+
+function FollowUpThread({ interviewId, questions, rootId }: { interviewId: number; questions: InterviewQuestion[]; rootId: number }) {
+  const queryClient = useQueryClient()
+  const answerFollowUp = useAnswerFollowUp()
+  const [drafts, setDrafts] = useState<Record<number, string>>({})
+  const chain = followUpChain(questions, rootId)
+  if (chain.length === 0) return null
+
+  const submit = (questionId: number) => {
+    const answer = (drafts[questionId] ?? "").trim()
+    if (!answer) {
+      toast.error("꼬리 질문에 대한 답변을 입력해주세요")
+      return
+    }
+    answerFollowUp.mutate({ id: interviewId, questionId, data: { answer } }, {
+      onSuccess: (data) => {
+        queryClient.setQueryData(getGetInterviewQueryKey(interviewId), data)
+        setDrafts(prev => { const { [questionId]: _done, ...rest } = prev; return rest })
+      },
+      onError: (err) => {
+        const body = (err as { data?: { error?: string } | null })?.data
+        toast.error(body?.error || "꼬리 질문 답변 평가에 실패했습니다")
+      },
+    })
+  }
+
+  return (
+    <div className="pt-4 border-t space-y-4">
+      {chain.map((fq) => {
+        const answered = fq.answer != null && fq.score != null
+        const pending = answerFollowUp.isPending && answerFollowUp.variables?.questionId === fq.id
+        return (
+          <div key={fq.id} className="flex gap-3" style={{ paddingLeft: `${((fq.depth ?? 1) - 1) * 16}px` }}>
+            <CornerDownRight className="w-4 h-4 mt-0.5 shrink-0 text-primary" />
+            <div className="flex-1 min-w-0 space-y-2">
+              <div className="flex items-start justify-between gap-3">
+                <p className="text-sm font-semibold leading-relaxed">
+                  <span className="text-xs font-bold text-primary mr-1.5">꼬리 질문 {fq.depth ?? 1}</span>{fq.question}
+                </p>
+                {answered && (
+                  <Badge variant={fq.score! >= 70 ? "success" : "warning"} className="font-mono text-xs px-2 shrink-0">{fq.score}/100</Badge>
+                )}
+              </div>
+              {answered ? (
+                <>
+                  <div className="text-sm p-3 bg-slate-50 dark:bg-slate-900 rounded-md whitespace-pre-wrap">{fq.answer}</div>
+                  {fq.feedback && <p className="text-sm text-foreground/90 leading-relaxed whitespace-pre-wrap">{fq.feedback}</p>}
+                </>
+              ) : (
+                <>
+                  <Textarea
+                    placeholder="면접관의 꼬리 질문에 답해 보세요..."
+                    className="min-h-[90px] text-sm"
+                    value={drafts[fq.id] ?? ""}
+                    disabled={pending}
+                    onChange={(e) => setDrafts(prev => ({ ...prev, [fq.id]: e.target.value }))}
+                  />
+                  <div className="flex justify-end">
+                    <Button size="sm" onClick={() => submit(fq.id)} disabled={pending}>
+                      {pending ? "평가 중..." : "답변하고 피드백 받기"}
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )
+      })}
+    </div>
+  )
+}
 
 export default function InterviewDetail() {
   const params = useParams()
@@ -42,13 +130,15 @@ export default function InterviewDetail() {
 
   const handleSubmit = () => {
     if (!interview?.questions) return
+    // 꼬리 질문은 평가 후 하나씩 답하므로, 일괄 제출은 기본 질문만
+    const baseQuestions = interview.questions.filter(q => q.parentQuestionId == null)
 
-    const formattedAnswers = interview.questions.map(q => ({
+    const formattedAnswers = baseQuestions.map(q => ({
       questionId: q.id,
       answer: answers[q.id] || ""
     })).filter(a => a.answer.trim().length > 0)
 
-    if (formattedAnswers.length !== interview.questions.length) {
+    if (formattedAnswers.length !== baseQuestions.length) {
       toast.error("모든 질문에 답변을 입력해주세요")
       return
     }
@@ -149,7 +239,7 @@ export default function InterviewDetail() {
       )}
 
       <div className="space-y-6">
-        {interview.questions?.sort((a,b) => a.order - b.order).map((q, idx) => (
+        {interview.questions?.filter(q => q.parentQuestionId == null).sort((a,b) => a.order - b.order).map((q, idx) => (
           <Card key={q.id} className={isCompleted ? (q.score && q.score >= 70 ? "border-success/50" : "border-warning/50") : ""}>
             <CardHeader className="bg-slate-50 dark:bg-slate-900 border-b pb-4">
               <div className="flex items-start justify-between gap-4">
@@ -157,7 +247,14 @@ export default function InterviewDetail() {
                   <span className="shrink-0 w-6 h-6 rounded-full bg-primary/20 text-primary flex items-center justify-center text-xs">
                     Q{idx + 1}
                   </span>
-                  {q.question}
+                  <span>
+                    {q.focus && (
+                      <span className="mb-1.5 flex w-fit items-center gap-1 rounded-full bg-red-50 px-2 py-0.5 text-[11px] font-bold text-red-600 ring-1 ring-red-200">
+                        <Target className="w-3 h-3" />약점 확인 · {q.focus}
+                      </span>
+                    )}
+                    {q.question}
+                  </span>
                 </CardTitle>
                 {isCompleted && q.score !== undefined && q.score !== null && (
                   <Badge variant={q.score >= 70 ? "success" : "warning"} className="font-mono text-sm px-2">
@@ -185,6 +282,7 @@ export default function InterviewDetail() {
                       </div>
                     </div>
                   )}
+                  <FollowUpThread interviewId={interviewId} questions={interview.questions ?? []} rootId={q.id} />
                 </>
               ) : (
                 <Textarea 

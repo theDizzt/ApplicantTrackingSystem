@@ -802,6 +802,36 @@ paths:
               schema:
                 $ref: "#/components/schemas/InterviewSession"
 
+  /interviews/{id}/follow-ups/{questionId}/answer:
+    post:
+      operationId: answerFollowUp
+      tags: [interviews]
+      summary: Answer a follow-up question and get immediate feedback (may create a deeper follow-up)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: questionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/FollowUpAnswerInput"
+      responses:
+        "200":
+          description: Follow-up answer evaluated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterviewSession"
+
   # Dashboard
   /dashboard:
     get:
@@ -1235,6 +1265,23 @@ components:
           type: ["string", "null"]
         score:
           type: ["integer", "null"]
+        parentQuestionId:
+          type: ["integer", "null"]
+          description: 꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null
+        depth:
+          type: integer
+          description: 0 = 기본 질문, 1 이상 = 꼬리 질문 단계
+        focus:
+          type: ["string", "null"]
+          description: 질문 의도 (예. 서류 심사에서 찾은 약점)
+
+    FollowUpAnswerInput:
+      type: object
+      required: [answer]
+      properties:
+        answer:
+          type: string
+          minLength: 1
 
     InterviewSession:
       type: object

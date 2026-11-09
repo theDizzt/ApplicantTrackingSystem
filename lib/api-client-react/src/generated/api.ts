@@ -24,6 +24,7 @@ import type {
   AnalysisInput,
   AnswersInput,
   AuthUser,
+  FollowUpAnswerInput,
   Company,
   CompanyInput,
   CompanyUpdate,
@@ -2498,6 +2499,62 @@ export const useEvaluateAnswers = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getEvaluateAnswersMutationOptions(options));
+    }
+
+export const getAnswerFollowUpUrl = (id: number, questionId: number,) => {
+  return `/api/interviews/${id}/follow-ups/${questionId}/answer`
+}
+
+/**
+ * @summary Answer a follow-up question and get immediate feedback (may create a deeper follow-up)
+ */
+export const answerFollowUp = async (id: number, questionId: number,
+    followUpAnswerInput: FollowUpAnswerInput, options?: RequestInit): Promise<InterviewSession> => {
+
+  return customFetch<InterviewSession>(getAnswerFollowUpUrl(id, questionId),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(followUpAnswerInput)
+  }
+);}
+
+export const getAnswerFollowUpMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof answerFollowUp>>, TError,{id: number;questionId: number;data: BodyType<FollowUpAnswerInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof answerFollowUp>>, TError,{id: number;questionId: number;data: BodyType<FollowUpAnswerInput>}, TContext> => {
+
+const mutationKey = ['answerFollowUp'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof answerFollowUp>>, {id: number;questionId: number;data: BodyType<FollowUpAnswerInput>}> = (props) => {
+          const {id,questionId,data} = props ?? {};
+
+          return  answerFollowUp(id,questionId,data,requestOptions)
+        }
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AnswerFollowUpMutationResult = NonNullable<Awaited<ReturnType<typeof answerFollowUp>>>
+    export type AnswerFollowUpMutationBody = BodyType<FollowUpAnswerInput>
+    export type AnswerFollowUpMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Answer a follow-up question and get immediate feedback (may create a deeper follow-up)
+ */
+export const useAnswerFollowUp = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof answerFollowUp>>, TError,{id: number;questionId: number;data: BodyType<FollowUpAnswerInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof answerFollowUp>>,
+        TError,
+        {id: number;questionId: number;data: BodyType<FollowUpAnswerInput>},
+        TContext
+      > => {
+      return useMutation(getAnswerFollowUpMutationOptions(options));
     }
 
 export const getGetDashboardUrl = () => {
