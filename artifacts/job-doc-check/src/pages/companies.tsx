@@ -10,6 +10,7 @@ import {
 } from "@workspace/api-client-react"
 import type { JobPosting } from "@workspace/api-client-react"
 import { Link } from "wouter"
+import { dDayLabel, daysUntil, scheduleEvents, SCHEDULE_KIND_LABEL, toDateKey } from "@/lib/schedule"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardFooter, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
@@ -209,6 +210,28 @@ function FetchedPostingsDialog({
 }
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
+/** 지원 상태와 가장 가까운 남은 일정 (예: "지원 완료 · 결과 발표 D-3"). */
+function ScheduleLine({ company }: { company: Parameters<typeof scheduleEvents>[0][number] }) {
+  const today = toDateKey(new Date())
+  const next = scheduleEvents([company]).find((e) => daysUntil(e.date, today) >= 0)
+  if (!company.applicationStatus && !next) return null
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs" data-testid={`schedule-${company.id}`}>
+      {company.applicationStatus && (
+        <span className="rounded-full bg-slate-800 text-white px-2 py-0.5 font-medium">{company.applicationStatus}</span>
+      )}
+      {next && (
+        <span className={cn(
+          "rounded-full border px-2 py-0.5 font-medium",
+          daysUntil(next.date, today) <= 3 ? "border-rose-300 bg-rose-50 text-rose-700" : "border-slate-200 text-slate-600",
+        )}>
+          {SCHEDULE_KIND_LABEL[next.kind]} {dDayLabel(next.date, today)}
+        </span>
+      )}
+    </div>
+  )
+}
+
 export default function CompaniesPage() {
   const { data: companies, isLoading } = useListCompanies()
   const { data: resumes } = useListResumes()
@@ -592,6 +615,7 @@ export default function CompaniesPage() {
               </CardHeader>
 
               <CardContent className="flex-1 pt-0 space-y-2.5">
+                <ScheduleLine company={company} />
                 <ClassificationBadges
                   careerLevel={company.careerLevel}
                   educationLevel={company.educationLevel}

@@ -101,6 +101,26 @@ export interface Company {
   educationLevel?: string | null;
   /** 모집분야 (개발·기획·디자인·영업·품질관리·테스터·기타) */
   recruitmentField?: string[] | null;
+  /**
+     * 지원 상태 (관심·지원 예정·지원 완료·서류 합격·면접 진행·최종 합격·불합격)
+     * @nullable
+     */
+  applicationStatus?: string | null;
+  /**
+     * 서류 마감일 (YYYY-MM-DD)
+     * @nullable
+     */
+  deadlineDate?: string | null;
+  /**
+     * 결과 발표일 (YYYY-MM-DD)
+     * @nullable
+     */
+  announcementDate?: string | null;
+  /**
+     * 면접일 (YYYY-MM-DD)
+     * @nullable
+     */
+  interviewDate?: string | null;
   isRecommended: boolean;
   syncedAt: string;
   createdAt: string;
@@ -116,6 +136,26 @@ export interface CompanyInput {
   careerLevel?: string[];
   educationLevel?: string;
   recruitmentField?: string[];
+  /**
+     * 지원 상태 (관심·지원 예정·지원 완료·서류 합격·면접 진행·최종 합격·불합격)
+     * @nullable
+     */
+  applicationStatus?: string | null;
+  /**
+     * 서류 마감일 (YYYY-MM-DD)
+     * @nullable
+     */
+  deadlineDate?: string | null;
+  /**
+     * 결과 발표일 (YYYY-MM-DD)
+     * @nullable
+     */
+  announcementDate?: string | null;
+  /**
+     * 면접일 (YYYY-MM-DD)
+     * @nullable
+     */
+  interviewDate?: string | null;
 }
 
 export interface CompanyUpdate {
@@ -128,6 +168,202 @@ export interface CompanyUpdate {
   careerLevel?: string[];
   educationLevel?: string;
   recruitmentField?: string[];
+  /**
+     * 지원 상태 (관심·지원 예정·지원 완료·서류 합격·면접 진행·최종 합격·불합격)
+     * @nullable
+     */
+  applicationStatus?: string | null;
+  /**
+     * 서류 마감일 (YYYY-MM-DD)
+     * @nullable
+     */
+  deadlineDate?: string | null;
+  /**
+     * 결과 발표일 (YYYY-MM-DD)
+     * @nullable
+     */
+  announcementDate?: string | null;
+  /**
+     * 면접일 (YYYY-MM-DD)
+     * @nullable
+     */
+  interviewDate?: string | null;
+}
+
+/**
+ * 자격증·어학·프로젝트·수상/공모전·대외활동·경력·교육
+ */
+export type ProfileItemKind = typeof ProfileItemKind[keyof typeof ProfileItemKind];
+
+
+export const ProfileItemKind = {
+  certificate: 'certificate',
+  language: 'language',
+  project: 'project',
+  award: 'award',
+  activity: 'activity',
+  career: 'career',
+  education: 'education',
+} as const;
+
+export interface ProfileItem {
+  id: number;
+  /** 자격증·어학·프로젝트·수상/공모전·대외활동·경력·교육 */
+  kind: ProfileItemKind;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+  /**
+     * @maxLength 200
+     * @nullable
+     */
+  organization?: string | null;
+  /**
+     * YYYY-MM 또는 YYYY-MM-DD
+     * @maxLength 10
+     * @nullable
+     */
+  startDate?: string | null;
+  /**
+     * @maxLength 10
+     * @nullable
+     */
+  endDate?: string | null;
+  /**
+     * 점수·등급·수상 결과
+     * @maxLength 100
+     * @nullable
+     */
+  score?: string | null;
+  /**
+     * @maxLength 4000
+     * @nullable
+     */
+  description?: string | null;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  url?: string | null;
+  createdAt: string;
+}
+
+/**
+ * 자격증·어학·프로젝트·수상/공모전·대외활동·경력·교육
+ */
+export type ProfileItemInputKind = typeof ProfileItemInputKind[keyof typeof ProfileItemInputKind];
+
+
+export const ProfileItemInputKind = {
+  certificate: 'certificate',
+  language: 'language',
+  project: 'project',
+  award: 'award',
+  activity: 'activity',
+  career: 'career',
+  education: 'education',
+} as const;
+
+export interface ProfileItemInput {
+  /** 자격증·어학·프로젝트·수상/공모전·대외활동·경력·교육 */
+  kind: ProfileItemInputKind;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title: string;
+  /**
+     * @maxLength 200
+     * @nullable
+     */
+  organization?: string | null;
+  /**
+     * YYYY-MM 또는 YYYY-MM-DD
+     * @maxLength 10
+     * @nullable
+     */
+  startDate?: string | null;
+  /**
+     * @maxLength 10
+     * @nullable
+     */
+  endDate?: string | null;
+  /**
+     * 점수·등급·수상 결과
+     * @maxLength 100
+     * @nullable
+     */
+  score?: string | null;
+  /**
+     * @maxLength 4000
+     * @nullable
+     */
+  description?: string | null;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  url?: string | null;
+}
+
+/**
+ * 자격증·어학·프로젝트·수상/공모전·대외활동·경력·교육
+ */
+export type ProfileItemUpdateKind = typeof ProfileItemUpdateKind[keyof typeof ProfileItemUpdateKind];
+
+
+export const ProfileItemUpdateKind = {
+  certificate: 'certificate',
+  language: 'language',
+  project: 'project',
+  award: 'award',
+  activity: 'activity',
+  career: 'career',
+  education: 'education',
+} as const;
+
+export interface ProfileItemUpdate {
+  /** 자격증·어학·프로젝트·수상/공모전·대외활동·경력·교육 */
+  kind?: ProfileItemUpdateKind;
+  /**
+     * @minLength 1
+     * @maxLength 200
+     */
+  title?: string;
+  /**
+     * @maxLength 200
+     * @nullable
+     */
+  organization?: string | null;
+  /**
+     * YYYY-MM 또는 YYYY-MM-DD
+     * @maxLength 10
+     * @nullable
+     */
+  startDate?: string | null;
+  /**
+     * @maxLength 10
+     * @nullable
+     */
+  endDate?: string | null;
+  /**
+     * 점수·등급·수상 결과
+     * @maxLength 100
+     * @nullable
+     */
+  score?: string | null;
+  /**
+     * @maxLength 4000
+     * @nullable
+     */
+  description?: string | null;
+  /**
+     * @maxLength 1000
+     * @nullable
+     */
+  url?: string | null;
 }
 
 export interface FetchPostingsInput {
@@ -287,16 +523,16 @@ export interface InterviewQuestion {
   /** @nullable */
   score?: number | null;
   /**
-   * 꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null
-   * @nullable
-   */
+     * 꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null
+     * @nullable
+     */
   parentQuestionId?: number | null;
   /** 0 = 기본 질문, 1 이상 = 꼬리 질문 단계 */
   depth?: number;
   /**
-   * 질문 의도 (예. 서류 심사에서 찾은 약점)
-   * @nullable
-   */
+     * 질문 의도 (예. 서류 심사에서 찾은 약점)
+     * @nullable
+     */
   focus?: string | null;
 }
 

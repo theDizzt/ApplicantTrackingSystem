@@ -207,7 +207,7 @@ router.post("/cover-letter/guided-prompts", requireAuth, async (req, res): Promi
 
   let metricModel = "unknown";
   try {
-      const ai = await getAI();
+      const ai = await getAI("light");
     metricModel = ai.model;
     const response = await ai.openai.chat.completions.create({
       model: ai.model,
@@ -310,7 +310,8 @@ router.post(
         return;
       }
 
-      const ai = await getAI();
+      // 자기소개서 작성은 글 품질이 중요하므로 기본(심사) 모델을 쓴다.
+      const ai = await getAI("screening");
       const completion = await ai.openai.chat.completions.create({
         model: ai.model,
         messages: [

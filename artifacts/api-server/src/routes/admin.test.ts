@@ -78,6 +78,10 @@ const aiSettingsKeys = [
   "hasApiKey3",
   "baseUrl3",
   "model3",
+  "modelInterview",
+  "modelLight",
+  "modelVision",
+  "embeddingModel",
 ].sort();
 
 describe("admin AI settings response contract", () => {
@@ -120,6 +124,10 @@ describe("admin AI settings response contract", () => {
       hasApiKey3: false,
       baseUrl3: "",
       model3: "",
+      modelInterview: "",
+      modelLight: "",
+      modelVision: "",
+      embeddingModel: "",
     });
     expect(Object.keys(response.body).sort()).toEqual(aiSettingsKeys);
     expect(response.body).not.toHaveProperty("apiKey");
@@ -147,6 +155,10 @@ describe("admin AI settings response contract", () => {
       ai3_api_key: secrets.secondary3,
       ai3_base_url: "https://secondary-three.example/v1",
       ai3_model: "secondary-model-3",
+      ai_model_interview: "interview-model",
+      ai_model_light: "light-model",
+      ai_model_vision: "vision-model",
+      ai_embedding_model: "embedding-model",
     };
     getSetting.mockImplementation(async (key: string) => settings[key]);
 
@@ -168,6 +180,10 @@ describe("admin AI settings response contract", () => {
       hasApiKey3: true,
       baseUrl3: "https://secondary-three.example/v1",
       model3: "secondary-model-3",
+      modelInterview: "interview-model",
+      modelLight: "light-model",
+      modelVision: "vision-model",
+      embeddingModel: "embedding-model",
     });
     expect(Object.keys(response.body).sort()).toEqual(aiSettingsKeys);
     expect(serialized).not.toContain(secrets.primary);

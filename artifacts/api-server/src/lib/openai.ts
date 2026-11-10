@@ -10,15 +10,41 @@ import { db, settingsTable } from "@workspace/db";
 //   ai_base_url — OpenAI 호환 API 주소 (예: https://api.openai.com/v1)
 //   ai_model    — 모델명 (예: gpt-5.6-luna)
 //   ai_stt_model — 음성인식 모델명 (예: gpt-4o-mini-transcribe)
+//   ai_model_interview / ai_model_light / ai_model_vision — 역할별 모델 (비우면 ai_model 사용)
 
 export const DEFAULT_MODEL = "gpt-5.6-luna";
 export const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const CACHE_TTL_MS = 30_000;
 
+/**
+ * AI 호출 역할. 같은 API 키·주소를 쓰되 역할마다 모델만 바꿀 수 있다.
+ *   screening — 서류 심사·불합격 원인 리포트·커리어 분석·자기소개서 작성 (기본 모델 ai_model)
+ *   interview — 면접 질문 생성·답변 평가·꼬리 질문
+ *   light     — 맞춤법, 이력서 파일 구조화, 기업 추천·매칭, 녹음용 질문 같은 가벼운 작업
+ *   vision    — 이미지·스캔 공고 OCR (이미지 입력을 지원하는 모델이어야 함)
+ */
+export type AIRole = "screening" | "interview" | "light" | "vision";
+export type SubRole = Exclude<AIRole, "screening">;
+
+export const AI_ROLE_SETTING_KEYS: Record<SubRole, string> = {
+  interview: "ai_model_interview",
+  light: "ai_model_light",
+  vision: "ai_model_vision",
+};
+
 export interface AIConfig {
   apiKey: string;
   baseUrl: string | undefined;
+  /** 기본 모델 (screening 역할) */
   model: string;
+  /** 역할별 모델. 비어 있는 역할은 기본 모델을 쓴다. */
+  roleModels?: Partial<Record<SubRole, string>>;
+}
+
+/** 역할에 맞는 모델명. 역할 모델이 비어 있으면 기본 모델로 폴백한다. */
+export function resolveRoleModel(config: AIConfig, role: AIRole): string {
+  if (role === "screening") return config.model;
+  return config.roleModels?.[role]?.trim() || config.model;
 }
 
 let cached: { config: AIConfig; client: OpenAI; at: number } | null = null;
@@ -33,7 +59,12 @@ export async function getAIConfig(): Promise<AIConfig> {
     const rows = await db
       .select()
       .from(settingsTable)
-      .where(inArray(settingsTable.key, ["ai_api_key", "ai_base_url", "ai_model"]));
+      .where(inArray(settingsTable.key, [
+        "ai_api_key",
+        "ai_base_url",
+        "ai_model",
+        ...Object.values(AI_ROLE_SETTING_KEYS),
+      ]));
     map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
   } catch {
     // settings 테이블이 아직 없는 DB(스키마 미적용)에서는 환경변수 폴백만 사용
@@ -44,7 +75,12 @@ export async function getAIConfig(): Promise<AIConfig> {
   const baseUrl =
     map["ai_base_url"] || process.env.AI_INTEGRATIONS_OPENAI_BASE_URL || undefined;
   const model = map["ai_model"] || DEFAULT_MODEL;
-  return { apiKey, baseUrl, model };
+  const roleModels: Partial<Record<SubRole, string>> = {};
+  for (const [role, key] of Object.entries(AI_ROLE_SETTING_KEYS) as [SubRole, string][]) {
+    const value = map[key]?.trim();
+    if (value) roleModels[role] = value;
+  }
+  return { apiKey, baseUrl, model, roleModels };
 }
 
 /**
@@ -120,13 +156,13 @@ export async function getSecondaryAIs(): Promise<
 }
 
 /**
- * AI 클라이언트와 모델명을 반환한다. 키가 미설정이면 명확한 오류를 던진다.
- * 사용 예: const { openai, model } = await getAI();
+ * AI 클라이언트와 역할에 맞는 모델명을 반환한다. 키가 미설정이면 명확한 오류를 던진다.
+ * 사용 예: const { openai, model } = await getAI("interview");
  */
-export async function getAI(): Promise<{ openai: OpenAI; model: string }> {
+export async function getAI(role: AIRole = "screening"): Promise<{ openai: OpenAI; model: string }> {
   const now = Date.now();
   if (cached && now - cached.at < CACHE_TTL_MS) {
-    return { openai: cached.client, model: cached.config.model };
+    return { openai: cached.client, model: resolveRoleModel(cached.config, role) };
   }
   const config = await getAIConfig();
   if (!config.apiKey) {
@@ -136,7 +172,7 @@ export async function getAI(): Promise<{ openai: OpenAI; model: string }> {
   }
   const client = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseUrl });
   cached = { config, client, at: now };
-  return { openai: client, model: config.model };
+  return { openai: client, model: resolveRoleModel(config, role) };
 }
 
 /**

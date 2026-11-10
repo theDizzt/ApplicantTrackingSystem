@@ -1,4 +1,7 @@
-import { useGetDashboard } from "@workspace/api-client-react"
+import { useGetDashboard, useListCompanies } from "@workspace/api-client-react"
+import { CalendarDays } from "lucide-react"
+import { dDayLabel, scheduleEvents, SCHEDULE_KIND_LABEL, toDateKey, upcomingEvents } from "@/lib/schedule"
+import { ALERT_DAYS } from "@/lib/schedule-alerts"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { BrainCircuit, Building2, FileText, CheckCircle2, Clock, Users } from "lucide-react"
 import { Link } from "wouter"
@@ -7,6 +10,9 @@ import { Skeleton } from "@/components/ui/skeleton"
 
 export default function Dashboard() {
   const { data: dashboard, isLoading } = useGetDashboard()
+  const { data: companies } = useListCompanies()
+  const today = toDateKey(new Date())
+  const soon = upcomingEvents(scheduleEvents(companies ?? []), today, ALERT_DAYS)
 
   if (isLoading || !dashboard) {
     return (
@@ -28,6 +34,26 @@ export default function Dashboard() {
       <div className="flex items-center justify-between">
         <h1 className="text-3xl font-bold tracking-tight">대시보드</h1>
       </div>
+
+      {soon.length > 0 && (
+        <Link href="/schedule" className="block" data-testid="banner-upcoming">
+          <Card className="border-rose-200 bg-rose-50/60 hover:border-rose-300 transition-colors">
+            <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+              <div className="flex items-center gap-2 font-semibold text-rose-700 shrink-0">
+                <CalendarDays className="w-4 h-4" /> {ALERT_DAYS}일 안의 일정
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {soon.map((e) => (
+                  <span key={e.key} className="rounded-full bg-white border border-rose-200 px-2.5 py-0.5 text-sm">
+                    <b className="text-rose-600 mr-1">{dDayLabel(e.date, today)}</b>
+                    {e.companyName} {SCHEDULE_KIND_LABEL[e.kind]}
+                  </span>
+                ))}
+              </div>
+            </CardContent>
+          </Card>
+        </Link>
+      )}
       
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>

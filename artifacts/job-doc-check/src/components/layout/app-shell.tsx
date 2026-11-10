@@ -1,12 +1,13 @@
 import { useState } from "react"
 import { Link, useLocation } from "wouter"
-import { FileText, Building2, Users, CreditCard, LogOut, LayoutDashboard, BrainCircuit, Menu, X, Mic } from "lucide-react"
+import { FileText, Building2, Users, CreditCard, LogOut, LayoutDashboard, BrainCircuit, Menu, X, Mic, CalendarDays, Award } from "lucide-react"
 import { useGetMe, useLogout, getGetMeQueryKey } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
+import { useScheduleAlerts } from "@/lib/schedule-alerts"
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const [location] = useLocation()
@@ -15,6 +16,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [, setLocation] = useLocation()
   const queryClient = useQueryClient()
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  // 3일 안의 마감·발표·면접: 메뉴 배지 (브라우저 알림은 켠 경우에만)
+  const { upcoming } = useScheduleAlerts()
 
   const handleLogout = () => {
     logout.mutate(undefined, {
@@ -32,7 +35,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const navItems = [
     { href: "/dashboard", label: "대시보드", icon: LayoutDashboard },
     { href: "/resumes", label: "내 이력서", icon: FileText },
+    { href: "/profile", label: "이력 항목", icon: Award },
     { href: "/companies", label: "지원 회사", icon: Building2 },
+    { href: "/schedule", label: "지원 일정", icon: CalendarDays, badge: upcoming.length },
     { href: "/analyses", label: "AI 서류 심사", icon: BrainCircuit },
     { href: "/interviews", label: "면접 연습", icon: Users },
     { href: "/cover-letter", label: "음성 자소서", icon: Mic },
@@ -60,6 +65,17 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             >
               <Icon className="w-4 h-4 shrink-0" />
               {item.label}
+              {"badge" in item && item.badge ? (
+                <span
+                  className={cn(
+                    "ml-auto min-w-5 rounded-full px-1.5 text-center text-[11px] font-bold leading-5",
+                    isActive ? "bg-primary-foreground text-primary" : "bg-rose-500 text-white",
+                  )}
+                  aria-label={`3일 안의 일정 ${item.badge}개`}
+                >
+                  {item.badge}
+                </span>
+              ) : null}
             </Link>
           )
         })}
@@ -104,11 +120,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <span className="text-sm font-bold text-slate-800">My ATS</span>
         </Link>
         <button
-          className="p-1.5 rounded-md hover:bg-slate-100 transition-colors"
+          className="relative p-1.5 rounded-md hover:bg-slate-100 transition-colors"
           onClick={() => setMobileNavOpen(v => !v)}
-          aria-label="메뉴 열기"
+          aria-label={upcoming.length ? `메뉴 열기 (3일 안의 일정 ${upcoming.length}개)` : "메뉴 열기"}
         >
           {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          {!mobileNavOpen && upcoming.length > 0 && (
+            <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-rose-500" />
+          )}
         </button>
       </header>
 

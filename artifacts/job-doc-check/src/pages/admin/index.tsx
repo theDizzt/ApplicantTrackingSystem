@@ -243,6 +243,27 @@ function OrgDialog({
 
 type Tab = "overview" | "users" | "organizations" | "ai"
 
+type RoleModels = {
+  modelInterview: string
+  modelLight: string
+  modelVision: string
+  embeddingModel: string
+}
+
+const EMPTY_ROLE_MODELS: RoleModels = { modelInterview: "", modelLight: "", modelVision: "", embeddingModel: "" }
+
+const ROLE_MODEL_FIELDS: { key: keyof RoleModels; label: string; help: string; placeholder?: string }[] = [
+  { key: "modelInterview", label: "면접 모델", help: "면접 질문 생성, 답변 평가, 꼬리 질문에 사용합니다." },
+  { key: "modelLight", label: "경량 작업 모델", help: "맞춤법 검토, 이력서 파일 구조화, 기업 추천·매칭, 음성 녹음용 질문 생성에 사용합니다. 빠르고 저렴한 모델을 권장합니다." },
+  { key: "modelVision", label: "이미지 인식(OCR) 모델", help: "스캔 PDF·이미지 공고의 글자 인식에 사용합니다. 이미지 입력을 지원하는 모델이어야 합니다." },
+  {
+    key: "embeddingModel",
+    label: "임베딩 모델 (직무 문장 유사도)",
+    placeholder: "비우면 OpenAI 서버에서만 text-embedding-3-small 사용",
+    help: "공고와 자기소개서의 문장 유사도 계산에 사용합니다. 유사도 기준(60점)은 OpenAI 임베딩 기준이라, 다른 임베딩 모델은 점수 분포가 달라 '유사도 낮음'이 과하게 나올 수 있습니다.",
+  },
+]
+
 export function AISettingsTab() {
   const [loaded, setLoaded] = useState(false)
   const [apiKeyMasked, setApiKeyMasked] = useState("")
@@ -263,6 +284,8 @@ export function AISettingsTab() {
   const [baseUrl3, setBaseUrl3] = useState("")
   const [model3, setModel3] = useState("")
   const [showSecondary, setShowSecondary] = useState(false)
+  const [roleModels, setRoleModels] = useState<RoleModels>(EMPTY_ROLE_MODELS)
+  const [showRoles, setShowRoles] = useState(false)
   const [saving, setSaving] = useState(false)
   const [testing, setTesting] = useState(false)
   const [testResult, setTestResult] = useState<{ ok: boolean; text: string } | null>(null)
@@ -313,6 +336,14 @@ export function AISettingsTab() {
       setBaseUrl3(d.baseUrl3 ?? "")
       setModel3(d.model3 ?? "")
       if (d.model2 || d.model3) setShowSecondary(true)
+      const nextRoles: RoleModels = {
+        modelInterview: d.modelInterview ?? "",
+        modelLight: d.modelLight ?? "",
+        modelVision: d.modelVision ?? "",
+        embeddingModel: d.embeddingModel ?? "",
+      }
+      setRoleModels(nextRoles)
+      if (Object.values(nextRoles).some(Boolean)) setShowRoles(true)
       setLoaded(true)
     } catch (e: any) { toast.error(e.message) }
   }, [])
@@ -336,6 +367,7 @@ export function AISettingsTab() {
           ...(apiKey3 ? { apiKey3 } : {}),
           baseUrl3,
           model3,
+          ...roleModels,
         }),
       })
       toast.success("AI 설정이 저장되었습니다.")
@@ -542,6 +574,40 @@ export function AISettingsTab() {
                   />
                 </div>
               </div>
+            </div>
+          )}
+        </div>
+        {/* ── 역할별 모델 (선택) ── */}
+        <div className="border-t border-slate-800 pt-4">
+          <button
+            type="button"
+            onClick={() => setShowRoles((v) => !v)}
+            className="flex items-center gap-1.5 text-sm font-medium text-slate-300 hover:text-white"
+            data-testid="button-toggle-role-models"
+          >
+            <ChevronDown className={`h-4 w-4 transition-transform ${showRoles ? "rotate-180" : ""}`} />
+            역할별 모델 (선택)
+          </button>
+          {showRoles && (
+            <div className="mt-3 space-y-4">
+              <p className="text-xs text-slate-400 leading-relaxed">
+                작업마다 다른 모델을 쓸 수 있습니다. 위의 API 키·Base URL을 함께 사용하며,
+                비워 둔 역할은 기본 모델명({model || "미설정"})을 사용합니다.
+                서류 심사·불합격 원인 리포트·커리어 분석·자기소개서 작성은 기본 모델을 씁니다.
+              </p>
+              {ROLE_MODEL_FIELDS.map((f) => (
+                <div key={f.key} className="space-y-1.5">
+                  <Label className="text-slate-300 text-xs">{f.label}</Label>
+                  <Input
+                    value={roleModels[f.key]}
+                    onChange={(e) => setRoleModels((prev) => ({ ...prev, [f.key]: e.target.value }))}
+                    placeholder={f.placeholder || `비우면 기본 모델(${model || "미설정"}) 사용`}
+                    className="bg-slate-950 border-slate-700 text-white"
+                    data-testid={`input-${f.key}`}
+                  />
+                  <p className="text-xs text-slate-500 leading-relaxed">{f.help}</p>
+                </div>
+              ))}
             </div>
           )}
         </div>

@@ -17,15 +17,15 @@ export interface InterviewQuestion {
   /** @nullable */
   score?: number | null;
   /**
-   * 꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null
-   * @nullable
-   */
+     * 꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null
+     * @nullable
+     */
   parentQuestionId?: number | null;
   /** 0 = 기본 질문, 1 이상 = 꼬리 질문 단계 */
   depth?: number;
   /**
-   * 질문 의도 (예. 서류 심사에서 찾은 약점)
-   * @nullable
-   */
+     * 질문 의도 (예. 서류 심사에서 찾은 약점)
+     * @nullable
+     */
   focus?: string | null;
 }

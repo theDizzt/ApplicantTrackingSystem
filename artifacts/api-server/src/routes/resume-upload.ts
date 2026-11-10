@@ -77,7 +77,7 @@ async function splitAndFormatWithAI(
 4. 오직 JSON만 반환하세요. 마크다운 코드 블록 없이.`;
 
   try {
-    const ai = await getAI();
+    const ai = await getAI("light");
       const response = await ai.openai.chat.completions.create({
       model: ai.model,
       messages: [

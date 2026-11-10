@@ -162,6 +162,10 @@ export const RecommendCompaniesResponseItem = zod.object({
   "careerLevel": zod.array(zod.string()).nullish().describe('경력구분 (신입·1년이내·3년이내)'),
   "educationLevel": zod.string().nullish().describe('학력 (전문대·대학교·석사)'),
   "recruitmentField": zod.array(zod.string()).nullish().describe('모집분야 (개발·기획·디자인·영업·품질관리·테스터·기타)'),
+  "applicationStatus": zod.string().nullish().describe('지원 상태 (관심·지원 예정·지원 완료·서류 합격·면접 진행·최종 합격·불합격)'),
+  "deadlineDate": zod.string().nullish().describe('서류 마감일 (YYYY-MM-DD)'),
+  "announcementDate": zod.string().nullish().describe('결과 발표일 (YYYY-MM-DD)'),
+  "interviewDate": zod.string().nullish().describe('면접일 (YYYY-MM-DD)'),
   "isRecommended": zod.boolean(),
   "syncedAt": zod.string(),
   "createdAt": zod.string()
@@ -184,6 +188,10 @@ export const ListCompaniesResponseItem = zod.object({
   "careerLevel": zod.array(zod.string()).nullish().describe('경력구분 (신입·1년이내·3년이내)'),
   "educationLevel": zod.string().nullish().describe('학력 (전문대·대학교·석사)'),
   "recruitmentField": zod.array(zod.string()).nullish().describe('모집분야 (개발·기획·디자인·영업·품질관리·테스터·기타)'),
+  "applicationStatus": zod.string().nullish().describe('지원 상태 (관심·지원 예정·지원 완료·서류 합격·면접 진행·최종 합격·불합격)'),
+  "deadlineDate": zod.string().nullish().describe('서류 마감일 (YYYY-MM-DD)'),
+  "announcementDate": zod.string().nullish().describe('결과 발표일 (YYYY-MM-DD)'),
+  "interviewDate": zod.string().nullish().describe('면접일 (YYYY-MM-DD)'),
   "isRecommended": zod.boolean(),
   "syncedAt": zod.string(),
   "createdAt": zod.string()
@@ -203,7 +211,11 @@ export const CreateCompanyBody = zod.object({
   "notes": zod.string().optional(),
   "careerLevel": zod.array(zod.string()).optional(),
   "educationLevel": zod.string().optional(),
-  "recruitmentField": zod.array(zod.string()).optional()
+  "recruitmentField": zod.array(zod.string()).optional(),
+  "applicationStatus": zod.string().nullish().describe('지원 상태 (관심·지원 예정·지원 완료·서류 합격·면접 진행·최종 합격·불합격)'),
+  "deadlineDate": zod.string().nullish().describe('서류 마감일 (YYYY-MM-DD)'),
+  "announcementDate": zod.string().nullish().describe('결과 발표일 (YYYY-MM-DD)'),
+  "interviewDate": zod.string().nullish().describe('면접일 (YYYY-MM-DD)')
 })
 
 export const CreateCompanyResponse = zod.object({
@@ -218,6 +230,10 @@ export const CreateCompanyResponse = zod.object({
   "careerLevel": zod.array(zod.string()).nullish().describe('경력구분 (신입·1년이내·3년이내)'),
   "educationLevel": zod.string().nullish().describe('학력 (전문대·대학교·석사)'),
   "recruitmentField": zod.array(zod.string()).nullish().describe('모집분야 (개발·기획·디자인·영업·품질관리·테스터·기타)'),
+  "applicationStatus": zod.string().nullish().describe('지원 상태 (관심·지원 예정·지원 완료·서류 합격·면접 진행·최종 합격·불합격)'),
+  "deadlineDate": zod.string().nullish().describe('서류 마감일 (YYYY-MM-DD)'),
+  "announcementDate": zod.string().nullish().describe('결과 발표일 (YYYY-MM-DD)'),
+  "interviewDate": zod.string().nullish().describe('면접일 (YYYY-MM-DD)'),
   "isRecommended": zod.boolean(),
   "syncedAt": zod.string(),
   "createdAt": zod.string()
@@ -243,6 +259,10 @@ export const GetCompanyResponse = zod.object({
   "careerLevel": zod.array(zod.string()).nullish().describe('경력구분 (신입·1년이내·3년이내)'),
   "educationLevel": zod.string().nullish().describe('학력 (전문대·대학교·석사)'),
   "recruitmentField": zod.array(zod.string()).nullish().describe('모집분야 (개발·기획·디자인·영업·품질관리·테스터·기타)'),
+  "applicationStatus": zod.string().nullish().describe('지원 상태 (관심·지원 예정·지원 완료·서류 합격·면접 진행·최종 합격·불합격)'),
+  "deadlineDate": zod.string().nullish().describe('서류 마감일 (YYYY-MM-DD)'),
+  "announcementDate": zod.string().nullish().describe('결과 발표일 (YYYY-MM-DD)'),
+  "interviewDate": zod.string().nullish().describe('면접일 (YYYY-MM-DD)'),
   "isRecommended": zod.boolean(),
   "syncedAt": zod.string(),
   "createdAt": zod.string()
@@ -265,7 +285,11 @@ export const UpdateCompanyBody = zod.object({
   "notes": zod.string().optional(),
   "careerLevel": zod.array(zod.string()).optional(),
   "educationLevel": zod.string().optional(),
-  "recruitmentField": zod.array(zod.string()).optional()
+  "recruitmentField": zod.array(zod.string()).optional(),
+  "applicationStatus": zod.string().nullish().describe('지원 상태 (관심·지원 예정·지원 완료·서류 합격·면접 진행·최종 합격·불합격)'),
+  "deadlineDate": zod.string().nullish().describe('서류 마감일 (YYYY-MM-DD)'),
+  "announcementDate": zod.string().nullish().describe('결과 발표일 (YYYY-MM-DD)'),
+  "interviewDate": zod.string().nullish().describe('면접일 (YYYY-MM-DD)')
 })
 
 export const UpdateCompanyResponse = zod.object({
@@ -280,6 +304,10 @@ export const UpdateCompanyResponse = zod.object({
   "careerLevel": zod.array(zod.string()).nullish().describe('경력구분 (신입·1년이내·3년이내)'),
   "educationLevel": zod.string().nullish().describe('학력 (전문대·대학교·석사)'),
   "recruitmentField": zod.array(zod.string()).nullish().describe('모집분야 (개발·기획·디자인·영업·품질관리·테스터·기타)'),
+  "applicationStatus": zod.string().nullish().describe('지원 상태 (관심·지원 예정·지원 완료·서류 합격·면접 진행·최종 합격·불합격)'),
+  "deadlineDate": zod.string().nullish().describe('서류 마감일 (YYYY-MM-DD)'),
+  "announcementDate": zod.string().nullish().describe('결과 발표일 (YYYY-MM-DD)'),
+  "interviewDate": zod.string().nullish().describe('면접일 (YYYY-MM-DD)'),
   "isRecommended": zod.boolean(),
   "syncedAt": zod.string(),
   "createdAt": zod.string()
@@ -294,6 +322,174 @@ export const DeleteCompanyParams = zod.object({
 })
 
 export const DeleteCompanyResponse = zod.void()
+
+
+/**
+ * @summary List the user's profile items
+ */
+export const listProfileItemsResponseTitleMax = 200;
+
+export const listProfileItemsResponseOrganizationMax = 200;
+
+export const listProfileItemsResponseStartDateMax = 10;
+
+export const listProfileItemsResponseEndDateMax = 10;
+
+export const listProfileItemsResponseScoreMax = 100;
+
+export const listProfileItemsResponseDescriptionMax = 4000;
+
+export const listProfileItemsResponseUrlMax = 1000;
+
+
+
+export const ListProfileItemsResponseItem = zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['certificate', 'language', 'project', 'award', 'activity', 'career', 'education']).describe('자격증·어학·프로젝트·수상\/공모전·대외활동·경력·교육'),
+  "title": zod.string().min(1).max(listProfileItemsResponseTitleMax),
+  "organization": zod.string().max(listProfileItemsResponseOrganizationMax).nullish(),
+  "startDate": zod.string().max(listProfileItemsResponseStartDateMax).nullish().describe('YYYY-MM 또는 YYYY-MM-DD'),
+  "endDate": zod.string().max(listProfileItemsResponseEndDateMax).nullish(),
+  "score": zod.string().max(listProfileItemsResponseScoreMax).nullish().describe('점수·등급·수상 결과'),
+  "description": zod.string().max(listProfileItemsResponseDescriptionMax).nullish(),
+  "url": zod.string().max(listProfileItemsResponseUrlMax).nullish(),
+  "createdAt": zod.string()
+})
+export const ListProfileItemsResponse = zod.array(ListProfileItemsResponseItem)
+
+
+/**
+ * @summary Add a profile item
+ */
+export const createProfileItemBodyTitleMax = 200;
+
+export const createProfileItemBodyOrganizationMax = 200;
+
+export const createProfileItemBodyStartDateMax = 10;
+
+export const createProfileItemBodyEndDateMax = 10;
+
+export const createProfileItemBodyScoreMax = 100;
+
+export const createProfileItemBodyDescriptionMax = 4000;
+
+export const createProfileItemBodyUrlMax = 1000;
+
+
+
+export const CreateProfileItemBody = zod.object({
+  "kind": zod.enum(['certificate', 'language', 'project', 'award', 'activity', 'career', 'education']).describe('자격증·어학·프로젝트·수상\/공모전·대외활동·경력·교육'),
+  "title": zod.string().min(1).max(createProfileItemBodyTitleMax),
+  "organization": zod.string().max(createProfileItemBodyOrganizationMax).nullish(),
+  "startDate": zod.string().max(createProfileItemBodyStartDateMax).nullish().describe('YYYY-MM 또는 YYYY-MM-DD'),
+  "endDate": zod.string().max(createProfileItemBodyEndDateMax).nullish(),
+  "score": zod.string().max(createProfileItemBodyScoreMax).nullish().describe('점수·등급·수상 결과'),
+  "description": zod.string().max(createProfileItemBodyDescriptionMax).nullish(),
+  "url": zod.string().max(createProfileItemBodyUrlMax).nullish()
+})
+
+export const createProfileItemResponseTitleMax = 200;
+
+export const createProfileItemResponseOrganizationMax = 200;
+
+export const createProfileItemResponseStartDateMax = 10;
+
+export const createProfileItemResponseEndDateMax = 10;
+
+export const createProfileItemResponseScoreMax = 100;
+
+export const createProfileItemResponseDescriptionMax = 4000;
+
+export const createProfileItemResponseUrlMax = 1000;
+
+
+
+export const CreateProfileItemResponse = zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['certificate', 'language', 'project', 'award', 'activity', 'career', 'education']).describe('자격증·어학·프로젝트·수상\/공모전·대외활동·경력·교육'),
+  "title": zod.string().min(1).max(createProfileItemResponseTitleMax),
+  "organization": zod.string().max(createProfileItemResponseOrganizationMax).nullish(),
+  "startDate": zod.string().max(createProfileItemResponseStartDateMax).nullish().describe('YYYY-MM 또는 YYYY-MM-DD'),
+  "endDate": zod.string().max(createProfileItemResponseEndDateMax).nullish(),
+  "score": zod.string().max(createProfileItemResponseScoreMax).nullish().describe('점수·등급·수상 결과'),
+  "description": zod.string().max(createProfileItemResponseDescriptionMax).nullish(),
+  "url": zod.string().max(createProfileItemResponseUrlMax).nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Update a profile item
+ */
+export const UpdateProfileItemParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const updateProfileItemBodyTitleMax = 200;
+
+export const updateProfileItemBodyOrganizationMax = 200;
+
+export const updateProfileItemBodyStartDateMax = 10;
+
+export const updateProfileItemBodyEndDateMax = 10;
+
+export const updateProfileItemBodyScoreMax = 100;
+
+export const updateProfileItemBodyDescriptionMax = 4000;
+
+export const updateProfileItemBodyUrlMax = 1000;
+
+
+
+export const UpdateProfileItemBody = zod.object({
+  "kind": zod.enum(['certificate', 'language', 'project', 'award', 'activity', 'career', 'education']).optional().describe('자격증·어학·프로젝트·수상\/공모전·대외활동·경력·교육'),
+  "title": zod.string().min(1).max(updateProfileItemBodyTitleMax).optional(),
+  "organization": zod.string().max(updateProfileItemBodyOrganizationMax).nullish(),
+  "startDate": zod.string().max(updateProfileItemBodyStartDateMax).nullish().describe('YYYY-MM 또는 YYYY-MM-DD'),
+  "endDate": zod.string().max(updateProfileItemBodyEndDateMax).nullish(),
+  "score": zod.string().max(updateProfileItemBodyScoreMax).nullish().describe('점수·등급·수상 결과'),
+  "description": zod.string().max(updateProfileItemBodyDescriptionMax).nullish(),
+  "url": zod.string().max(updateProfileItemBodyUrlMax).nullish()
+})
+
+export const updateProfileItemResponseTitleMax = 200;
+
+export const updateProfileItemResponseOrganizationMax = 200;
+
+export const updateProfileItemResponseStartDateMax = 10;
+
+export const updateProfileItemResponseEndDateMax = 10;
+
+export const updateProfileItemResponseScoreMax = 100;
+
+export const updateProfileItemResponseDescriptionMax = 4000;
+
+export const updateProfileItemResponseUrlMax = 1000;
+
+
+
+export const UpdateProfileItemResponse = zod.object({
+  "id": zod.number(),
+  "kind": zod.enum(['certificate', 'language', 'project', 'award', 'activity', 'career', 'education']).describe('자격증·어학·프로젝트·수상\/공모전·대외활동·경력·교육'),
+  "title": zod.string().min(1).max(updateProfileItemResponseTitleMax),
+  "organization": zod.string().max(updateProfileItemResponseOrganizationMax).nullish(),
+  "startDate": zod.string().max(updateProfileItemResponseStartDateMax).nullish().describe('YYYY-MM 또는 YYYY-MM-DD'),
+  "endDate": zod.string().max(updateProfileItemResponseEndDateMax).nullish(),
+  "score": zod.string().max(updateProfileItemResponseScoreMax).nullish().describe('점수·등급·수상 결과'),
+  "description": zod.string().max(updateProfileItemResponseDescriptionMax).nullish(),
+  "url": zod.string().max(updateProfileItemResponseUrlMax).nullish(),
+  "createdAt": zod.string()
+})
+
+
+/**
+ * @summary Delete a profile item
+ */
+export const DeleteProfileItemParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const DeleteProfileItemResponse = zod.void()
 
 
 /**
@@ -592,9 +788,9 @@ export const ListInterviewsResponseItem = zod.object({
   "answer": zod.string().nullish(),
   "feedback": zod.string().nullish(),
   "score": zod.number().nullish(),
-  "parentQuestionId": zod.number().nullish(),
-  "depth": zod.number().optional(),
-  "focus": zod.string().nullish()
+  "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
+  "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -627,9 +823,9 @@ export const CreateInterviewResponse = zod.object({
   "answer": zod.string().nullish(),
   "feedback": zod.string().nullish(),
   "score": zod.number().nullish(),
-  "parentQuestionId": zod.number().nullish(),
-  "depth": zod.number().optional(),
-  "focus": zod.string().nullish()
+  "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
+  "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -660,9 +856,9 @@ export const GetInterviewResponse = zod.object({
   "answer": zod.string().nullish(),
   "feedback": zod.string().nullish(),
   "score": zod.number().nullish(),
-  "parentQuestionId": zod.number().nullish(),
-  "depth": zod.number().optional(),
-  "focus": zod.string().nullish()
+  "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
+  "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -700,9 +896,9 @@ export const SubmitAnswersResponse = zod.object({
   "answer": zod.string().nullish(),
   "feedback": zod.string().nullish(),
   "score": zod.number().nullish(),
-  "parentQuestionId": zod.number().nullish(),
-  "depth": zod.number().optional(),
-  "focus": zod.string().nullish()
+  "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
+  "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -733,9 +929,9 @@ export const EvaluateAnswersResponse = zod.object({
   "answer": zod.string().nullish(),
   "feedback": zod.string().nullish(),
   "score": zod.number().nullish(),
-  "parentQuestionId": zod.number().nullish(),
-  "depth": zod.number().optional(),
-  "focus": zod.string().nullish()
+  "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
+  "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -754,11 +950,37 @@ export const AnswerFollowUpParams = zod.object({
   "questionId": zod.coerce.number()
 })
 
+
+
+
 export const AnswerFollowUpBody = zod.object({
   "answer": zod.string().min(1)
 })
 
-export const AnswerFollowUpResponse = EvaluateAnswersResponse
+export const AnswerFollowUpResponse = zod.object({
+  "id": zod.number(),
+  "userId": zod.number(),
+  "resumeId": zod.number(),
+  "companyId": zod.number(),
+  "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
+  "questions": zod.array(zod.object({
+  "id": zod.number(),
+  "question": zod.string(),
+  "order": zod.number(),
+  "answer": zod.string().nullish(),
+  "feedback": zod.string().nullish(),
+  "score": zod.number().nullish(),
+  "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
+  "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
+})).optional(),
+  "overallScore": zod.number().nullish(),
+  "overallFeedback": zod.string().nullish(),
+  "resumeTitle": zod.string().nullish(),
+  "companyName": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "evaluatedAt": zod.string().nullish()
+})
 
 
 /**
@@ -809,9 +1031,9 @@ export const GetDashboardResponse = zod.object({
   "answer": zod.string().nullish(),
   "feedback": zod.string().nullish(),
   "score": zod.number().nullish(),
-  "parentQuestionId": zod.number().nullish(),
-  "depth": zod.number().optional(),
-  "focus": zod.string().nullish()
+  "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
+  "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),

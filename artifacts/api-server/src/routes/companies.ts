@@ -4,6 +4,7 @@ import { db, companiesTable, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { getAI } from "../lib/openai";
 import { logger } from "../lib/logger";
+import { parseScheduleInput } from "../lib/application-schedule";
 import { scrapeSaramin, buildKeyword, getJobkoreaSearchUrl } from "../lib/job-scrapers";
 
 const router: IRouter = Router();
@@ -21,6 +22,10 @@ function serializeCompany(c: typeof companiesTable.$inferSelect) {
     careerLevel: c.careerLevel ?? null,
     educationLevel: c.educationLevel ?? null,
     recruitmentField: c.recruitmentField ?? null,
+    applicationStatus: c.applicationStatus ?? null,
+    deadlineDate: c.deadlineDate ?? null,
+    announcementDate: c.announcementDate ?? null,
+    interviewDate: c.interviewDate ?? null,
     isRecommended: c.isRecommended,
     syncedAt: c.syncedAt.toISOString(),
     createdAt: c.createdAt.toISOString(),
@@ -45,10 +50,13 @@ router.post("/companies", requireAuth, async (req, res): Promise<void> => {
     res.status(400).json({ error: "회사명을 입력해주세요." });
     return;
   }
+  const schedule = parseScheduleInput(req.body ?? {});
+  if (!schedule.ok) { res.status(400).json({ error: schedule.error }); return; }
   const [company] = await db
     .insert(companiesTable)
     .values({ userId: req.session.userId!, name, siteUrl, jobPostingUrl, talentProfile, jobDescription, notes,
-              careerLevel: careerLevel ?? null, educationLevel: educationLevel ?? null, recruitmentField: recruitmentField ?? null })
+              careerLevel: careerLevel ?? null, educationLevel: educationLevel ?? null, recruitmentField: recruitmentField ?? null,
+              ...schedule.value })
     .returning();
   res.status(201).json(serializeCompany(company));
 });
@@ -125,7 +133,7 @@ router.post("/companies/fetch-postings", requireAuth, async (req, res): Promise<
 
     const userPrompt = `필터 조건:\n${conditions.join("\n")}\n\n사람인 수집 공고:\n${saraminSummary}`;
 
-    const ai = await getAI();
+    const ai = await getAI("light");
       const completion = await ai.openai.chat.completions.create({
       model: ai.model,
       messages: [
@@ -206,7 +214,7 @@ router.post("/companies/recommend", requireAuth, async (req, res): Promise<void>
   let recommendedIds: number[] = [];
 
   try {
-    const ai = await getAI();
+    const ai = await getAI("light");
       const completion = await ai.openai.chat.completions.create({
       model: ai.model,
       messages: [
@@ -290,6 +298,10 @@ router.patch("/companies/:id", requireAuth, async (req, res): Promise<void> => {
   if (careerLevel !== undefined) updateData.careerLevel = careerLevel;
   if (educationLevel !== undefined) updateData.educationLevel = educationLevel;
   if (recruitmentField !== undefined) updateData.recruitmentField = recruitmentField;
+  const schedule = parseScheduleInput(req.body ?? {});
+  if (!schedule.ok) { res.status(400).json({ error: schedule.error }); return; }
+  Object.assign(updateData, schedule.value);
+  if (Object.keys(updateData).length === 0) { res.status(400).json({ error: "수정할 항목이 없습니다." }); return; }
 
   const [company] = await db.update(companiesTable).set(updateData)
     .where(and(eq(companiesTable.id, id), eq(companiesTable.userId, req.session.userId!)))

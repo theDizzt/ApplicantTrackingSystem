@@ -25,6 +25,8 @@ const InterviewsPage = lazy(() => import('@/pages/interviews'));
 const NewInterviewPage = lazy(() => import('@/pages/interview-new'));
 const InterviewDetail = lazy(() => import('@/pages/interview-detail'));
 const CoverLetterPage = lazy(() => import('@/pages/cover-letter'));
+const SchedulePage = lazy(() => import('@/pages/schedule'));
+const ProfileItemsPage = lazy(() => import('@/pages/profile-items'));
 const SubscriptionPage = lazy(() => import('@/pages/subscription'));
 const NotFound = lazy(() => import('@/pages/not-found'));
 
@@ -72,6 +74,8 @@ function Router() {
       <ProtectedRoute path="/companies/:id" component={CompanyDetail} />
 
       <ProtectedRoute path="/resumes" component={ResumesPage} />
+      <ProtectedRoute path="/profile" component={ProfileItemsPage} />
+      <ProtectedRoute path="/schedule" component={SchedulePage} />
       <ProtectedRoute path="/resumes/:id" component={ResumeDetail} />
 
       <ProtectedRoute path="/analyses" component={AnalysesPage} />

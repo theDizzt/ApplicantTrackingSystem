@@ -22,6 +22,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { ChevronLeft, Save, Download, Loader2 } from "lucide-react"
 import { cn } from "@/lib/utils"
+import { APPLICATION_STATUSES } from "@/lib/schedule"
 
 // ── 옵션 정의 ────────────────────────────────────────────────────────────────
 const CAREER_LEVELS    = ["신입", "1년이내", "3년이내"] as const
@@ -91,6 +92,10 @@ const companySchema = z.object({
   careerLevel:      z.array(z.string()).optional(),
   educationLevel:   z.string().optional(),
   recruitmentField: z.array(z.string()).optional(),
+  applicationStatus: z.string().optional(),
+  deadlineDate:     z.string().optional(),
+  announcementDate: z.string().optional(),
+  interviewDate:    z.string().optional(),
 })
 
 type CompanyForm = z.infer<typeof companySchema>
@@ -166,6 +171,7 @@ export default function CompanyDetail() {
       name: "", siteUrl: "", jobPostingUrl: "",
       talentProfile: "", jobDescription: "", notes: "",
       careerLevel: [], educationLevel: "", recruitmentField: [],
+      applicationStatus: "", deadlineDate: "", announcementDate: "", interviewDate: "",
     }
   })
 
@@ -182,6 +188,10 @@ export default function CompanyDetail() {
         careerLevel:      (company.careerLevel as string[] | null) ?? [],
         educationLevel:   company.educationLevel || "",
         recruitmentField: (company.recruitmentField as string[] | null) ?? [],
+        applicationStatus: company.applicationStatus || "",
+        deadlineDate:     company.deadlineDate || "",
+        announcementDate: company.announcementDate || "",
+        interviewDate:    company.interviewDate || "",
       })
       initializedRef.current = true
     }
@@ -193,6 +203,11 @@ export default function CompanyDetail() {
       careerLevel:      values.careerLevel?.length      ? values.careerLevel      : undefined,
       educationLevel:   values.educationLevel            ? values.educationLevel   : undefined,
       recruitmentField: values.recruitmentField?.length  ? values.recruitmentField : undefined,
+      // 일정·상태는 비우면 null로 보내 지운다 (새 회사는 보내지 않음)
+      applicationStatus: values.applicationStatus || (isNew ? undefined : null),
+      deadlineDate:     values.deadlineDate     || (isNew ? undefined : null),
+      announcementDate: values.announcementDate || (isNew ? undefined : null),
+      interviewDate:    values.interviewDate    || (isNew ? undefined : null),
     }
     if (isNew) {
       createCompany.mutate({ data: payload }, {
@@ -330,6 +345,45 @@ export default function CompanyDetail() {
                 )}
               />
             </FormItem>
+          </div>
+
+          {/* ── 지원 일정 ── */}
+          <div className="rounded-xl border bg-slate-50/60 p-5 space-y-5" data-testid="section-schedule">
+            <div>
+              <p className="text-sm font-semibold text-slate-700">지원 일정</p>
+              <p className="text-xs text-muted-foreground mt-1">날짜를 넣으면 지원 일정 캘린더에 표시되고, 3일 전부터 알림이 뜹니다.</p>
+            </div>
+            <FormItem>
+              <FormLabel className="text-sm">지원 상태</FormLabel>
+              <Controller
+                control={form.control}
+                name="applicationStatus"
+                render={({ field }) => (
+                  <SingleToggle
+                    options={APPLICATION_STATUSES}
+                    value={field.value ?? ""}
+                    onChange={field.onChange}
+                  />
+                )}
+              />
+            </FormItem>
+            <div className="grid sm:grid-cols-3 gap-4">
+              {([
+                ["deadlineDate", "서류 마감일"],
+                ["announcementDate", "결과 발표일"],
+                ["interviewDate", "면접일"],
+              ] as const).map(([name, label]) => (
+                <FormField key={name} control={form.control} name={name} render={({ field }) => (
+                  <FormItem>
+                    <FormLabel className="text-sm">{label}</FormLabel>
+                    <FormControl>
+                      <Input type="date" data-testid={`input-${name}`} {...field} />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )} />
+              ))}
+            </div>
           </div>
 
           {/* ── JD / 인재상 ── */}

@@ -56,7 +56,7 @@ HTML 태그는 결과에 포함하지 마세요. 순수 텍스트로만 반환�
   ].filter(Boolean).join("\n\n");
 
   try {
-    const ai = await getAI();
+    const ai = await getAI("light");
       const completion = await ai.openai.chat.completions.create({
       model: ai.model,
       messages: [

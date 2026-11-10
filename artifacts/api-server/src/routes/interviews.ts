@@ -169,7 +169,7 @@ router.post("/interviews", requireAuth, async (req, res): Promise<void> => {
   const weaknessTitles = new Set(weaknesses.map((w) => w.title));
 
   try {
-    const ai = await getAI();
+    const ai = await getAI("interview");
     const response = await ai.openai.chat.completions.create({
       model: ai.model,
       messages: [
@@ -317,7 +317,7 @@ router.post("/interviews/:id/evaluate", requireAuth, async (req, res): Promise<v
   }
 
   try {
-    const ai = await getAI();
+    const ai = await getAI("interview");
     const response = await ai.openai.chat.completions.create({
       model: ai.model,
       messages: [
@@ -429,7 +429,7 @@ router.post("/interviews/:id/follow-ups/:questionId/answer", requireAuth, async 
   const canGoDeeper = depth < MAX_FOLLOW_UP_DEPTH;
 
   try {
-    const ai = await getAI();
+    const ai = await getAI("interview");
     const response = await ai.openai.chat.completions.create({
       model: ai.model,
       messages: [

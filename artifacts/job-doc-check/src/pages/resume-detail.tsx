@@ -30,6 +30,7 @@ import {
 } from "@/components/ui/card"
 
 import { RichTextEditor } from "@/components/rich-text-editor"
+import { ProfileItemsPicker } from "@/components/profile-items-picker"
 import { ResumePrintDialog } from "@/components/resume-print"
 
 // ── 폼 스키마 ──────────────────────────────────────────────────────────────
@@ -144,6 +145,7 @@ export default function ResumeDetail() {
   const [career, setCareer] = useState<CareerAnalysisState | null>(null)
   const careerPollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
+  const [contentVersion, setContentVersion] = useState(0)
   const form = useForm<ResumeFormValues>({
     resolver: zodResolver(resumeSchema),
     defaultValues: { title: "", content: "", coverLetter: "", desiredSalary: "" },
@@ -457,8 +459,20 @@ export default function ResumeDetail() {
               <FileText className="w-4 h-4 text-green-600" />
               이력서 내용
             </CardTitle>
-            <div className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-1 rounded-md">
-              {htmlToText(form.watch("content") || "").length}자
+            <div className="flex items-center gap-2">
+              <ProfileItemsPicker
+                onInsert={(html) => {
+                  const current = form.getValues("content") || ""
+                  const base = current === "<p></p>" ? "" : current
+                  form.setValue("content", base + html, { shouldDirty: true })
+                  // 편집기는 처음 값만 읽으므로, 다시 만들어 넣은 내용을 보여준다.
+                  setContentVersion((v) => v + 1)
+                  toast.success("이력 항목을 넣었습니다. 저장해야 반영됩니다.")
+                }}
+              />
+              <div className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-1 rounded-md">
+                {htmlToText(form.watch("content") || "").length}자
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -467,6 +481,7 @@ export default function ResumeDetail() {
               name="content"
               render={({ field }) => (
                 <RichTextEditor
+                  key={contentVersion}
                   value={field.value ?? ""}
                   onChange={field.onChange}
                   placeholder="경력, 학력, 기술 스택 등을 입력하세요. 제목(H2/H3), 목록, 굵게 등 서식을 자유롭게 사용하세요."

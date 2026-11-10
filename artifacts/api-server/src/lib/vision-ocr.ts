@@ -49,7 +49,7 @@ export async function ocrImageBuffer(buffer: Buffer, mime: string): Promise<stri
 
 /** 이미지 버퍼 1장을 비전 모델로 OCR. 반환: 추출 텍스트(없으면 ""). */
 async function ocrImageBufferVision(buffer: Buffer, mime: string): Promise<string> {
-  const { openai, model } = await getAI();
+  const { openai, model } = await getAI("vision");
   const dataUrl = `data:${mime};base64,${buffer.toString("base64")}`;
   const response = await openai.chat.completions.create({
     model,

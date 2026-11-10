@@ -18,6 +18,8 @@ tags:
     description: Company profile management
   - name: resumes
     description: Resume management
+  - name: profile
+    description: Profile items (certificates, projects, awards)
   - name: cover-letter
     description: Cover letter generation
   - name: analyses
@@ -368,6 +370,101 @@ paths:
       responses:
         "204":
           description: Deleted
+
+  # Profile items (자격증·프로젝트·공모전 등 이력 항목)
+  /profile-items:
+    get:
+      operationId: listProfileItems
+      tags: [profile]
+      summary: List the user's profile items
+      responses:
+        "200":
+          description: Profile items
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/ProfileItem"
+    post:
+      operationId: createProfileItem
+      tags: [profile]
+      summary: Add a profile item
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileItemInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileItem"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /profile-items/{id}:
+    patch:
+      operationId: updateProfileItem
+      tags: [profile]
+      summary: Update a profile item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ProfileItemUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProfileItem"
+        "400":
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+    delete:
+      operationId: deleteProfileItem
+      tags: [profile]
+      summary: Delete a profile item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
 
   # Resumes
   /resumes:
@@ -988,6 +1085,18 @@ components:
             type: string
           nullable: true
           description: "모집분야 (개발·기획·디자인·영업·품질관리·테스터·기타)"
+        applicationStatus:
+          type: ["string", "null"]
+          description: "지원 상태 (관심·지원 예정·지원 완료·서류 합격·면접 진행·최종 합격·불합격)"
+        deadlineDate:
+          type: ["string", "null"]
+          description: "서류 마감일 (YYYY-MM-DD)"
+        announcementDate:
+          type: ["string", "null"]
+          description: "결과 발표일 (YYYY-MM-DD)"
+        interviewDate:
+          type: ["string", "null"]
+          description: "면접일 (YYYY-MM-DD)"
         isRecommended:
           type: boolean
         syncedAt:
@@ -1021,6 +1130,18 @@ components:
           type: array
           items:
             type: string
+        applicationStatus:
+          type: ["string", "null"]
+          description: "지원 상태 (관심·지원 예정·지원 완료·서류 합격·면접 진행·최종 합격·불합격)"
+        deadlineDate:
+          type: ["string", "null"]
+          description: "서류 마감일 (YYYY-MM-DD)"
+        announcementDate:
+          type: ["string", "null"]
+          description: "결과 발표일 (YYYY-MM-DD)"
+        interviewDate:
+          type: ["string", "null"]
+          description: "면접일 (YYYY-MM-DD)"
 
     CompanyUpdate:
       type: object
@@ -1047,6 +1168,120 @@ components:
           type: array
           items:
             type: string
+        applicationStatus:
+          type: ["string", "null"]
+          description: "지원 상태 (관심·지원 예정·지원 완료·서류 합격·면접 진행·최종 합격·불합격)"
+        deadlineDate:
+          type: ["string", "null"]
+          description: "서류 마감일 (YYYY-MM-DD)"
+        announcementDate:
+          type: ["string", "null"]
+          description: "결과 발표일 (YYYY-MM-DD)"
+        interviewDate:
+          type: ["string", "null"]
+          description: "면접일 (YYYY-MM-DD)"
+
+    ProfileItem:
+      type: object
+      required: [id, kind, title, createdAt]
+      properties:
+        id:
+          type: integer
+        kind:
+          type: string
+          enum: [certificate, language, project, award, activity, career, education]
+          description: "자격증·어학·프로젝트·수상/공모전·대외활동·경력·교육"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        organization:
+          type: ["string", "null"]
+          maxLength: 200
+        startDate:
+          type: ["string", "null"]
+          maxLength: 10
+          description: "YYYY-MM 또는 YYYY-MM-DD"
+        endDate:
+          type: ["string", "null"]
+          maxLength: 10
+        score:
+          type: ["string", "null"]
+          maxLength: 100
+          description: "점수·등급·수상 결과"
+        description:
+          type: ["string", "null"]
+          maxLength: 4000
+        url:
+          type: ["string", "null"]
+          maxLength: 1000
+        createdAt:
+          type: string
+
+    ProfileItemInput:
+      type: object
+      required: [kind, title]
+      properties:
+        kind:
+          type: string
+          enum: [certificate, language, project, award, activity, career, education]
+          description: "자격증·어학·프로젝트·수상/공모전·대외활동·경력·교육"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        organization:
+          type: ["string", "null"]
+          maxLength: 200
+        startDate:
+          type: ["string", "null"]
+          maxLength: 10
+          description: "YYYY-MM 또는 YYYY-MM-DD"
+        endDate:
+          type: ["string", "null"]
+          maxLength: 10
+        score:
+          type: ["string", "null"]
+          maxLength: 100
+          description: "점수·등급·수상 결과"
+        description:
+          type: ["string", "null"]
+          maxLength: 4000
+        url:
+          type: ["string", "null"]
+          maxLength: 1000
+
+    ProfileItemUpdate:
+      type: object
+      properties:
+        kind:
+          type: string
+          enum: [certificate, language, project, award, activity, career, education]
+          description: "자격증·어학·프로젝트·수상/공모전·대외활동·경력·교육"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        organization:
+          type: ["string", "null"]
+          maxLength: 200
+        startDate:
+          type: ["string", "null"]
+          maxLength: 10
+          description: "YYYY-MM 또는 YYYY-MM-DD"
+        endDate:
+          type: ["string", "null"]
+          maxLength: 10
+        score:
+          type: ["string", "null"]
+          maxLength: 100
+          description: "점수·등급·수상 결과"
+        description:
+          type: ["string", "null"]
+          maxLength: 4000
+        url:
+          type: ["string", "null"]
+          maxLength: 1000
 
     FetchPostingsInput:
       type: object

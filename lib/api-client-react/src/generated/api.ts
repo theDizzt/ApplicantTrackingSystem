@@ -24,7 +24,6 @@ import type {
   AnalysisInput,
   AnswersInput,
   AuthUser,
-  FollowUpAnswerInput,
   Company,
   CompanyInput,
   CompanyUpdate,
@@ -33,6 +32,7 @@ import type {
   DashboardSummary,
   ErrorResponse,
   FetchPostingsInput,
+  FollowUpAnswerInput,
   GuidedPromptsInput,
   GuidedPromptsResult,
   HealthStatus,
@@ -41,6 +41,9 @@ import type {
   JobPosting,
   LoginInput,
   MessageResponse,
+  ProfileItem,
+  ProfileItemInput,
+  ProfileItemUpdate,
   RecommendInput,
   RegisterInput,
   Resume,
@@ -1251,6 +1254,297 @@ export const useDeleteCompany = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getDeleteCompanyMutationOptions(options));
+    }
+
+export const getListProfileItemsUrl = () => {
+
+
+
+
+  return `/api/profile-items`
+}
+
+/**
+ * @summary List the user's profile items
+ */
+export const listProfileItems = async ( options?: RequestInit): Promise<ProfileItem[]> => {
+
+  return customFetch<ProfileItem[]>(getListProfileItemsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListProfileItemsQueryKey = () => {
+    return [
+    `/api/profile-items`
+    ] as const;
+    }
+
+
+export const getListProfileItemsQueryOptions = <TData = Awaited<ReturnType<typeof listProfileItems>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProfileItems>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListProfileItemsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listProfileItems>>> = ({ signal }) => listProfileItems({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listProfileItems>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListProfileItemsQueryResult = NonNullable<Awaited<ReturnType<typeof listProfileItems>>>
+export type ListProfileItemsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List the user's profile items
+ */
+
+export function useListProfileItems<TData = Awaited<ReturnType<typeof listProfileItems>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listProfileItems>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListProfileItemsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCreateProfileItemUrl = () => {
+
+
+
+
+  return `/api/profile-items`
+}
+
+/**
+ * @summary Add a profile item
+ */
+export const createProfileItem = async (profileItemInput: ProfileItemInput, options?: RequestInit): Promise<ProfileItem> => {
+
+  return customFetch<ProfileItem>(getCreateProfileItemUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(profileItemInput)
+  }
+);}
+
+
+
+
+
+export const getCreateProfileItemMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProfileItem>>, TError,{data: BodyType<ProfileItemInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof createProfileItem>>, TError,{data: BodyType<ProfileItemInput>}, TContext> => {
+
+const mutationKey = ['createProfileItem'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof createProfileItem>>, {data: BodyType<ProfileItemInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  createProfileItem(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CreateProfileItemMutationResult = NonNullable<Awaited<ReturnType<typeof createProfileItem>>>
+    export type CreateProfileItemMutationBody = BodyType<ProfileItemInput>
+    export type CreateProfileItemMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Add a profile item
+ */
+export const useCreateProfileItem = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createProfileItem>>, TError,{data: BodyType<ProfileItemInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof createProfileItem>>,
+        TError,
+        {data: BodyType<ProfileItemInput>},
+        TContext
+      > => {
+      return useMutation(getCreateProfileItemMutationOptions(options));
+    }
+
+export const getUpdateProfileItemUrl = (id: number,) => {
+
+
+
+
+  return `/api/profile-items/${id}`
+}
+
+/**
+ * @summary Update a profile item
+ */
+export const updateProfileItem = async (id: number,
+    profileItemUpdate: ProfileItemUpdate, options?: RequestInit): Promise<ProfileItem> => {
+
+  return customFetch<ProfileItem>(getUpdateProfileItemUrl(id),
+  {
+    ...options,
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(profileItemUpdate)
+  }
+);}
+
+
+
+
+
+export const getUpdateProfileItemMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProfileItem>>, TError,{id: number;data: BodyType<ProfileItemUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof updateProfileItem>>, TError,{id: number;data: BodyType<ProfileItemUpdate>}, TContext> => {
+
+const mutationKey = ['updateProfileItem'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof updateProfileItem>>, {id: number;data: BodyType<ProfileItemUpdate>}> = (props) => {
+          const {id,data} = props ?? {};
+
+          return  updateProfileItem(id,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type UpdateProfileItemMutationResult = NonNullable<Awaited<ReturnType<typeof updateProfileItem>>>
+    export type UpdateProfileItemMutationBody = BodyType<ProfileItemUpdate>
+    export type UpdateProfileItemMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Update a profile item
+ */
+export const useUpdateProfileItem = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateProfileItem>>, TError,{id: number;data: BodyType<ProfileItemUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof updateProfileItem>>,
+        TError,
+        {id: number;data: BodyType<ProfileItemUpdate>},
+        TContext
+      > => {
+      return useMutation(getUpdateProfileItemMutationOptions(options));
+    }
+
+export const getDeleteProfileItemUrl = (id: number,) => {
+
+
+
+
+  return `/api/profile-items/${id}`
+}
+
+/**
+ * @summary Delete a profile item
+ */
+export const deleteProfileItem = async (id: number, options?: RequestInit): Promise<void> => {
+
+  return customFetch<void>(getDeleteProfileItemUrl(id),
+  {
+    ...options,
+    method: 'DELETE'
+
+
+  }
+);}
+
+
+
+
+
+export const getDeleteProfileItemMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProfileItem>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof deleteProfileItem>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['deleteProfileItem'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof deleteProfileItem>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  deleteProfileItem(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type DeleteProfileItemMutationResult = NonNullable<Awaited<ReturnType<typeof deleteProfileItem>>>
+
+    export type DeleteProfileItemMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Delete a profile item
+ */
+export const useDeleteProfileItem = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof deleteProfileItem>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof deleteProfileItem>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getDeleteProfileItemMutationOptions(options));
     }
 
 export const getListResumesUrl = () => {
@@ -2501,17 +2795,23 @@ export const useEvaluateAnswers = <TError = ErrorType<unknown>,
       return useMutation(getEvaluateAnswersMutationOptions(options));
     }
 
-export const getAnswerFollowUpUrl = (id: number, questionId: number,) => {
+export const getAnswerFollowUpUrl = (id: number,
+    questionId: number,) => {
+
+
+
+
   return `/api/interviews/${id}/follow-ups/${questionId}/answer`
 }
 
 /**
  * @summary Answer a follow-up question and get immediate feedback (may create a deeper follow-up)
  */
-export const answerFollowUp = async (id: number, questionId: number,
+export const answerFollowUp = async (id: number,
+    questionId: number,
     followUpAnswerInput: FollowUpAnswerInput, options?: RequestInit): Promise<InterviewSession> => {
 
-  return customFetch<InterviewSession>(getAnswerFollowUpUrl(id, questionId),
+  return customFetch<InterviewSession>(getAnswerFollowUpUrl(id,questionId),
   {
     ...options,
     method: 'POST',
@@ -2519,6 +2819,10 @@ export const answerFollowUp = async (id: number, questionId: number,
     body: JSON.stringify(followUpAnswerInput)
   }
 );}
+
+
+
+
 
 export const getAnswerFollowUpMutationOptions = <TError = ErrorType<unknown>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof answerFollowUp>>, TError,{id: number;questionId: number;data: BodyType<FollowUpAnswerInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
@@ -2531,11 +2835,19 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
       : {...options, mutation: {...options.mutation, mutationKey}}
       : {mutation: { mutationKey, }, request: undefined};
 
+
+
+
       const mutationFn: MutationFunction<Awaited<ReturnType<typeof answerFollowUp>>, {id: number;questionId: number;data: BodyType<FollowUpAnswerInput>}> = (props) => {
           const {id,questionId,data} = props ?? {};
 
           return  answerFollowUp(id,questionId,data,requestOptions)
         }
+
+
+
+
+
 
   return  { mutationFn, ...mutationOptions }}
 

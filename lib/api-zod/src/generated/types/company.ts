@@ -29,6 +29,26 @@ export interface Company {
   educationLevel?: string | null;
   /** 모집분야 (개발·기획·디자인·영업·품질관리·테스터·기타) */
   recruitmentField?: string[] | null;
+  /**
+     * 지원 상태 (관심·지원 예정·지원 완료·서류 합격·면접 진행·최종 합격·불합격)
+     * @nullable
+     */
+  applicationStatus?: string | null;
+  /**
+     * 서류 마감일 (YYYY-MM-DD)
+     * @nullable
+     */
+  deadlineDate?: string | null;
+  /**
+     * 결과 발표일 (YYYY-MM-DD)
+     * @nullable
+     */
+  announcementDate?: string | null;
+  /**
+     * 면접일 (YYYY-MM-DD)
+     * @nullable
+     */
+  interviewDate?: string | null;
   isRecommended: boolean;
   syncedAt: string;
   createdAt: string;

@@ -293,6 +293,10 @@ type AdminAISettingsResponse = {
   hasApiKey3: boolean;
   baseUrl3: string;
   model3: string;
+  modelInterview: string;
+  modelLight: string;
+  modelVision: string;
+  embeddingModel: string;
 };
 
 function serializeAdminAISettings(input: {
@@ -304,6 +308,10 @@ function serializeAdminAISettings(input: {
   apiKey3: string | null | undefined;
   baseUrl3: string | null | undefined;
   model3: string | null | undefined;
+  modelInterview?: string | null;
+  modelLight?: string | null;
+  modelVision?: string | null;
+  embeddingModel?: string | null;
 }): AdminAISettingsResponse {
   return {
     apiKeyMasked: maskApiKey(input.config.apiKey),
@@ -319,12 +327,20 @@ function serializeAdminAISettings(input: {
     hasApiKey3: !!(input.apiKey3 ?? ""),
     baseUrl3: input.baseUrl3 ?? "",
     model3: input.model3 ?? "",
+    // 역할별 모델 — 빈 문자열이면 기본 모델(model)을 사용한다
+    modelInterview: input.modelInterview?.trim() ?? "",
+    modelLight: input.modelLight?.trim() ?? "",
+    modelVision: input.modelVision?.trim() ?? "",
+    embeddingModel: input.embeddingModel?.trim() ?? "",
   };
 }
 
 router.get("/admin/settings/ai", requireAdmin, async (_req, res): Promise<void> => {
   const config = await getAIConfig();
-  const [sttModel, apiKey2, baseUrl2, model2, apiKey3, baseUrl3, model3] = await Promise.all([
+  const [
+    sttModel, apiKey2, baseUrl2, model2, apiKey3, baseUrl3, model3,
+    modelInterview, modelLight, modelVision, embeddingModel,
+  ] = await Promise.all([
     getSetting("ai_stt_model"),
     getSetting("ai2_api_key"),
     getSetting("ai2_base_url"),
@@ -332,6 +348,10 @@ router.get("/admin/settings/ai", requireAdmin, async (_req, res): Promise<void> 
     getSetting("ai3_api_key"),
     getSetting("ai3_base_url"),
     getSetting("ai3_model"),
+    getSetting("ai_model_interview"),
+    getSetting("ai_model_light"),
+    getSetting("ai_model_vision"),
+    getSetting("ai_embedding_model"),
   ]);
   res.json(serializeAdminAISettings({
     config,
@@ -342,11 +362,18 @@ router.get("/admin/settings/ai", requireAdmin, async (_req, res): Promise<void> 
     apiKey3,
     baseUrl3,
     model3,
+    modelInterview,
+    modelLight,
+    modelVision,
+    embeddingModel,
   }));
 });
 
 router.put("/admin/settings/ai", requireAdmin, async (req, res): Promise<void> => {
-  const { apiKey, baseUrl, model, sttModel, apiKey2, baseUrl2, model2, apiKey3, baseUrl3, model3 } =
+  const {
+    apiKey, baseUrl, model, sttModel, apiKey2, baseUrl2, model2, apiKey3, baseUrl3, model3,
+    modelInterview, modelLight, modelVision, embeddingModel,
+  } =
     req.body as {
       apiKey?: string;
       baseUrl?: string;
@@ -358,6 +385,10 @@ router.put("/admin/settings/ai", requireAdmin, async (req, res): Promise<void> =
       apiKey3?: string;
       baseUrl3?: string;
       model3?: string;
+      modelInterview?: string;
+      modelLight?: string;
+      modelVision?: string;
+      embeddingModel?: string;
     };
   if (apiKey !== undefined && apiKey !== "") {
     await saveSetting("ai_api_key", apiKey.trim());
@@ -389,6 +420,16 @@ router.put("/admin/settings/ai", requireAdmin, async (req, res): Promise<void> =
   }
   if (model3 !== undefined) {
     await saveSetting("ai3_model", model3.trim());
+  }
+  // 역할별 모델 — 빈 문자열은 설정 해제(기본 모델 사용)
+  const roleModelSettings: [string | undefined, string][] = [
+    [modelInterview, "ai_model_interview"],
+    [modelLight, "ai_model_light"],
+    [modelVision, "ai_model_vision"],
+    [embeddingModel, "ai_embedding_model"],
+  ];
+  for (const [value, key] of roleModelSettings) {
+    if (typeof value === "string") await saveSetting(key, value.trim());
   }
   res.json({ ok: true });
 });
