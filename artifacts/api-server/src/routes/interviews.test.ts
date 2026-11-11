@@ -105,14 +105,18 @@ vi.mock("drizzle-orm", () => ({
   inArray: vi.fn(() => ({})),
 }));
 
-vi.mock("../lib/openai", () => ({
+vi.mock("../lib/openai", async () => {
+  const { default: OpenAI } = await import("openai");
+  return {
   DEFAULT_STT_MODEL: "whisper-1",
+  createAIClient: (opts: unknown) => new (OpenAI as unknown as new (o: unknown) => unknown)(opts),
   getSetting: mocks.getSetting,
   getAI: async () => ({
     model: "test-model",
     openai: { chat: { completions: { create: mocks.aiCreate } } },
   }),
-}));
+};
+});
 
 import interviewsRouter from "./interviews";
 import coverLetterRouter from "./cover-letter";

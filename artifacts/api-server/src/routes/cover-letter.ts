@@ -18,7 +18,7 @@ import {
   recordGuidedPromptGeneration,
   type GuidedPromptFailureType,
 } from "../lib/guided-prompt-monitor";
-import { DEFAULT_STT_MODEL, getAI, getSetting } from "../lib/openai";
+import { DEFAULT_STT_MODEL, createAIClient, getAI, getSetting } from "../lib/openai";
 import { resumeHtmlToText } from "../lib/resume-text";
 
 const execFileAsync = promisify(execFile);
@@ -81,7 +81,7 @@ function getTranscriptionClient(): OpenAI {
   const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
   const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
   if (!apiKey || !baseURL) throw new Error("음성 인식 서비스가 설정되지 않았습니다.");
-  return new OpenAI({ apiKey, baseURL });
+  return createAIClient({ apiKey, baseURL });
 }
 
 async function convertToWav(buffer: Buffer, originalName: string): Promise<Buffer> {

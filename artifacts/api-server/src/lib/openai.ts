@@ -16,6 +16,43 @@ export const DEFAULT_MODEL = "gpt-5.6-luna";
 export const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
 const CACHE_TTL_MS = 30_000;
 
+// ─── AI 서버 동시 요청 제한 ────────────────────────────────────────────────
+// AI 서버(open.hasa.re.kr 등)는 키당 동시 요청 한도를 넘긴 뒤 다시 호출하면
+// 경고를 누적하고 점점 길게 차단한다. 그래서 이 프로세스의 모든 AI 호출을
+// 하나의 대기열로 묶어 동시에 AI_MAX_CONCURRENCY(기본 2)개까지만 보낸다.
+const AI_MAX_CONCURRENCY = Math.max(1, Number(process.env.AI_MAX_CONCURRENCY) || 2);
+let aiActive = 0;
+const aiWaiters: Array<() => void> = [];
+
+async function acquireAISlot(): Promise<void> {
+  if (aiActive < AI_MAX_CONCURRENCY) { aiActive += 1; return; }
+  await new Promise<void>((resolve) => aiWaiters.push(resolve));
+}
+
+function releaseAISlot(): void {
+  const next = aiWaiters.shift();
+  if (next) next(); // 자리를 그대로 다음 요청에 넘긴다 (aiActive 유지)
+  else aiActive -= 1;
+}
+
+const limitedFetch: typeof fetch = async (input, init) => {
+  await acquireAISlot();
+  try {
+    return await fetch(input, init);
+  } finally {
+    releaseAISlot();
+  }
+};
+
+/**
+ * 추론용 AI 클라이언트를 만든다. 모든 요청은 공용 동시 실행 제한을 거치며,
+ * SDK 자동 재시도는 끈다. (한도 초과 응답 뒤 자동 재시도가 곧 "반복 호출"
+ * 경고로 이어지기 때문)
+ */
+export function createAIClient(opts: { apiKey: string; baseURL?: string }): OpenAI {
+  return new OpenAI({ ...opts, maxRetries: 0, fetch: limitedFetch });
+}
+
 /**
  * AI 호출 역할. 같은 API 키·주소를 쓰되 역할마다 모델만 바꿀 수 있다.
  *   screening — 서류 심사·불합격 원인 리포트·커리어 분석·자기소개서 작성 (기본 모델 ai_model)
@@ -146,7 +183,7 @@ export async function getSecondaryAIs(): Promise<
     const hasKey = !!spec.apiKey.trim();
     const localBase = !!spec.baseUrl && isLocalBaseUrl(spec.baseUrl);
     if (!hasKey && !localBase) continue;
-    const client = new OpenAI({
+    const client = createAIClient({
       apiKey: spec.apiKey || "local",
       baseURL: spec.baseUrl,
     });
@@ -170,8 +207,8 @@ export async function getAI(role: AIRole = "screening"): Promise<{ openai: OpenA
       "AI API 키가 설정되지 않았습니다. 관리자 페이지(/admin)의 AI 설정에서 키를 등록해주세요.",
     );
   }
-  const client = new OpenAI({ apiKey: config.apiKey, baseURL: config.baseUrl });
-  cached = { config, client, at: now };
+  const client = createAIClient({ apiKey: config.apiKey, baseURL: config.baseUrl });
+  cached ={ config, client, at: now };
   return { openai: client, model: resolveRoleModel(config, role) };
 }
 
