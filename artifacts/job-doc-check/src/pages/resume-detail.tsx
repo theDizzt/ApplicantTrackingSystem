@@ -132,6 +132,9 @@ export default function ResumeDetail() {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [uploadTitle,  setUploadTitle]  = useState("")
   const [isUploading,  setIsUploading]  = useState(false)
+  // 새 이력서 화면의 탭 (업로드 탭에서는 상단 저장 버튼이 업로드를 실행)
+  const [newTab, setNewTab] = useState<"upload" | "manual">("upload")
+  const isUploadTab = isNew && newTab === "upload"
 
   // 맞춤법 검사 상태
   const [isChecking,      setIsChecking]      = useState(false)
@@ -543,11 +546,17 @@ export default function ResumeDetail() {
             </Button>
             <Button 
               type="button" 
-              disabled={isPending || isChecking} 
-              onClick={() => document.getElementById('hidden-submit-btn')?.click()}
+              disabled={isUploadTab ? (isUploading || !selectedFile) : (isPending || isChecking)}
+              onClick={() => {
+                // 업로드 탭에는 폼(숨은 제출 버튼)이 렌더링되지 않으므로 업로드를 대신 실행한다.
+                if (isUploadTab) { handleUpload(); return }
+                document.getElementById('hidden-submit-btn')?.click()
+              }}
               className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
             >
-              {isChecking ? (
+              {isUploadTab && isUploading ? (
+                <><Loader2 className="w-4 h-4 sm:mr-2 animate-spin" /><span className="hidden sm:inline">분석 중…</span></>
+              ) : isChecking ? (
                 <><SpellCheck className="w-4 h-4 sm:mr-2 animate-pulse" /><span className="hidden sm:inline">오탈자 검사 중…</span></>
               ) : isPending ? (
                 <><Loader2 className="w-4 h-4 sm:mr-2 animate-spin" /><span className="hidden sm:inline">저장 중…</span></>
@@ -562,7 +571,7 @@ export default function ResumeDetail() {
           {/* Main Form Area */}
           <div className="space-y-8 min-w-0">
             {isNew ? (
-              <Tabs defaultValue="upload">
+              <Tabs value={newTab} onValueChange={(v) => setNewTab(v as "upload" | "manual")}>
                 <TabsList className="mb-6 w-full max-w-sm grid grid-cols-2">
                   <TabsTrigger value="upload">파일 업로드</TabsTrigger>
                   <TabsTrigger value="manual">직접 입력</TabsTrigger>
