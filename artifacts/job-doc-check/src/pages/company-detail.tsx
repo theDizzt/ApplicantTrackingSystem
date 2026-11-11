@@ -20,7 +20,7 @@ import {
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
-import { ChevronLeft, Save, Download, Loader2 } from "lucide-react"
+import { ChevronLeft, Save, Download, Loader2, CalendarSearch } from "lucide-react"
 import { cn } from "@/lib/utils"
 import { APPLICATION_STATUSES } from "@/lib/schedule"
 
@@ -120,6 +120,46 @@ export default function CompanyDetail() {
   const [fetchUrl, setFetchUrl] = useState("")
   const [isFetchingPosting, setIsFetchingPosting] = useState(false)
 
+  // ── 공고 내용에서 지원 일정 찾기 ─────────────────────────────────────────────
+  // 비어 있는 날짜 칸만 채운다. (직접 입력한 날짜는 덮어쓰지 않음)
+  const [isExtractingDates, setIsExtractingDates] = useState(false)
+
+  const extractDatesFromText = async (text: string, opts: { quiet?: boolean } = {}) => {
+    setIsExtractingDates(true)
+    try {
+      const res = await fetch("/api/companies/extract-dates", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || "공고에서 일정을 찾지 못했습니다")
+      const dates = (body.dates ?? {}) as Partial<Record<"deadlineDate" | "announcementDate" | "interviewDate", { date: string; evidence: string }>>
+      const labels = { deadlineDate: "서류 마감", announcementDate: "결과 발표", interviewDate: "면접" } as const
+      const filled: string[] = []
+      const kept: string[] = []
+      for (const key of ["deadlineDate", "announcementDate", "interviewDate"] as const) {
+        const found = dates[key]
+        if (!found) continue
+        if (form.getValues(key)) { kept.push(labels[key]); continue }
+        form.setValue(key, found.date, { shouldDirty: true, shouldValidate: true })
+        filled.push(`${labels[key]} ${found.date}${found.evidence ? ` (“${found.evidence}”)` : ""}`)
+      }
+      if (filled.length > 0) {
+        toast.success("공고에서 일정을 찾아 채웠습니다. 저장하면 캘린더에 표시됩니다.", { description: filled.join("\n") })
+      } else if (kept.length > 0) {
+        if (!opts.quiet) toast.info(`이미 입력된 날짜는 그대로 두었습니다 (${kept.join(", ")})`)
+      } else if (!opts.quiet) {
+        toast.info("공고에 날짜가 적혀 있지 않습니다. 날짜를 직접 입력해주세요.")
+      }
+    } catch (err: unknown) {
+      if (!opts.quiet) toast.error(err instanceof Error ? err.message : "공고에서 일정을 찾지 못했습니다")
+    } finally {
+      setIsExtractingDates(false)
+    }
+  }
+
   const handleFetchPosting = async () => {
     const url = fetchUrl.trim()
     if (!url) { toast.error("채용 공고 URL을 입력해주세요"); return }
@@ -158,6 +198,8 @@ export default function CompanyDetail() {
           ? "이미지 공고를 OCR로 읽어 채용공고 내용에 채웠습니다"
           : "채용공고 내용을 가져왔습니다"
       )
+      // 가져온 공고에서 일정도 바로 찾아 빈 날짜 칸을 채운다 (실패해도 조용히 넘어감)
+      void extractDatesFromText(fetched, { quiet: true })
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : "공고를 가져오지 못했습니다")
     } finally {
@@ -349,9 +391,28 @@ export default function CompanyDetail() {
 
           {/* ── 지원 일정 ── */}
           <div className="rounded-xl border bg-slate-50/60 p-5 space-y-5" data-testid="section-schedule">
-            <div>
-              <p className="text-sm font-semibold text-slate-700">지원 일정</p>
-              <p className="text-xs text-muted-foreground mt-1">날짜를 넣으면 지원 일정 캘린더에 표시되고, 3일 전부터 알림이 뜹니다.</p>
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-slate-700">지원 일정</p>
+                <p className="text-xs text-muted-foreground mt-1">날짜를 넣으면 지원 일정 캘린더에 표시되고, 3일 전부터 알림이 뜹니다.</p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="gap-1.5 shrink-0"
+                disabled={isExtractingDates}
+                data-testid="button-extract-dates"
+                onClick={() => {
+                  const text = (form.getValues("jobDescription") || "").trim()
+                  if (text.length < 20) { toast.error("아래 채용공고 내용을 먼저 채워주세요"); return }
+                  void extractDatesFromText(text)
+                }}
+              >
+                {isExtractingDates
+                  ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />일정 찾는 중…</>
+                  : <><CalendarSearch className="w-3.5 h-3.5" />공고에서 일정 찾기</>}
+              </Button>
             </div>
             <FormItem>
               <FormLabel className="text-sm">지원 상태</FormLabel>

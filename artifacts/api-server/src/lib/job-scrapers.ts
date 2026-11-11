@@ -16,6 +16,8 @@ export interface ScrapedPosting {
   careerText?: string;
   educationText?: string;
   location?: string;
+  /** 목록의 마감 표시 원문 (예: "~ 11/30(일)", "상시채용") */
+  deadlineText?: string;
 }
 
 // ── fetch helper (20초 타임아웃) ──────────────────────────────────────────────
@@ -97,6 +99,7 @@ export async function scrapeSaramin(keyword: string, limit = 8): Promise<Scraped
     const careerText    = conditions[1] ?? "";
     const educationText = conditions[2] ?? "";
     const location      = conditions[0] ?? "";
+    const deadlineText  = $(el).find(".job_date .date").first().text().replace(/\s+/g, " ").trim();
 
     const postingUrl = href.startsWith("http")
       ? href
@@ -110,6 +113,7 @@ export async function scrapeSaramin(keyword: string, limit = 8): Promise<Scraped
       careerText,
       educationText,
       location,
+      deadlineText,
     });
     return true;
   });

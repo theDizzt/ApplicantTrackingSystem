@@ -6,6 +6,7 @@ import { getAI } from "../lib/openai";
 import { logger } from "../lib/logger";
 import { parseScheduleInput } from "../lib/application-schedule";
 import { scrapeSaramin, buildKeyword, getJobkoreaSearchUrl } from "../lib/job-scrapers";
+import { extractPostingDates, parseSaraminDeadline } from "../lib/posting-dates";
 
 const router: IRouter = Router();
 
@@ -439,6 +440,8 @@ JSON 객체만 반환하세요:
         careerLevel: pickAllowed(ev.careerLevel, CAREER_LEVELS),
         educationLevel: education ?? null,
         recruitmentField: pickAllowed(ev.recruitmentField, RECRUITMENT_FIELDS),
+        deadlineDate: parseSaraminDeadline(p.deadlineText),
+        deadlineText: p.deadlineText || null,
         matchScore: Number.isFinite(rawScore) ? Math.max(0, Math.min(100, Math.round(rawScore))) : null,
         matchReason: typeof ev.reason === "string" ? ev.reason.trim() : null,
       };
@@ -448,6 +451,22 @@ JSON 객체만 반환하세요:
   } catch (err) {
     logger.error({ err, resumeId }, "discover 오류");
     res.status(500).json({ error: "이력서에 맞는 채용공고를 찾는 중 오류가 발생했습니다." });
+  }
+});
+
+// ─── 공고 본문에서 지원 일정 추출 ────────────────────────────────────────────
+router.post("/companies/extract-dates", requireAuth, async (req, res): Promise<void> => {
+  const text = (req.body as { text?: unknown })?.text;
+  if (typeof text !== "string" || text.trim().length < 20) {
+    res.status(400).json({ error: "일정을 찾을 채용공고 내용이 없습니다. 공고 내용을 먼저 채워주세요." });
+    return;
+  }
+  try {
+    const dates = await extractPostingDates(text);
+    res.json({ dates });
+  } catch (err) {
+    logger.error({ err }, "extract-dates 오류");
+    res.status(500).json({ error: "공고에서 일정을 읽는 중 오류가 발생했습니다." });
   }
 });
 

@@ -99,7 +99,13 @@ function ClassificationBadges({
 
 // ── 채용공고 결과 다이얼로그 ──────────────────────────────────────────────────
 /** 이력서 기반 검색 결과는 공고마다 적합도 점수와 이유가 붙는다. */
-type FoundPosting = JobPosting & { matchScore?: number | null; matchReason?: string | null }
+type FoundPosting = JobPosting & {
+  matchScore?: number | null
+  matchReason?: string | null
+  /** 사람인 목록 마감 표시에서 읽은 서류 마감일 (YYYY-MM-DD) */
+  deadlineDate?: string | null
+  deadlineText?: string | null
+}
 
 type DiscoverResponse = { jobs: string[]; keywords: string[]; postings: FoundPosting[] }
 
@@ -123,7 +129,7 @@ function FetchedPostingsDialog({
   open: boolean
   onClose: () => void
   postings: FoundPosting[]
-  onAdd: (posting: JobPosting, index: number) => void
+  onAdd: (posting: FoundPosting, index: number) => void
   addingIds: Set<number>
   addedIds: Set<number>
   title?: string
@@ -160,6 +166,11 @@ function FetchedPostingsDialog({
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 flex-wrap">
                       <p className="font-semibold text-sm leading-snug">{p.name}</p>
+                      {(p.deadlineDate || p.deadlineText) && (
+                        <span className="text-[11px] font-medium px-2 py-0.5 rounded-full bg-rose-50 text-rose-700 ring-1 ring-rose-200">
+                          {p.deadlineDate ? `마감 ${p.deadlineDate.slice(5).replace("-", "/")}` : p.deadlineText}
+                        </span>
+                      )}
                       {p.matchScore != null && (
                         <span className={cn("text-[11px] font-bold px-2 py-0.5 rounded-full ring-1", matchScoreClass(p.matchScore))}>
                           적합도 {p.matchScore}
@@ -336,7 +347,7 @@ export default function CompaniesPage() {
   }
 
   // ── 공고 → 회사 추가 ────────────────────────────────────────────────────────
-  const handleAddPosting = (posting: JobPosting, index: number) => {
+  const handleAddPosting = (posting: FoundPosting, index: number) => {
     setAddingIds(prev => new Set(prev).add(index))
     createCompany.mutate(
       {
@@ -349,6 +360,8 @@ export default function CompaniesPage() {
           careerLevel:      posting.careerLevel ?? undefined,
           educationLevel:   posting.educationLevel ?? undefined,
           recruitmentField: posting.recruitmentField ?? undefined,
+          // 마감일이 있으면 지원 일정 캘린더에 바로 표시된다
+          deadlineDate:     posting.deadlineDate ?? undefined,
         },
       },
       {
