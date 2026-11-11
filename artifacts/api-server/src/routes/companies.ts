@@ -269,6 +269,188 @@ router.post("/companies/recommend", requireAuth, async (req, res): Promise<void>
 });
 
 // ─── 단건 조회 ────────────────────────────────────────────────────────────────
+// ─── 이력서 기반 채용공고 찾기 ───────────────────────────────────────────────
+// 이력서 → 맞는 직무 검색어 → 사람인 실제 공고 검색 → 공고별 적합도 평가.
+// 공고는 실제로 수집한 것만 돌려준다. (AI가 공고를 지어내지 않는다)
+const CAREER_LEVELS = ["신입", "1년이내", "3년이내"] as const;
+const EDUCATION_LEVELS = ["전문대", "대학교", "석사"] as const;
+const RECRUITMENT_FIELDS = ["개발", "기획", "디자인", "영업", "품질관리", "테스터", "기타"] as const;
+const DISCOVER_MAX_KEYWORDS = 3;
+const DISCOVER_PER_KEYWORD = 8;
+const DISCOVER_MAX_POSTINGS = 15;
+
+function htmlToPlain(html: string): string {
+  return html
+    .replace(/<(br|\/p|\/li|\/h[1-6]|\/div|\/tr)[^>]*>/gi, "\n")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n\s*\n+/g, "\n")
+    .trim();
+}
+
+function parseJsonObject(raw: string): Record<string, unknown> | null {
+  const cleaned = raw.replace(/```json?\s*/gi, "").replace(/```\s*/g, "").trim();
+  const match = cleaned.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try { return JSON.parse(match[0]) as Record<string, unknown>; } catch { return null; }
+}
+
+function pickAllowed<T extends string>(value: unknown, allowed: readonly T[]): T[] {
+  const list = Array.isArray(value) ? value : typeof value === "string" ? [value] : [];
+  return [...new Set(list.filter((v): v is T => typeof v === "string" && (allowed as readonly string[]).includes(v)))];
+}
+
+router.post("/companies/discover", requireAuth, async (req, res): Promise<void> => {
+  const resumeId = Number((req.body as { resumeId?: unknown })?.resumeId);
+  if (!Number.isInteger(resumeId) || resumeId <= 0) {
+    res.status(400).json({ error: "이력서를 선택해주세요." });
+    return;
+  }
+  const userId = req.session.userId!;
+  const [resume] = await db.select().from(resumesTable)
+    .where(and(eq(resumesTable.id, resumeId), eq(resumesTable.userId, userId)));
+  if (!resume) { res.status(404).json({ error: "이력서를 찾을 수 없습니다." }); return; }
+
+  const resumeText = htmlToPlain([resume.title, resume.content ?? "", resume.coverLetter ?? ""].join("\n\n"));
+  if (resumeText.replace(/\s/g, "").length < 50) {
+    res.status(400).json({ error: "이력서 내용이 너무 짧습니다. 내용을 채운 뒤 다시 시도해주세요." });
+    return;
+  }
+
+  try {
+    const ai = await getAI("light");
+
+    // ── 1단계: 검색어 정하기 ─────────────────────────────────────────────
+    // 커리어 분석 결과가 있으면 추천 직업을 참고하고, 검색어 자체는 AI가 사람인 검색에 맞게 짧게 만든다.
+    let recommendedJobs: string[] = [];
+    if (resume.careerAnalysisResult) {
+      try {
+        const parsed = JSON.parse(resume.careerAnalysisResult) as { recommendedJobs?: Array<{ job?: unknown }> };
+        recommendedJobs = (parsed.recommendedJobs ?? [])
+          .map((j) => (typeof j.job === "string" ? j.job.trim() : ""))
+          .filter(Boolean);
+      } catch { /* 분석 결과가 깨져 있으면 무시 */ }
+    }
+
+    const keywordCompletion = await ai.openai.chat.completions.create({
+      model: ai.model,
+      messages: [
+        {
+          role: "system",
+          content: `당신은 한국 채용 시장 전문가입니다. 지원자의 이력서를 읽고 사람인에서 검색할 직무 검색어를 정하세요.
+JSON 객체만 반환하세요:
+{"jobs": ["이력서에 맞는 직무명", ...], "keywords": ["사람인 검색어", ...], "careerLevel": "신입" | "경력"}
+규칙:
+- jobs: 지원자에게 맞는 직무 1~3개 (예: "임베디드 소프트웨어 개발자")
+- keywords: 사람인 검색창에 넣을 2~4단어 검색어 1~${DISCOVER_MAX_KEYWORDS}개. 직무 핵심어 + 주요 기술 위주 (예: "임베디드 C 펌웨어")
+- careerLevel: 회사 근무 경력이 1년 이상이면 "경력", 아니면 "신입"`,
+        },
+        {
+          role: "user",
+          content: `${recommendedJobs.length ? `커리어 분석의 추천 직업: ${recommendedJobs.join(", ")}\n\n` : ""}이력서:\n${resumeText.slice(0, 3000)}`,
+        },
+      ],
+      response_format: { type: "json_object" },
+      max_completion_tokens: 4000,
+    });
+    const keywordData = parseJsonObject(keywordCompletion.choices[0]?.message?.content ?? "") ?? {};
+    const jobs = (Array.isArray(keywordData.jobs) ? keywordData.jobs : [])
+      .filter((v): v is string => typeof v === "string" && v.trim() !== "")
+      .map((v) => v.trim()).slice(0, 3);
+    const careerWord = keywordData.careerLevel === "경력" ? "경력" : "신입";
+    let keywords = (Array.isArray(keywordData.keywords) ? keywordData.keywords : [])
+      .filter((v): v is string => typeof v === "string" && v.trim() !== "")
+      .map((v) => v.trim().slice(0, 40));
+    if (keywords.length === 0) keywords = [...jobs, ...recommendedJobs];
+    keywords = [...new Set(keywords)].slice(0, DISCOVER_MAX_KEYWORDS);
+    if (keywords.length === 0) {
+      res.status(422).json({ error: "이력서에서 직무를 찾지 못했습니다. 경력·기술 내용을 보강해주세요." });
+      return;
+    }
+
+    // ── 2단계: 사람인 실제 공고 검색 (사이트 부담을 줄이려고 순서대로) ────────
+    const seen = new Set<string>();
+    const scraped: Awaited<ReturnType<typeof scrapeSaramin>> = [];
+    for (const keyword of keywords) {
+      const found = await scrapeSaramin(`${keyword} ${careerWord}`, DISCOVER_PER_KEYWORD);
+      for (const p of found) {
+        if (seen.has(p.jobPostingUrl)) continue;
+        seen.add(p.jobPostingUrl);
+        scraped.push(p);
+      }
+      if (scraped.length >= DISCOVER_MAX_POSTINGS) break;
+    }
+    const candidates = scraped.slice(0, DISCOVER_MAX_POSTINGS);
+    logger.info({ resumeId, keywords, found: candidates.length }, "이력서 기반 공고 검색 완료");
+    if (candidates.length === 0) {
+      res.json({ jobs, keywords, postings: [] });
+      return;
+    }
+
+    // ── 3단계: 공고별 적합도 평가 ─────────────────────────────────────────
+    const postingList = candidates.map((p, i) =>
+      `[${i + 1}] 회사: ${p.name} / 공고: ${p.title}` +
+      (p.location ? ` / 근무지: ${p.location}` : "") +
+      (p.careerText ? ` / 경력: ${p.careerText}` : "") +
+      (p.educationText ? ` / 학력: ${p.educationText}` : ""),
+    ).join("\n");
+
+    const scoreCompletion = await ai.openai.chat.completions.create({
+      model: ai.model,
+      messages: [
+        {
+          role: "system",
+          content: `당신은 경험 많은 채용 컨설턴트입니다. 지원자의 이력서와 실제 채용공고 목록(제목·조건)을 비교해 공고마다 지원 적합도를 평가하세요.
+JSON 객체만 반환하세요:
+{"results": [{"index": 공고 번호, "score": 0-100, "reason": "적합 이유 또는 부족한 점 (한국어 1~2문장, 이력서 근거 포함)", "careerLevel": [...], "educationLevel": "...", "recruitmentField": [...]}]}
+규칙:
+- 목록의 모든 공고를 평가하세요. 공고를 새로 만들거나 회사명을 바꾸지 마세요.
+- 공고 제목과 조건만으로 판단하고, 확인할 수 없는 내용은 추측하지 마세요.
+- careerLevel: ${JSON.stringify(CAREER_LEVELS)} 중 공고 조건에 맞는 것 (경력 3년 초과만 받으면 빈 배열)
+- educationLevel: ${JSON.stringify(EDUCATION_LEVELS)} 중 하나, 학력무관이면 빈 문자열
+- recruitmentField: ${JSON.stringify(RECRUITMENT_FIELDS)} 중 맞는 것`,
+        },
+        { role: "user", content: `## 지원자 이력서\n${resumeText.slice(0, 3000)}\n\n## 채용공고 목록\n${postingList}` },
+      ],
+      response_format: { type: "json_object" },
+      max_completion_tokens: 6000,
+    });
+    const scoreData = parseJsonObject(scoreCompletion.choices[0]?.message?.content ?? "") ?? {};
+    const evaluations = new Map<number, Record<string, unknown>>();
+    for (const item of Array.isArray(scoreData.results) ? scoreData.results : []) {
+      const o = (item ?? {}) as Record<string, unknown>;
+      const index = Number(o.index);
+      if (Number.isInteger(index) && index >= 1 && index <= candidates.length) evaluations.set(index, o);
+    }
+
+    const postings = candidates.map((p, i) => {
+      const ev = evaluations.get(i + 1) ?? {};
+      const rawScore = Number(ev.score);
+      const education = pickAllowed(ev.educationLevel, EDUCATION_LEVELS)[0];
+      const conditions = [p.location && `근무지: ${p.location}`, p.careerText && `경력: ${p.careerText}`, p.educationText && `학력: ${p.educationText}`]
+        .filter(Boolean).join(" · ");
+      return {
+        name: p.name,
+        siteUrl: null,
+        jobPostingUrl: p.jobPostingUrl,
+        talentProfile: null,
+        jobDescription: [p.title, conditions].filter(Boolean).join("\n"),
+        careerLevel: pickAllowed(ev.careerLevel, CAREER_LEVELS),
+        educationLevel: education ?? null,
+        recruitmentField: pickAllowed(ev.recruitmentField, RECRUITMENT_FIELDS),
+        matchScore: Number.isFinite(rawScore) ? Math.max(0, Math.min(100, Math.round(rawScore))) : null,
+        matchReason: typeof ev.reason === "string" ? ev.reason.trim() : null,
+      };
+    }).sort((a, b) => (b.matchScore ?? -1) - (a.matchScore ?? -1));
+
+    res.json({ jobs, keywords, postings });
+  } catch (err) {
+    logger.error({ err, resumeId }, "discover 오류");
+    res.status(500).json({ error: "이력서에 맞는 채용공고를 찾는 중 오류가 발생했습니다." });
+  }
+});
+
 router.get("/companies/:id", requireAuth, async (req, res): Promise<void> => {
   const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
   const id = parseInt(rawId, 10);

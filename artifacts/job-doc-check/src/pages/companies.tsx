@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react"
+import { useMutation } from "@tanstack/react-query"
 import {
   useListCompanies,
   useDeleteCompany,
@@ -17,7 +18,7 @@ import { Badge } from "@/components/ui/badge"
 import {
   Building2, Globe, Trash2, Plus, FileText, Star, RefreshCw,
   ChevronDown, Filter, X, CloudDownload, Check, ExternalLink,
-  Loader2, Sparkles,
+  Loader2, Sparkles, Search,
 } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useQueryClient } from "@tanstack/react-query"
@@ -97,6 +98,17 @@ function ClassificationBadges({
 }
 
 // ── 채용공고 결과 다이얼로그 ──────────────────────────────────────────────────
+/** 이력서 기반 검색 결과는 공고마다 적합도 점수와 이유가 붙는다. */
+type FoundPosting = JobPosting & { matchScore?: number | null; matchReason?: string | null }
+
+type DiscoverResponse = { jobs: string[]; keywords: string[]; postings: FoundPosting[] }
+
+function matchScoreClass(score: number) {
+  if (score >= 70) return "bg-emerald-50 text-emerald-700 ring-emerald-200"
+  if (score >= 50) return "bg-amber-50 text-amber-700 ring-amber-200"
+  return "bg-slate-100 text-slate-600 ring-slate-200"
+}
+
 function FetchedPostingsDialog({
   open,
   onClose,
@@ -104,13 +116,19 @@ function FetchedPostingsDialog({
   onAdd,
   addingIds,
   addedIds,
+  title = "AI 채용공고 검색 결과",
+  description = "선택한 필터 조건에 맞는 채용공고입니다. 추가할 공고를 선택하세요.",
+  summary,
 }: {
   open: boolean
   onClose: () => void
-  postings: JobPosting[]
+  postings: FoundPosting[]
   onAdd: (posting: JobPosting, index: number) => void
   addingIds: Set<number>
   addedIds: Set<number>
+  title?: string
+  description?: string
+  summary?: React.ReactNode
 }) {
   return (
     <Dialog open={open} onOpenChange={v => { if (!v) onClose() }}>
@@ -118,12 +136,12 @@ function FetchedPostingsDialog({
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-primary" />
-            AI 채용공고 검색 결과
+            {title}
           </DialogTitle>
-          <DialogDescription>
-            선택한 필터 조건에 맞는 채용공고입니다. 추가할 공고를 선택하세요.
-          </DialogDescription>
+          <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
+
+        {summary}
 
         {postings.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">검색 결과가 없습니다.</p>
@@ -140,7 +158,14 @@ function FetchedPostingsDialog({
                 {/* 헤더 */}
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <p className="font-semibold text-sm leading-snug">{p.name}</p>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="font-semibold text-sm leading-snug">{p.name}</p>
+                      {p.matchScore != null && (
+                        <span className={cn("text-[11px] font-bold px-2 py-0.5 rounded-full ring-1", matchScoreClass(p.matchScore))}>
+                          적합도 {p.matchScore}
+                        </span>
+                      )}
+                    </div>
                     {p.siteUrl && (
                       <a
                         href={p.siteUrl}
@@ -178,6 +203,13 @@ function FetchedPostingsDialog({
                   educationLevel={p.educationLevel}
                   recruitmentField={p.recruitmentField}
                 />
+
+                {/* 적합 이유 (이력서 기반 검색) */}
+                {p.matchReason && (
+                  <p className="text-xs text-slate-700 bg-slate-50 rounded-md px-2.5 py-1.5 leading-relaxed">
+                    <Sparkles className="w-3 h-3 inline mr-1 text-primary" />{p.matchReason}
+                  </p>
+                )}
 
                 {/* 인재상 */}
                 {p.talentProfile && (
@@ -257,7 +289,24 @@ export default function CompaniesPage() {
 
   // ── 채용공고 다이얼로그 상태 ────────────────────────────────────────────────
   const [dialogOpen,  setDialogOpen]  = useState(false)
-  const [postings,    setPostings]    = useState<JobPosting[]>([])
+  const [postings,    setPostings]    = useState<FoundPosting[]>([])
+  const [dialogMode,  setDialogMode]  = useState<"filter" | "resume">("filter")
+  const [discoverInfo, setDiscoverInfo] = useState<{ jobs: string[]; keywords: string[] } | null>(null)
+
+  // ── 이력서로 채용공고 찾기 ──────────────────────────────────────────────────
+  const discover = useMutation({
+    mutationFn: async (resumeId: number): Promise<DiscoverResponse> => {
+      const res = await fetch("/api/companies/discover", {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ resumeId }),
+      })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error || "채용공고를 찾지 못했습니다.")
+      return body as DiscoverResponse
+    },
+  })
   const [addingIds,   setAddingIds]   = useState<Set<number>>(new Set())
   const [addedIds,    setAddedIds]    = useState<Set<number>>(new Set())
 
@@ -276,6 +325,7 @@ export default function CompaniesPage() {
       {
         onSuccess: (data) => {
           setPostings(data)
+          setDialogMode("filter")
           setDialogOpen(true)
         },
         onError: () => {
@@ -333,6 +383,24 @@ export default function CompaniesPage() {
     })
   }
 
+  const handleDiscover = () => {
+    const rid = selectedResumeId ?? resumes?.[0]?.id
+    if (!rid) return
+    setAddingIds(new Set())
+    setAddedIds(new Set())
+    discover.mutate(rid, {
+      onSuccess: (data) => {
+        setPostings(data.postings)
+        setDiscoverInfo({ jobs: data.jobs, keywords: data.keywords })
+        setDialogMode("resume")
+        setDialogOpen(true)
+      },
+      onError: (err) => {
+        toast({ title: "오류", description: err instanceof Error ? err.message : "채용공고를 찾지 못했습니다.", variant: "destructive" })
+      },
+    })
+  }
+
   const handleRecommend = () => {
     const rid = selectedResumeId ?? resumes?.[0]?.id
     if (!rid) return
@@ -357,6 +425,33 @@ export default function CompaniesPage() {
   const recommendedCount = companies?.filter(c => c.isRecommended).length ?? 0
   const selectedResume   = resumes?.find(r => r.id === selectedResumeId) ?? resumes?.[0]
 
+  const resumePicker = (resumes?.length ?? 0) > 1 ? (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1.5 max-w-[200px]">
+          <FileText className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">{selectedResume?.title ?? "이력서 선택"}</span>
+          <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-60" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {resumes?.map(r => (
+          <DropdownMenuItem
+            key={r.id}
+            onClick={() => setSelectedResumeId(r.id)}
+            className={r.id === (selectedResumeId ?? resumes[0]?.id) ? "bg-accent" : ""}
+          >
+            {r.title}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  ) : selectedResume ? (
+    <span className="text-xs text-muted-foreground border rounded-md px-2.5 py-1.5 bg-background">
+      <FileText className="w-3 h-3 inline mr-1" />{selectedResume.title}
+    </span>
+  ) : null
+
   const sortedFiltered = [
     ...filteredCompanies.filter(c => c.isRecommended),
     ...filteredCompanies.filter(c => !c.isRecommended),
@@ -379,6 +474,44 @@ export default function CompaniesPage() {
         </Link>
       </div>
 
+      {/* ── 이력서로 채용공고 찾기 ── */}
+      {!isLoading && (
+        <Card className="border-primary/20">
+          <CardContent className="py-4 px-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3 justify-between">
+              <div className="space-y-0.5">
+                <p className="flex items-center gap-2 text-sm font-semibold">
+                  <Search className="w-4 h-4 text-primary shrink-0" />이력서로 맞는 채용공고 찾기
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  {selectedResume
+                    ? "이력서에 맞는 직무를 찾고, 사람인의 실제 공고를 적합도 순으로 보여줍니다."
+                    : <>먼저 <Link href="/resumes/new" className="text-primary hover:underline">이력서를 등록</Link>해주세요.</>}
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                {resumePicker}
+                <Button
+                  size="sm"
+                  onClick={handleDiscover}
+                  disabled={discover.isPending || !selectedResume}
+                  className="gap-1.5"
+                >
+                  {discover.isPending
+                    ? <><Loader2 className="w-3.5 h-3.5 animate-spin" />찾는 중…</>
+                    : <><Search className="w-3.5 h-3.5" />채용공고 찾기</>}
+                </Button>
+              </div>
+            </div>
+            {discover.isPending && (
+              <p className="text-xs text-primary mt-2 animate-pulse">
+                이력서에서 직무를 뽑고 사람인 공고를 검색해 적합도를 평가하는 중입니다… (30초~1분 정도 걸립니다)
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── 추천 + 동기화 패널 ── */}
       {!isLoading && (companies?.length ?? 0) > 0 && (
         <Card className="border-blue-100 bg-gradient-to-r from-blue-50/60 to-indigo-50/40">
@@ -393,32 +526,7 @@ export default function CompaniesPage() {
                 </span>
               </div>
               <div className="flex items-center gap-2">
-                {(resumes?.length ?? 0) > 1 ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="outline" size="sm" className="gap-1.5 max-w-[200px]">
-                        <FileText className="w-3.5 h-3.5 shrink-0" />
-                        <span className="truncate">{selectedResume?.title ?? "이력서 선택"}</span>
-                        <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-60" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      {resumes?.map(r => (
-                        <DropdownMenuItem
-                          key={r.id}
-                          onClick={() => setSelectedResumeId(r.id)}
-                          className={r.id === (selectedResumeId ?? resumes[0]?.id) ? "bg-accent" : ""}
-                        >
-                          {r.title}
-                        </DropdownMenuItem>
-                      ))}
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                ) : selectedResume ? (
-                  <span className="text-xs text-muted-foreground border rounded-md px-2.5 py-1.5 bg-background">
-                    <FileText className="w-3 h-3 inline mr-1" />{selectedResume.title}
-                  </span>
-                ) : null}
+                {resumePicker}
                 <Button
                   size="sm"
                   onClick={handleRecommend}
@@ -685,6 +793,16 @@ export default function CompaniesPage() {
         onAdd={handleAddPosting}
         addingIds={addingIds}
         addedIds={addedIds}
+        {...(dialogMode === "resume" ? {
+          title: "이력서 맞춤 채용공고",
+          description: "사람인에서 찾은 실제 공고를 이력서 적합도 순으로 정렬했습니다. 점수는 공고 제목·조건 기준의 AI 추정치입니다.",
+          summary: discoverInfo && (discoverInfo.jobs.length > 0 || discoverInfo.keywords.length > 0) ? (
+            <div className="rounded-lg bg-muted/60 px-3 py-2 text-xs space-y-1">
+              {discoverInfo.jobs.length > 0 && <p><span className="font-semibold">추천 직무</span> · {discoverInfo.jobs.join(", ")}</p>}
+              {discoverInfo.keywords.length > 0 && <p className="text-muted-foreground"><span className="font-semibold">검색어</span> · {discoverInfo.keywords.join(", ")}</p>}
+            </div>
+          ) : undefined,
+        } : {})}
       />
     </div>
   )
