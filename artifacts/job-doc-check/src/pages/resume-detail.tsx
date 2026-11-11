@@ -409,7 +409,7 @@ export default function ResumeDetail() {
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="pb-4">
             <CardTitle className="text-base flex items-center gap-2 text-slate-800">
-              <Info className="w-4 h-4 text-green-600" />
+              <Info className="w-4 h-4 text-blue-600" />
               기본 정보
             </CardTitle>
           </CardHeader>
@@ -456,7 +456,7 @@ export default function ResumeDetail() {
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="pb-4 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base flex items-center gap-2 text-slate-800">
-              <FileText className="w-4 h-4 text-green-600" />
+              <FileText className="w-4 h-4 text-blue-600" />
               이력서 내용
             </CardTitle>
             <div className="flex items-center gap-2">
@@ -496,7 +496,7 @@ export default function ResumeDetail() {
         <Card className="border-slate-200 shadow-sm">
           <CardHeader className="pb-4 flex flex-row items-center justify-between space-y-0">
             <CardTitle className="text-base flex items-center gap-2 text-slate-800">
-              <PenLine className="w-4 h-4 text-green-600" />
+              <PenLine className="w-4 h-4 text-blue-600" />
               자기소개서
             </CardTitle>
             <div className="text-xs text-slate-500 font-medium bg-slate-100 px-2 py-1 rounded-md">
@@ -545,7 +545,7 @@ export default function ResumeDetail() {
               type="button" 
               disabled={isPending || isChecking} 
               onClick={() => document.getElementById('hidden-submit-btn')?.click()}
-              className="bg-green-600 hover:bg-green-700 text-white shadow-sm"
+              className="bg-blue-600 hover:bg-blue-700 text-white shadow-sm"
             >
               {isChecking ? (
                 <><SpellCheck className="w-4 h-4 sm:mr-2 animate-pulse" /><span className="hidden sm:inline">오탈자 검사 중…</span></>
@@ -570,18 +570,18 @@ export default function ResumeDetail() {
 
                 <TabsContent value="upload" className="space-y-5">
                   <div
-                    className="border-2 border-dashed border-slate-200 rounded-2xl p-12 text-center cursor-pointer hover:border-green-500 hover:bg-green-50/50 transition-all bg-white"
+                    className="border-2 border-dashed border-slate-200 rounded-2xl p-12 text-center cursor-pointer hover:border-blue-500 hover:bg-blue-50/50 transition-all bg-white"
                     onClick={() => fileInputRef.current?.click()}
                     onDragOver={(e) => e.preventDefault()}
                     onDrop={handleDrop}
                   >
-                    <Upload className="w-12 h-12 text-green-500/50 mx-auto mb-4" />
+                    <Upload className="w-12 h-12 text-blue-500/50 mx-auto mb-4" />
                     <p className="text-base font-semibold text-slate-800">PDF 또는 DOCX 파일을 업로드하세요</p>
                     <p className="text-sm text-slate-500 mt-1">클릭하거나 여기에 드래그하세요</p>
                     <p className="text-xs text-slate-400 mt-2">최대 10MB · PDF, DOC, DOCX 지원</p>
                     <p className="text-xs text-slate-400 mt-1">스캔·이미지 PDF도 AI OCR로 지원합니다 (처리에 다소 시간이 걸릴 수 있습니다)</p>
                     {selectedFile && (
-                      <p className="mt-4 text-sm font-semibold text-green-600 bg-green-50 py-1.5 px-3 rounded-full inline-block">{selectedFile.name}</p>
+                      <p className="mt-4 text-sm font-semibold text-blue-600 bg-blue-50 py-1.5 px-3 rounded-full inline-block">{selectedFile.name}</p>
                     )}
                   </div>
                   <input ref={fileInputRef} type="file" accept=".pdf,.doc,.docx"
@@ -599,14 +599,14 @@ export default function ResumeDetail() {
                       </div>
 
                       {isUploading && (
-                        <div className="rounded-xl bg-green-50 border border-green-100 px-4 py-3 flex items-center gap-3 text-sm text-green-700">
+                        <div className="rounded-xl bg-blue-50 border border-blue-100 px-4 py-3 flex items-center gap-3 text-sm text-blue-700">
                           <Loader2 className="w-4 h-4 animate-spin shrink-0" />
                           <span>파일을 분석하는 중입니다. 자기소개서를 자동으로 분리하고 표를 변환합니다…</span>
                         </div>
                       )}
 
                       <div className="flex justify-end gap-3 pt-2">
-                        <Button onClick={handleUpload} disabled={isUploading || !selectedFile} className="w-full sm:w-auto gap-2 bg-green-600 hover:bg-green-700 text-white">
+                        <Button onClick={handleUpload} disabled={isUploading || !selectedFile} className="w-full sm:w-auto gap-2 bg-blue-600 hover:bg-blue-700 text-white">
                           {isUploading ? (
                             <><Loader2 className="w-4 h-4 animate-spin" />분석 중…</>
                           ) : (
@@ -628,10 +628,10 @@ export default function ResumeDetail() {
             <div className="space-y-4">
               {/* AI 요약 카드 */}
               {career?.result?.resumeSummary && (
-                <Card className="border-teal-100 bg-teal-50/60 shadow-sm">
+                <Card className="border-indigo-100 bg-indigo-50/60 shadow-sm">
                   <CardHeader className="pb-3">
-                    <CardTitle className="text-sm font-bold text-teal-800 flex items-center gap-2">
-                      <Sparkles className="w-4 h-4 text-teal-600" />
+                    <CardTitle className="text-sm font-bold text-indigo-800 flex items-center gap-2">
+                      <Sparkles className="w-4 h-4 text-indigo-600" />
                       AI 요약
                     </CardTitle>
                   </CardHeader>
@@ -677,7 +677,7 @@ export default function ResumeDetail() {
                       <Activity className="w-3.5 h-3.5" />커리어 분석
                     </span>
                     <span className="text-xs font-medium">
-                      {career?.inProgress ? <span className="text-teal-600 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />분석 중</span>
+                      {career?.inProgress ? <span className="text-indigo-600 flex items-center gap-1"><Loader2 className="w-3 h-3 animate-spin" />분석 중</span>
                         : career?.error ? <span className="text-red-600">오류 발생</span>
                         : career?.result ? <span className="text-emerald-600">완료됨</span>
                         : <span className="text-slate-400">대기 중</span>}
@@ -699,7 +699,7 @@ export default function ResumeDetail() {
                     type="button"
                     variant="outline"
                     onClick={handleDownloadPdf}
-                    className="w-full gap-2 text-green-700 border-green-200 hover:bg-green-50 shadow-sm"
+                    className="w-full gap-2 text-blue-700 border-blue-200 hover:bg-blue-50 shadow-sm"
                     disabled={(htmlToText(form.watch("content") || "").length === 0 && htmlToText(form.watch("coverLetter") || "").length === 0)}
                   >
                     <FileDown className="w-4 h-4" />

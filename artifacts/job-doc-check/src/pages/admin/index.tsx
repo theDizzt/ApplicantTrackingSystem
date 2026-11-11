@@ -88,7 +88,7 @@ interface AlertDeliveryStatus {
 const PLAN_LABELS: Record<string, string> = { free: "Free", basic: "베이직", premium: "프리미엄" }
 const PLAN_COLORS: Record<string, string> = {
   free: "bg-slate-100 text-slate-700",
-  basic: "bg-green-100 text-green-700",
+  basic: "bg-blue-100 text-blue-700",
   premium: "bg-amber-100 text-amber-700",
 }
 
