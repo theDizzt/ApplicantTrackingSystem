@@ -3,10 +3,12 @@ import bcrypt from "bcrypt";
 import { eq } from "drizzle-orm";
 import { db, usersTable, organizationsTable } from "@workspace/db";
 import { logger } from "../lib/logger";
+import { isAdminEmail } from "../lib/admin-emails";
 
 declare module "express-session" {
   interface SessionData {
     userId: number;
+    isAdmin?: boolean;
   }
 }
 
@@ -93,12 +95,15 @@ router.post("/auth/login", async (req, res): Promise<void> => {
   }
 
   req.session.userId = user.id;
+  // ADMIN_EMAILS에 등록된 계정이면 관리자 페이지 권한도 켠다
+  if (isAdminEmail(user.email)) req.session.isAdmin = true;
   res.json({
     id: user.id,
     email: user.email,
     name: user.name,
     subscriptionStatus: user.subscriptionStatus,
     createdAt: user.createdAt.toISOString(),
+    isAdmin: req.session.isAdmin === true,
   });
 });
 
@@ -121,12 +126,15 @@ router.get("/auth/me", async (req, res): Promise<void> => {
     res.status(401).json({ error: "사용자를 찾을 수 없습니다." });
     return;
   }
+  // 이미 로그인된 세션도 다시 로그인하지 않고 관리자 권한을 받도록 여기서도 확인한다
+  if (isAdminEmail(user.email)) req.session.isAdmin = true;
   res.json({
     id: user.id,
     email: user.email,
     name: user.name,
     subscriptionStatus: user.subscriptionStatus,
     createdAt: user.createdAt.toISOString(),
+    isAdmin: req.session.isAdmin === true,
   });
 });
 

@@ -1,6 +1,6 @@
 import { useState } from "react"
 import { Link, useLocation } from "wouter"
-import { FileText, Building2, Users, CreditCard, LogOut, LayoutDashboard, BrainCircuit, Menu, X, Mic, CalendarDays, Award } from "lucide-react"
+import { FileText, Building2, Users, CreditCard, LogOut, LayoutDashboard, BrainCircuit, Menu, X, Mic, CalendarDays, Award, ShieldCheck } from "lucide-react"
 import { useGetMe, useLogout, getGetMeQueryKey } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
@@ -42,6 +42,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     { href: "/interviews", label: "면접 연습", icon: Users },
     { href: "/cover-letter", label: "음성 자소서", icon: Mic },
     { href: "/subscription", label: "구독 관리", icon: CreditCard },
+    // ADMIN_EMAILS에 등록된 계정에만 보인다
+    ...((user as { isAdmin?: boolean } | undefined)?.isAdmin
+      ? [{ href: "/admin", label: "관리자", icon: ShieldCheck }]
+      : []),
   ]
 
   const sidebarContent = (
