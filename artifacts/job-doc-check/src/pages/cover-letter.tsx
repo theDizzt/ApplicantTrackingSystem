@@ -16,6 +16,8 @@ import {
 import { useQueryClient } from '@tanstack/react-query';
 import { useLocation } from 'wouter';
 import { trackEvent } from '@/lib/analytics';
+import { LiveWaveform } from '@/components/audio/live-waveform';
+import { AudioPlayer } from '@/components/audio/audio-player';
 
 const getSupportedMimeType = () => {
   const types = ['audio/webm', 'audio/mp4', 'audio/ogg'];
@@ -79,7 +81,9 @@ export default function CoverLetterPage() {
   const [recording, setRecording] = useState(false);
   const [acquiringMic, setAcquiringMic] = useState(false);
   const [recordingTime, setRecordingTime] = useState(0);
-  const [audioFile, setAudioFile] = useState<{ blob: Blob | File; url: string; name: string } | null>(null);
+  const [audioFile, setAudioFile] = useState<{ blob: Blob | File; url: string; name: string; downloadName?: string } | null>(null);
+  // 녹음 중인 마이크 스트림 (실시간 파형 표시용)
+  const [liveStream, setLiveStream] = useState<MediaStream | null>(null);
   const [audioSource, setAudioSource] = useState<'recording' | 'file' | null>(null);
   
   const [status, setStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
@@ -164,6 +168,7 @@ export default function CoverLetterPage() {
         return;
       }
       streamRef.current = stream;
+      setLiveStream(stream);
       
       const mimeType = getSupportedMimeType();
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
@@ -182,8 +187,12 @@ export default function CoverLetterPage() {
         const ext = type.includes('mp4') ? 'mp4' : type.includes('ogg') ? 'ogg' : 'webm';
         const name = `recording.${ext}`;
         const url = URL.createObjectURL(blob);
+        const stamp = new Date();
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const downloadName = `음성자소서_녹음_${stamp.getFullYear()}${pad(stamp.getMonth() + 1)}${pad(stamp.getDate())}-${pad(stamp.getHours())}${pad(stamp.getMinutes())}.${ext}`;
         
-        setAudioFile({ blob, url, name });
+        setAudioFile({ blob, url, name, downloadName });
+        setLiveStream(null);
         setAudioSource('recording');
         if (streamRef.current) {
           streamRef.current.getTracks().forEach(t => t.stop());
@@ -196,6 +205,7 @@ export default function CoverLetterPage() {
         timerRef.current = null;
         streamRef.current?.getTracks().forEach(track => track.stop());
         streamRef.current = null;
+        setLiveStream(null);
         mediaRecorderRef.current = null;
         setRecording(false);
         setStatus('error');
@@ -210,6 +220,7 @@ export default function CoverLetterPage() {
           if (timerRef.current) window.clearInterval(timerRef.current);
           timerRef.current = null;
           setRecording(false);
+          setLiveStream(null);
         };
       });
       
@@ -521,9 +532,10 @@ export default function CoverLetterPage() {
                       </div>
 
                       <div className="flex flex-col items-center pt-6 border-t border-slate-200/60">
-                        <div className="text-4xl font-mono font-light mb-6 text-slate-700 tracking-wider">
+                        <div className="text-4xl font-mono font-light mb-4 text-slate-700 tracking-wider">
                           {formatTime(recordingTime)}
                         </div>
+                        {recording && <LiveWaveform stream={liveStream} height={56} className="max-w-md mb-4" />}
                         
                         {!recording ? (
                           <Button 
@@ -555,9 +567,10 @@ export default function CoverLetterPage() {
                 </TabsContent>
                 
                 <TabsContent value="record" className="flex flex-col items-center py-12 border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50 hover:bg-slate-50 transition-colors">
-                  <div className="text-5xl font-mono font-light mb-8 text-slate-700 tracking-wider" data-testid="text-timer">
+                  <div className="text-5xl font-mono font-light mb-6 text-slate-700 tracking-wider" data-testid="text-timer">
                     {formatTime(recordingTime)}
                   </div>
+                  {recording && <LiveWaveform stream={liveStream} className="max-w-md px-6 mb-4" />}
                   
                   {!recording ? (
                     <Button 
@@ -609,12 +622,13 @@ export default function CoverLetterPage() {
                 <h3 className="text-xl font-semibold text-slate-900 mb-2">오디오가 준비되었습니다</h3>
                 <p className="text-sm text-slate-500 mb-8 max-w-md text-center truncate px-4">{audioFile.name}</p>
                 
-                <audio 
-                  src={audioFile.url} 
-                  controls 
-                  className="w-full max-w-md mb-10" 
-                  data-testid="audio-preview"
-                />
+                <div className="w-full max-w-md px-4 mb-10">
+                  <AudioPlayer
+                    src={audioFile.url}
+                    blob={audioFile.blob}
+                    downloadName={audioFile.downloadName ?? audioFile.name}
+                  />
+                </div>
                 
                 <div className="flex gap-4 w-full max-w-md px-4">
                   <Button 
