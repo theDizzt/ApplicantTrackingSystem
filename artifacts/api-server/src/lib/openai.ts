@@ -2,6 +2,9 @@ import OpenAI from "openai";
 import { eq, inArray } from "drizzle-orm";
 import { db, settingsTable } from "@workspace/db";
 import { logger } from "./logger";
+import { readFileSync, writeFileSync } from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 // AI 공급자 설정 — 관리자 페이지(DB settings 테이블)에서 우선 조회,
 // 없으면 환경변수로 폴백. (설치 시 키 입력을 생략하고 /admin에서 등록 가능)
@@ -30,7 +33,25 @@ let aiActive = 0;
 // 한 번 차단되면 AI_BLOCK_COOLDOWN_MS(기본 5분) 동안 AI 서버에 요청을 보내지 않고
 // 바로 안내 오류를 돌려준다.
 const AI_BLOCK_COOLDOWN_MS = Math.max(10_000, Number(process.env.AI_BLOCK_COOLDOWN_MS) || 5 * 60_000);
-let aiBlockedUntil = 0;
+
+// 개발 모드는 코드가 바뀔 때마다 서버가 자동 재시작되므로, 쉬는 시간을 파일에 남겨
+// 재시작 직후 차단 중인 AI 서버를 다시 호출하지 않게 한다.
+const AI_BLOCK_FILE = path.join(os.tmpdir(), "ats-ai-blocked-until.txt");
+
+function readPersistedBlock(): number {
+  try {
+    const value = Number(readFileSync(AI_BLOCK_FILE, "utf8").trim());
+    return Number.isFinite(value) && value > Date.now() ? value : 0;
+  } catch {
+    return 0;
+  }
+}
+
+function persistBlock(until: number): void {
+  try { writeFileSync(AI_BLOCK_FILE, String(until)); } catch { /* 기록 실패는 무시 (메모리 값으로 동작) */ }
+}
+
+let aiBlockedUntil = process.env.VITEST ? 0 : readPersistedBlock();
 
 export function aiBlockedMessage(now: number = Date.now()): string | null {
   if (now >= aiBlockedUntil) return null;
@@ -51,6 +72,7 @@ async function noteBlockIfAny(response: Response): Promise<void> {
   const body = await response.clone().text().catch(() => "");
   if (/security_policy_blocked/.test(body)) {
     aiBlockedUntil = Date.now() + AI_BLOCK_COOLDOWN_MS;
+    if (!process.env.VITEST) persistBlock(aiBlockedUntil);
     logger.warn({ cooldownSec: AI_BLOCK_COOLDOWN_MS / 1000, body: body.slice(0, 300) },
       "AI 서버 security_policy_blocked 수신 — 쉬는 시간 동안 AI 호출 중단");
   }

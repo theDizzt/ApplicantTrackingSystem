@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "export NODE_ENV=development && pnpm run build && pnpm run start",
+    "dev": "export NODE_ENV=development && pnpm --filter @workspace/db run migrate:guided-prompt-monitor && node ./build.mjs --watch",
     "build": "node ./build.mjs",
     "start": "pnpm --filter @workspace/db run migrate:guided-prompt-monitor && node --enable-source-maps ./dist/index.mjs",
     "smoke:start": "node ./scripts/smoke-start.mjs",

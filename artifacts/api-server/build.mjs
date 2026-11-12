@@ -1,9 +1,13 @@
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { build as esbuild } from "esbuild";
+import { build as esbuild, context as esbuildContext } from "esbuild";
 import esbuildPluginPino from "esbuild-plugin-pino";
 import { rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
+
+// `node build.mjs --watch` (개발 모드): 소스가 바뀌면 다시 빌드하고 서버를 자동 재시작한다.
+const watchMode = process.argv.includes("--watch");
 
 // Plugins (e.g. 'esbuild-plugin-pino') may use `require` to resolve dependencies
 globalThis.require = createRequire(import.meta.url);
@@ -14,7 +18,7 @@ async function buildAll() {
   const distDir = path.resolve(artifactDir, "dist");
   await rm(distDir, { recursive: true, force: true });
 
-  await esbuild({
+  const options = {
     entryPoints: [path.resolve(artifactDir, "src/index.ts")],
     platform: "node",
     bundle: true,
@@ -117,7 +121,74 @@ globalThis.__filename = __bannerUrl.fileURLToPath(import.meta.url);
 globalThis.__dirname = __bannerPath.dirname(globalThis.__filename);
     `,
     },
+  };
+
+  if (!watchMode) {
+    await esbuild(options);
+    return;
+  }
+
+  // ── 개발 모드: 감시 빌드 + 서버 자동 재시작 ─────────────────────────────
+  // node --watch는 pino 로그 워커(thread-stream)와 충돌해 서버가 바로 죽으므로,
+  // 빌드가 성공할 때마다 여기서 서버 프로세스를 직접 껐다 켠다.
+  let server = null;
+  let restarting = Promise.resolve();
+
+  const startServer = () => {
+    const child = spawn(
+      process.execPath,
+      ["--enable-source-maps", path.join(distDir, "index.mjs")],
+      { cwd: artifactDir, stdio: "inherit", env: process.env },
+    );
+    child.on("exit", (code, signal) => {
+      if (server === child && !signal) {
+        console.log(`[dev] API 서버가 종료됐습니다 (code ${code}). 소스를 고쳐 저장하면 다시 시작합니다.`);
+        server = null;
+      }
+    });
+    server = child;
+  };
+
+  const stopServer = () => new Promise((resolve) => {
+    const child = server;
+    server = null;
+    if (!child || child.exitCode !== null) return resolve();
+    child.once("exit", () => resolve());
+    child.kill();
   });
+
+  const ctx = await esbuildContext({
+    ...options,
+    plugins: [
+      ...options.plugins,
+      {
+        name: "restart-api-server",
+        setup(b) {
+          b.onEnd((result) => {
+            if (result.errors.length > 0) {
+              console.log("[dev] 빌드 오류 — 이전 서버를 그대로 둡니다. 오류를 고치면 다시 시작합니다.");
+              return;
+            }
+            restarting = restarting.then(async () => {
+              if (server) console.log("[dev] 소스가 바뀌어 API 서버를 다시 시작합니다...");
+              await stopServer();
+              startServer();
+            });
+          });
+        },
+      },
+    ],
+  });
+  await ctx.watch(); // 첫 빌드 후 서버를 띄우고, 이후 저장할 때마다 다시 빌드·재시작
+  console.log("[dev] 소스 변경을 감시합니다. 저장하면 API 서버가 자동으로 다시 시작됩니다.");
+
+  const shutdown = async () => {
+    await stopServer();
+    await ctx.dispose();
+    process.exit(0);
+  };
+  process.on("SIGINT", shutdown);
+  process.on("SIGTERM", shutdown);
 }
 
 buildAll().catch((err) => {
