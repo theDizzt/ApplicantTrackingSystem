@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // openai.ts는 DB 클라이언트를 불러오므로 막아 둔다 (여기서는 설정 조회를 쓰지 않음)
 vi.mock("@workspace/db", () => ({ db: {}, settingsTable: {} }));
 
-import { aiBlockedMessage, createAIClient, resetAIBlockForTest } from "./openai";
+import { aiBlockedMessage, createAIClient, resetAIBlockForTest, setAIFallbackModelsForTest } from "./openai";
 
 function chatOk() {
   return new Response(JSON.stringify({
@@ -16,8 +16,30 @@ const ask = (client: ReturnType<typeof createAIClient>) =>
   client.chat.completions.create({ model: "m", messages: [{ role: "user", content: "hi" }] });
 
 describe("AI 호출 제한", () => {
-  beforeEach(() => resetAIBlockForTest());
-  afterEach(() => { vi.unstubAllGlobals(); resetAIBlockForTest(); });
+  beforeEach(() => { resetAIBlockForTest(); setAIFallbackModelsForTest([]); });
+  afterEach(() => { vi.unstubAllGlobals(); resetAIBlockForTest(); setAIFallbackModelsForTest([]); });
+
+  it("모델이 500을 내면 예비 모델로 한 번씩 다시 보낸다", async () => {
+    setAIFallbackModelsForTest(["broken-model", "backup-a", "backup-b"]);
+    const models: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (_url: string, init: RequestInit) => {
+      const model = JSON.parse(String(init.body)).model as string;
+      models.push(model);
+      return model === "backup-a" ? chatOk() : new Response("Internal Server Error", { status: 500 });
+    }));
+    const client = createAIClient({ apiKey: "k", baseURL: "https://ai.example/v1" });
+    await client.chat.completions.create({ model: "broken-model", messages: [{ role: "user", content: "hi" }] });
+    // 원래 모델과 같은 예비 모델은 건너뛰고, 성공하면 거기서 멈춘다
+    expect(models).toEqual(["broken-model", "backup-a"]);
+  });
+
+  it("예비 모델이 없으면 500을 그대로 돌려준다", async () => {
+    const fetchMock = vi.fn(async () => new Response("Internal Server Error", { status: 500 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const client = createAIClient({ apiKey: "k", baseURL: "https://ai.example/v1" });
+    await expect(ask(client)).rejects.toMatchObject({ status: 500 });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 
   it("동시에 한 개씩만 보낸다", async () => {
     let active = 0;

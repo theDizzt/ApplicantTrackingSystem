@@ -81,13 +81,48 @@ const limitedFetch: typeof fetch = async (input, init) => {
     // 대기하는 사이에 차단됐으면 보내지 않는다
     const blocked = aiBlockedMessage();
     if (blocked) return blockedResponse(blocked);
-    const response = await fetch(input, init);
+    let response = await fetch(input, init);
     await noteBlockIfAny(response);
+    if (response.status >= 500) response = await retryWithFallbackModels(input, init, response);
     return response;
   } finally {
     releaseAISlot();
   }
 };
+
+// ─── 모델 고장 시 예비 모델로 재시도 ───────────────────────────────────────
+// AI 서버에서 모델 하나가 통째로 500을 내는 일이 반복돼(hyperclovax → exaone),
+// 채팅 요청이 5xx로 실패하면 설정 ai_fallback_models(쉼표 구분)의 모델로 차례로 다시 보낸다.
+// 같은 대기열 슬롯 안에서 하나씩 보내므로 동시 요청 한도를 넘지 않는다.
+let aiFallbackModels: string[] = [];
+
+export function setAIFallbackModelsForTest(models: string[]): void {
+  aiFallbackModels = models;
+}
+
+async function retryWithFallbackModels(
+  input: Parameters<typeof fetch>[0],
+  init: Parameters<typeof fetch>[1],
+  failed: Response,
+): Promise<Response> {
+  const url = typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url;
+  if (!/\/chat\/completions$/.test(url) || typeof init?.body !== "string" || aiFallbackModels.length === 0) return failed;
+  let body: Record<string, unknown>;
+  try { body = JSON.parse(init.body) as Record<string, unknown>; } catch { return failed; }
+  const original = typeof body.model === "string" ? body.model : "";
+
+  let last = failed;
+  for (const model of aiFallbackModels) {
+    if (model === original) continue;
+    if (aiBlockedMessage()) return last;
+    logger.warn({ from: original, to: model, status: last.status }, "AI 모델 오류 — 예비 모델로 재시도");
+    const retried = await fetch(input, { ...init, body: JSON.stringify({ ...body, model }) });
+    await noteBlockIfAny(retried);
+    if (retried.status < 500) return retried;
+    last = retried;
+  }
+  return last;
+}
 
 /**
  * 추론용 AI 클라이언트를 만든다. 모든 요청은 공용 동시 실행 제한을 거치며,
@@ -145,9 +180,12 @@ export async function getAIConfig(): Promise<AIConfig> {
         "ai_api_key",
         "ai_base_url",
         "ai_model",
+        "ai_fallback_models",
         ...Object.values(AI_ROLE_SETTING_KEYS),
       ]));
     map = Object.fromEntries(rows.map((r) => [r.key, r.value]));
+    aiFallbackModels = (map["ai_fallback_models"] ?? "")
+      .split(",").map((m) => m.trim()).filter(Boolean).slice(0, 3);
   } catch {
     // settings 테이블이 아직 없는 DB(스키마 미적용)에서는 환경변수 폴백만 사용
   }
