@@ -116,9 +116,16 @@ router.post("/resumes/upload", requireAuth, upload.single("file"), async (req, r
       rawText = await parseDocx(req.file.buffer);
     }
   } catch (err) {
-    logger.error({ err }, "File parsing failed");
-    res.status(422).json({ error: "파일 내용을 읽는 데 실패했습니다. 파일이 손상되었거나 지원하지 않는 형식일 수 있습니다." });
-    return;
+    if (ext === ".pdf") {
+      // pdftotext가 이 파일에서 실패해도(특이한 PDF, 실행 환경 문제 등) 바로 포기하지 않고
+      // 아래 OCR 경로로 한 번 더 시도한다.
+      logger.warn({ err }, "pdftotext failed – trying vision OCR instead");
+      rawText = "";
+    } else {
+      logger.error({ err }, "File parsing failed");
+      res.status(422).json({ error: "파일 내용을 읽는 데 실패했습니다. 파일이 손상되었거나 지원하지 않는 형식일 수 있습니다." });
+      return;
+    }
   }
 
   const blankTextMessage =
