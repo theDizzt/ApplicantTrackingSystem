@@ -193,6 +193,23 @@ describe("consumeAnalysisQuota", () => {
     expect(store.get(22)!.analysesUsedThisMonth).toBe(999);
   });
 
+  it("ADMIN_EMAILS에 등록된 관리자 계정은 무료 플랜이어도 소비 없이 허용된다", async () => {
+    const original = process.env.ADMIN_EMAILS;
+    process.env.ADMIN_EMAILS = "admin@example.com";
+    try {
+      seed({ id: 24, subscriptionStatus: "free", analysesUsedThisMonth: 1, email: "Admin@Example.com" } as Partial<FakeUser> & { id: number });
+      seed({ id: 25, subscriptionStatus: "free", analysesUsedThisMonth: 1, email: "user@example.com" } as Partial<FakeUser> & { id: number });
+
+      expect(await consumeAnalysisQuota(24)).toEqual({ ok: true });
+      expect(store.get(24)!.analysesUsedThisMonth).toBe(1);
+      // 관리자가 아닌 무료 사용자는 그대로 차단된다
+      expect((await consumeAnalysisQuota(25)).ok).toBe(false);
+    } finally {
+      if (original === undefined) delete process.env.ADMIN_EMAILS;
+      else process.env.ADMIN_EMAILS = original;
+    }
+  });
+
   it("동시 stale 월 리셋 요청 두 건은 각각 소비되어 사용량이 2가 된다", async () => {
     const lastMonth = new Date();
     lastMonth.setMonth(lastMonth.getMonth() - 1);

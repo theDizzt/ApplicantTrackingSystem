@@ -1,5 +1,6 @@
 import { eq, and, sql } from "drizzle-orm";
 import { db, usersTable } from "@workspace/db";
+import { isAdminEmail } from "./admin-emails";
 
 /**
  * 플랜별 월간 심사 한도. subscriptionStatus(free/basic/premium) 기준.
@@ -14,9 +15,12 @@ function limitFor(status: string): number {
 
 type UserRow = typeof usersTable.$inferSelect;
 
-/** 서버에 영속된 무제한 이용 권한 여부. */
+/**
+ * 무제한 이용 권한 여부.
+ * 서버에 영속된 권한(hasUnlimitedAnalyses) 또는 관리자 계정(ADMIN_EMAILS)이면 플랜 제한을 받지 않는다.
+ */
 export function hasUnlimitedAnalyses(user: UserRow): boolean {
-  return user.hasUnlimitedAnalyses;
+  return user.hasUnlimitedAnalyses || isAdminEmail(user.email);
 }
 
 /** KST(UTC+9) 기준 "YYYY-M" 형태의 달력 월 키를 만든다. */

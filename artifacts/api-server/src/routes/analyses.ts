@@ -7,7 +7,7 @@ import { getAI, getSecondaryAIs, checkAIHealth } from "../lib/openai";
 import { logger } from "../lib/logger";
 import { extractUrls, analyzeUrls, formatUrlAnalysisForPrompt } from "../lib/url-analyzer";
 import { jobSimilarityScore } from "../lib/similarity";
-import { consumeAnalysisQuota, syncSubscription } from "../lib/subscription-limits";
+import { consumeAnalysisQuota, hasUnlimitedAnalyses, syncSubscription } from "../lib/subscription-limits";
 import { EVIDENCE_RULES, sanitizeRequirementChecks, sanitizeScoreFactors } from "../lib/score-evidence";
 import {
   REJECTION_REPORT_SYSTEM,
@@ -570,7 +570,8 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
     const [user] = await db.select().from(usersTable).where(eq(usersTable.id, resume.userId));
     if (user) {
       const synced = await syncSubscription(user);
-      isFreeUser = synced.subscriptionStatus === "free";
+      // 무제한 권한·관리자 계정은 무료 플랜이어도 유료와 같은 다중 모델 의견을 받는다
+      isFreeUser = synced.subscriptionStatus === "free" && !hasUnlimitedAnalyses(synced);
     }
   } catch (err) {
     // 구독 상태 조회 실패는 심사를 막지 않는다 — 기본(비무료) 동작으로 진행한다.
