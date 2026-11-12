@@ -149,7 +149,13 @@ export default function InterviewDetail() {
         evaluateAnswers.mutate({ id: interviewId }, {
           onSuccess: (data) => {
             queryClient.setQueryData(getGetInterviewQueryKey(interviewId), data)
-          }
+          },
+          onError: (err) => {
+            // 서버가 답변 입력 상태로 되돌려 두므로, 저장된 답변으로 다시 제출할 수 있다
+            const reason = (err as { data?: { error?: unknown } } | null)?.data?.error
+            toast.error(typeof reason === "string" && reason ? reason : "답변 평가에 실패했습니다. 다시 제출해주세요.")
+            queryClient.invalidateQueries({ queryKey: getGetInterviewQueryKey(interviewId) })
+          },
         })
       },
       onError: () => {

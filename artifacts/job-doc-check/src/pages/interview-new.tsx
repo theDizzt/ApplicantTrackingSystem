@@ -30,8 +30,10 @@ export default function NewInterviewPage() {
         toast.success("면접 세션이 생성되었습니다")
         setLocation(`/interviews/${data.id}`)
       },
-      onError: () => {
-        toast.error("면접 세션 시작에 실패했습니다")
+      onError: (err) => {
+        // 서버가 알려 준 이유(AI 일시 차단 등)를 그대로 보여 준다
+        const reason = (err as { data?: { error?: unknown } } | null)?.data?.error
+        toast.error(typeof reason === "string" && reason ? reason : "면접 세션 시작에 실패했습니다")
       }
     })
   }

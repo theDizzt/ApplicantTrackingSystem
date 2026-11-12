@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { eq, inArray } from "drizzle-orm";
 import { db, settingsTable } from "@workspace/db";
+import { logger } from "./logger";
 
 // AI 공급자 설정 — 관리자 페이지(DB settings 테이블)에서 우선 조회,
 // 없으면 환경변수로 폴백. (설치 시 키 입력을 생략하고 /admin에서 등록 가능)
@@ -18,10 +19,47 @@ const CACHE_TTL_MS = 30_000;
 
 // ─── AI 서버 동시 요청 제한 ────────────────────────────────────────────────
 // AI 서버(open.hasa.re.kr 등)는 키당 동시 요청 한도를 넘긴 뒤 다시 호출하면
-// 경고를 누적하고 점점 길게 차단한다. 그래서 이 프로세스의 모든 AI 호출을
-// 하나의 대기열로 묶어 동시에 AI_MAX_CONCURRENCY(기본 2)개까지만 보낸다.
-const AI_MAX_CONCURRENCY = Math.max(1, Number(process.env.AI_MAX_CONCURRENCY) || 2);
+// 경고를 누적하고 점점 길게 차단한다. (동시 2개에서 차단된 것을 확인함)
+// 그래서 이 프로세스의 모든 AI 호출을 하나의 대기열로 묶어
+// 동시에 AI_MAX_CONCURRENCY(기본 1)개까지만 보낸다.
+const AI_MAX_CONCURRENCY = Math.max(1, Number(process.env.AI_MAX_CONCURRENCY) || 1);
 let aiActive = 0;
+
+// ─── 차단 응답 후 쉬는 시간 ────────────────────────────────────────────────
+// 403 security_policy_blocked를 받은 뒤 계속 호출하면 "반복 호출"로 경고가 쌓인다.
+// 한 번 차단되면 AI_BLOCK_COOLDOWN_MS(기본 5분) 동안 AI 서버에 요청을 보내지 않고
+// 바로 안내 오류를 돌려준다.
+const AI_BLOCK_COOLDOWN_MS = Math.max(10_000, Number(process.env.AI_BLOCK_COOLDOWN_MS) || 5 * 60_000);
+let aiBlockedUntil = 0;
+
+export function aiBlockedMessage(now: number = Date.now()): string | null {
+  if (now >= aiBlockedUntil) return null;
+  const minutes = Math.max(1, Math.ceil((aiBlockedUntil - now) / 60_000));
+  return `AI 서버가 요청을 일시 차단했습니다(동시 요청 한도 초과). 약 ${minutes}분 뒤에 다시 시도해주세요.`;
+}
+
+function blockedResponse(message: string): Response {
+  return new Response(JSON.stringify({ error: { message, code: "ai_temporarily_blocked" } }), {
+    status: 503,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+/** 403 응답이 AI 서버의 보안 정책 차단이면 쉬는 시간을 시작한다. */
+async function noteBlockIfAny(response: Response): Promise<void> {
+  if (response.status !== 403) return;
+  const body = await response.clone().text().catch(() => "");
+  if (/security_policy_blocked/.test(body)) {
+    aiBlockedUntil = Date.now() + AI_BLOCK_COOLDOWN_MS;
+    logger.warn({ cooldownSec: AI_BLOCK_COOLDOWN_MS / 1000, body: body.slice(0, 300) },
+      "AI 서버 security_policy_blocked 수신 — 쉬는 시간 동안 AI 호출 중단");
+  }
+}
+
+/** 테스트용: 차단 상태 초기화 */
+export function resetAIBlockForTest(): void {
+  aiBlockedUntil = 0;
+}
 const aiWaiters: Array<() => void> = [];
 
 async function acquireAISlot(): Promise<void> {
@@ -36,9 +74,16 @@ function releaseAISlot(): void {
 }
 
 const limitedFetch: typeof fetch = async (input, init) => {
+  const blockedBefore = aiBlockedMessage();
+  if (blockedBefore) return blockedResponse(blockedBefore);
   await acquireAISlot();
   try {
-    return await fetch(input, init);
+    // 대기하는 사이에 차단됐으면 보내지 않는다
+    const blocked = aiBlockedMessage();
+    if (blocked) return blockedResponse(blocked);
+    const response = await fetch(input, init);
+    await noteBlockIfAny(response);
+    return response;
   } finally {
     releaseAISlot();
   }
@@ -216,7 +261,7 @@ export async function getAI(role: AIRole = "screening"): Promise<{ openai: OpenA
  * AI 서버 연결 상태를 사전 점검한다. (모델 목록 조회, 5초 타임아웃)
  * 실패 시 사용자에게 보여줄 한국어 메시지를 반환한다.
  */
-export type AIHealthCode = "ok" | "no_key" | "auth_error" | "unreachable" | "config_error";
+export type AIHealthCode = "ok" | "no_key" | "auth_error" | "unreachable" | "config_error" | "blocked";
 
 export async function checkAIHealth(): Promise<{ ok: boolean; code: AIHealthCode; error?: string }> {
   let config: AIConfig;
@@ -232,16 +277,29 @@ export async function checkAIHealth(): Promise<{ ok: boolean; code: AIHealthCode
       error: "AI API 키가 설정되지 않았습니다. 관리자 페이지(/admin)의 AI 설정에서 키를 등록해주세요.",
     };
   }
+  // 차단 중에는 점검 요청도 보내지 않는다 (차단 중 호출이 경고로 쌓이지 않게)
+  const blocked = aiBlockedMessage();
+  if (blocked) return { ok: false, code: "blocked", error: blocked };
+
   const client = new OpenAI({
     apiKey: config.apiKey,
     baseURL: config.baseUrl,
     timeout: 5_000,
     maxRetries: 0,
+    // 점검 요청은 대기열을 거치지 않는다 (긴 AI 호출 뒤에서 5초 제한에 걸리지 않게).
+    // 대신 차단 응답은 기록한다.
+    fetch: async (input, init) => {
+      const response = await fetch(input, init);
+      await noteBlockIfAny(response);
+      return response;
+    },
   });
   try {
     await client.models.list();
     return { ok: true, code: "ok" };
   } catch (err) {
+    const blockedNow = aiBlockedMessage();
+    if (blockedNow) return { ok: false, code: "blocked", error: blockedNow };
     // HTTP 응답이 온 경우(404/405 등) 서버 자체는 살아있는 것 —
     // 일부 OpenAI 호환 프록시는 /models 엔드포인트를 지원하지 않는다.
     if (err instanceof OpenAI.APIError && typeof err.status === "number") {

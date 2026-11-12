@@ -109,6 +109,7 @@ vi.mock("../lib/openai", async () => {
   const { default: OpenAI } = await import("openai");
   return {
   DEFAULT_STT_MODEL: "whisper-1",
+  aiBlockedMessage: () => null,
   createAIClient: (opts: unknown) => new (OpenAI as unknown as new (o: unknown) => unknown)(opts),
   getSetting: mocks.getSetting,
   getAI: async () => ({
@@ -215,6 +216,23 @@ describe("interview routes", () => {
     expect(prompt).toContain("정확한 회사");
     expect(prompt).toContain("주도적으로 협업하는 인재");
     expect(prompt).toContain("Node.js API를 개발합니다");
+  });
+
+  it("removes the session and returns an error when question generation fails", async () => {
+    mocks.insertResults.push([session]);
+    mocks.aiCreate.mockRejectedValue(new Error("403 security_policy_blocked"));
+    setSelectResults([
+      [{ id: 21, userId: 1, title: "백엔드 이력서", content: "지원자 경력", coverLetter: null }],
+      [company],
+      [],
+    ]);
+
+    const response = await request(makeApp()).post("/interviews").set("x-user-id", "1").send({ resumeId: 21, companyId: 31 });
+    // 질문 없는 세션이 "생성 중"으로 남아 화면이 멈추지 않도록 지우고 오류를 돌려준다
+    expect(response.status).toBe(502);
+    expect(response.body.error).toContain("면접 질문을 만들지 못했습니다");
+    expect(mocks.delete).toHaveBeenCalledTimes(2);
+    expect(mocks.update).not.toHaveBeenCalled();
   });
 
   it("adds one abstract-grounded question and strips HTML from the prompt", async () => {

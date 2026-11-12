@@ -17,7 +17,7 @@ import {
 } from "@workspace/api-zod";
 import { db, interviewSessionsTable, interviewQuestionsTable, resumesTable, companiesTable, analysesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
-import { getAI } from "../lib/openai";
+import { aiBlockedMessage, getAI } from "../lib/openai";
 import { resumeHtmlToText } from "../lib/resume-text";
 import {
   FOLLOW_UP_ANSWER_SYSTEM,
@@ -150,6 +150,7 @@ router.post("/interviews", requireAuth, async (req, res): Promise<void> => {
     .values({ userId, resumeId, companyId, status: "pending" })
     .returning();
 
+  let generated = false; // 질문을 실제로 저장했는지
   const resumeText = [resume.content, resume.coverLetter].map(resumeHtmlToText).filter(Boolean).join("\n\n");
   let papers: Array<{ title?: string; authors?: string[]; venue?: string; abstract?: string }> = [];
   try {
@@ -220,11 +221,20 @@ JSON 형식으로만 반환: { "questions": [{ "question": "질문", "source": "
       );
       await db.update(interviewSessionsTable).set({ status: "questions_generated" })
         .where(and(eq(interviewSessionsTable.id, session.id), eq(interviewSessionsTable.userId, userId)));
+      generated = true;
     }
   } catch (err) {
     req.log.error({ err, sessionId: session.id }, "Failed to generate interview questions");
   }
 
+  if (!generated) {
+    // 질문 없이 남은 세션은 화면에서 "생성 중"으로 영원히 멈추므로 지우고 오류를 알린다.
+    await db.delete(interviewQuestionsTable).where(eq(interviewQuestionsTable.sessionId, session.id));
+    await db.delete(interviewSessionsTable)
+      .where(and(eq(interviewSessionsTable.id, session.id), eq(interviewSessionsTable.userId, userId)));
+    res.status(502).json({ error: aiBlockedMessage() ?? "면접 질문을 만들지 못했습니다. 잠시 후 다시 시도해주세요." });
+    return;
+  }
   const result = await getSessionWithQuestions(session.id, userId);
   res.status(201).json(CreateInterviewResponse.parse(result));
 });
@@ -381,7 +391,12 @@ ${FOLLOW_UP_RULES}`,
     }).where(and(eq(interviewSessionsTable.id, session.id), eq(interviewSessionsTable.userId, userId)));
   } catch (err) {
     req.log.error({ err, sessionId: session.id }, "Failed to evaluate interview answers");
-    res.status(502).json({ error: "면접 답변 평가를 완료하지 못했습니다. 잠시 후 다시 시도해주세요." });
+    // "답변 평가 중" 상태로 멈추지 않도록 답변 입력 상태로 되돌린다 (저장된 답변은 그대로 남음)
+    if (session.status === "answers_submitted") {
+      await db.update(interviewSessionsTable).set({ status: "questions_generated" })
+        .where(and(eq(interviewSessionsTable.id, session.id), eq(interviewSessionsTable.userId, userId)));
+    }
+    res.status(502).json({ error: aiBlockedMessage() ?? "면접 답변 평가를 완료하지 못했습니다. 저장된 답변으로 다시 제출해주세요." });
     return;
   }
 

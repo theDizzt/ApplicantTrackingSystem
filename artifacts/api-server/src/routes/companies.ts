@@ -2,7 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq, and, inArray } from "drizzle-orm";
 import { db, companiesTable, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
-import { getAI } from "../lib/openai";
+import { aiBlockedMessage, getAI } from "../lib/openai";
 import { logger } from "../lib/logger";
 import { parseScheduleInput } from "../lib/application-schedule";
 import { scrapeSaramin, buildKeyword, getJobkoreaSearchUrl } from "../lib/job-scrapers";
@@ -450,7 +450,8 @@ JSON 객체만 반환하세요:
     res.json({ jobs, keywords, postings });
   } catch (err) {
     logger.error({ err, resumeId }, "discover 오류");
-    res.status(500).json({ error: "이력서에 맞는 채용공고를 찾는 중 오류가 발생했습니다." });
+    const blocked = aiBlockedMessage();
+    res.status(blocked ? 503 : 500).json({ error: blocked ?? "이력서에 맞는 채용공고를 찾는 중 오류가 발생했습니다." });
   }
 });
 
@@ -466,7 +467,8 @@ router.post("/companies/extract-dates", requireAuth, async (req, res): Promise<v
     res.json({ dates });
   } catch (err) {
     logger.error({ err }, "extract-dates 오류");
-    res.status(500).json({ error: "공고에서 일정을 읽는 중 오류가 발생했습니다." });
+    const blocked = aiBlockedMessage();
+    res.status(blocked ? 503 : 500).json({ error: blocked ?? "공고에서 일정을 읽는 중 오류가 발생했습니다." });
   }
 });
 

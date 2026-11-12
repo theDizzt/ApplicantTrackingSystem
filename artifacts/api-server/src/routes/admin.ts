@@ -35,6 +35,7 @@ const AI_HEALTH_PUBLIC_ERRORS: Record<Exclude<AIHealthCheckResult["code"], "ok">
   auth_error: "AI API 키가 유효하지 않습니다. 관리자 페이지의 AI 설정을 확인해주세요.",
   unreachable: "AI 서버에 연결할 수 없습니다. AI 설정과 서버 상태를 확인해주세요.",
   config_error: "AI 설정을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
+  blocked: "AI 서버가 요청을 일시 차단했습니다(동시 요청 한도 초과). 잠시 후 다시 시도해주세요.",
 };
 
 function getPublicAIHealthError(result: Pick<AIHealthCheckResult, "ok" | "code">) {
