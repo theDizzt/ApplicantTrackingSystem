@@ -179,6 +179,13 @@ docker compose -f docker-compose.web.yml up -d
 
 ## HTTPS / 리버스 프록시 구성
 
+> 도메인 인증서 자동 발급(`docker-compose.https.yml` + Caddy), Cloudflare Tunnel, Certbot 등 **단계별 설정 방법은 [HTTPS.md](HTTPS.md)** 에 정리되어 있습니다.
+>
+> ```bash
+> # .env 에 DOMAIN, ACME_EMAIL 설정 후
+> docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+> ```
+
 - 앱은 `trust proxy`를 활성화하고 **세션 쿠키 `secure: "auto"`** 로 동작합니다.
   - HTTP 접속(로컬·온프렘 평문): 쿠키 `Secure` 미적용 → 로그인 정상 동작
   - HTTPS 접속(상위 LB/프록시에서 TLS 종료): `X-Forwarded-Proto: https` 를 신뢰해 자동으로 `Secure` 쿠키 적용

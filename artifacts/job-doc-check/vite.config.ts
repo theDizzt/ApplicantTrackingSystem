@@ -1,3 +1,4 @@
+import fs from 'fs';
 import path from 'path';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
@@ -18,6 +19,31 @@ const port = Number(rawPort);
 if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
+
+// ── 개발 서버 HTTPS (선택) ──────────────────────────────────────────────────
+// DEV_HTTPS_CERT / DEV_HTTPS_KEY에 인증서 파일(mkcert 등으로 만든 PEM)을 지정하면
+// 개발 서버가 https://로 뜬다. 휴대폰 등 다른 기기에서 접속할 때 브라우저가
+// 마이크(음성 녹음)를 허용하려면 HTTPS가 필요하다. 상대 경로는 저장소 루트 기준.
+// 자세한 방법: docs/HTTPS.md
+function loadDevHttps(): { cert: Buffer; key: Buffer } | undefined {
+  const certPath = process.env.DEV_HTTPS_CERT?.trim();
+  const keyPath = process.env.DEV_HTTPS_KEY?.trim();
+  if (!certPath && !keyPath) return undefined;
+  if (!certPath || !keyPath) {
+    throw new Error('DEV_HTTPS_CERT와 DEV_HTTPS_KEY는 함께 설정해야 합니다. (docs/HTTPS.md 참고)');
+  }
+  const repoRoot = path.resolve(import.meta.dirname, '..', '..');
+  const resolve = (p: string) => (path.isAbsolute(p) ? p : path.resolve(repoRoot, p));
+  const files = { cert: resolve(certPath), key: resolve(keyPath) };
+  for (const [name, file] of Object.entries(files)) {
+    if (!fs.existsSync(file)) {
+      throw new Error(`개발용 HTTPS ${name} 파일을 찾을 수 없습니다: ${file} (docs/HTTPS.md 참고)`);
+    }
+  }
+  return { cert: fs.readFileSync(files.cert), key: fs.readFileSync(files.key) };
+}
+
+const devHttps = loadDevHttps();
 
 const basePath = process.env.BASE_PATH;
 
@@ -70,6 +96,7 @@ export default defineConfig({
     strictPort: true,
     host: '0.0.0.0',
     allowedHosts: true,
+    ...(devHttps ? { https: devHttps } : {}),
     fs: {
       strict: true,
     },
@@ -83,5 +110,6 @@ export default defineConfig({
     port,
     host: '0.0.0.0',
     allowedHosts: true,
+    ...(devHttps ? { https: devHttps } : {}),
   },
 });

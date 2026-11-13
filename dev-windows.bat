@@ -88,6 +88,10 @@ if "%API_PORT%"=="%WEB_PORT%" (
   goto :fail
 )
 
+rem 개발용 HTTPS: .env.local에 DEV_HTTPS_CERT/DEV_HTTPS_KEY가 있으면 웹 서버가 https로 뜬다 (docs/HTTPS.md)
+set "WEB_SCHEME=http"
+if defined DEV_HTTPS_CERT set "WEB_SCHEME=https"
+
 rem ---- 3. 의존성 설치 (처음 한 번 / lock 파일 변경 시) --------
 set "NEED_INSTALL=0"
 if not exist "artifacts\job-doc-check\node_modules" set "NEED_INSTALL=1"
@@ -139,7 +143,8 @@ start "My ATS - Web (%WEB_PORT%)" cmd /k "set PORT=%WEB_PORT%&& set BASE_PATH=/&
 
 set /a WAITED=0
 :wait_web
-curl -sf "http://127.0.0.1:%WEB_PORT%/" >nul 2>&1 && goto :web_ready
+rem -k: 개발용 인증서(mkcert)는 curl이 모르는 인증 기관이라 검증을 건너뛴다
+curl -skf "%WEB_SCHEME%://127.0.0.1:%WEB_PORT%/" >nul 2>&1 && goto :web_ready
 set /a WAITED+=1
 if %WAITED% geq 90 (
   echo [오류] 웹 서버가 90초 안에 뜨지 않았습니다. "My ATS - Web" 창의 로그를 확인하세요.
@@ -149,15 +154,15 @@ timeout /t 1 /nobreak >nul
 goto :wait_web
 :web_ready
 
-if "%OPEN_BROWSER%"=="1" start "" "http://localhost:%WEB_PORT%"
+if "%OPEN_BROWSER%"=="1" start "" "%WEB_SCHEME%://localhost:%WEB_PORT%"
 
 echo.
 echo =========================================
 echo  개발 서버 실행 중
 echo =========================================
-echo   웹:      http://localhost:%WEB_PORT%
+echo   웹:      %WEB_SCHEME%://localhost:%WEB_PORT%
 echo   API:     http://localhost:%API_PORT%/api/healthz
-echo   관리자:  http://localhost:%WEB_PORT%/admin
+echo   관리자:  %WEB_SCHEME%://localhost:%WEB_PORT%/admin
 echo   종료:    "My ATS - API" / "My ATS - Web" 창을 닫으세요
 echo.
 pause

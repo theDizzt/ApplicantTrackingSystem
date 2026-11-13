@@ -1,0 +1,41 @@
+# =============================================================================
+# Caddy — HTTPS 앞단 (docker-compose.https.yml 에서 사용)
+# 역할: Let's Encrypt 인증서 자동 발급·갱신, HTTP→HTTPS 리디렉션, ats 앱으로 프록시
+#
+# 필요한 환경변수 (.env):
+#   DOMAIN      서비스 도메인 (예: ats.example.com) — DNS A 레코드가 이 서버를 가리켜야 함
+#   ACME_EMAIL  인증서 만료 알림을 받을 이메일
+# 자세한 방법: docs/HTTPS.md
+# =============================================================================
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$DOMAIN} {
+	# 압축 (컨테이너 안 Nginx도 gzip을 하지만, Caddy가 zstd를 지원하는 브라우저에 더 효율적으로 보냄)
+	encode zstd gzip
+
+	header {
+		# 1년 동안 이 도메인은 HTTPS로만 접속하도록 브라우저에 알림
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	# 이력서·오디오 업로드 한도 (앱 Nginx와 같은 50MB)
+	request_body {
+		max_size 50MB
+	}
+
+	# Caddy는 클라이언트가 보낸 X-Forwarded-* 헤더를 버리고 새로 설정한다
+	# (X-Forwarded-Proto: https) → 앱이 Secure 세션 쿠키를 붙인다.
+	reverse_proxy app:80 {
+		transport http {
+			# AI 심사처럼 오래 걸리는 요청 (앱 Nginx와 같은 600초)
+			read_timeout 600s
+			write_timeout 600s
+		}
+	}
+}

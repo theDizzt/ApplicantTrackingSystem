@@ -47,7 +47,7 @@ pnpm --filter @workspace/job-doc-check run dev
 
 Windows에서 바로 실행하려면 `dev-windows.bat`을 사용하세요. 처음 설정 방법은 [docs/WINDOWS.md](docs/WINDOWS.md)에 있습니다.
 
-Docker 실행은 [docs/DOCKER.md](docs/DOCKER.md), VS Code 환경은 [docs/VS_CODE.md](docs/VS_CODE.md)를 참고하세요. 자세한 구조는 [docs/SYSTEM.md](docs/SYSTEM.md)와 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)에 있습니다.
+Docker 실행은 [docs/DOCKER.md](docs/DOCKER.md), HTTPS 호스팅(도메인 인증서·Cloudflare Tunnel·휴대폰 녹음 테스트)은 [docs/HTTPS.md](docs/HTTPS.md), VS Code 환경은 [docs/VS_CODE.md](docs/VS_CODE.md)를 참고하세요. 자세한 구조는 [docs/SYSTEM.md](docs/SYSTEM.md)와 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)에 있습니다.
 
 ## 추가 개발 계획
 

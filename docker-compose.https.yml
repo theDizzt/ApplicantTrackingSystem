@@ -1,0 +1,49 @@
+# =============================================================================
+# AI 서류 심사관 (ATS) — HTTPS 추가 구성 (Caddy + Let's Encrypt)
+#
+# 기존 compose 파일 위에 겹쳐서 사용합니다. 앱은 그대로 두고 앞에 Caddy를 붙입니다.
+#
+#   # 단일 서버 (DB 포함)
+#   docker compose -f docker-compose.yml -f docker-compose.https.yml up -d
+#
+#   # Web VM (외부 DB)
+#   docker compose -f docker-compose.web.yml -f docker-compose.https.yml up -d
+#
+# .env 에 DOMAIN, ACME_EMAIL 이 필요합니다. Docker Compose v2.24 이상 필요 (!reset 사용).
+# 자세한 방법: docs/HTTPS.md
+# =============================================================================
+
+services:
+
+  # ── 앱: 외부 포트를 닫고 Caddy만 접근하게 함 ──────────────────────────────
+  # (80번은 Caddy가 써야 하고, 앱에 직접 접속하면 X-Forwarded-Proto를 속일 수 있으므로)
+  app:
+    ports: !reset []
+    expose:
+      - "80"
+
+  # ── Caddy: HTTPS 종료 + 인증서 자동 발급/갱신 ─────────────────────────────
+  caddy:
+    image: caddy:2.8
+    container_name: ats-caddy
+    restart: unless-stopped
+    environment:
+      DOMAIN:     "${DOMAIN:?DOMAIN is required - 예 ats.example.com}"
+      ACME_EMAIL: "${ACME_EMAIL:?ACME_EMAIL is required - 인증서 알림 이메일}"
+    ports:
+      - "80:80"        # 인증서 발급(HTTP-01) + HTTPS 리디렉션
+      - "443:443"      # HTTPS
+      - "443:443/udp"  # HTTP/3
+    volumes:
+      - ./docker/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data       # 발급받은 인증서 (지우면 재발급 — 발급 횟수 제한 주의)
+      - caddy_config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+
+volumes:
+  caddy_data:
+    driver: local
+  caddy_config:
+    driver: local

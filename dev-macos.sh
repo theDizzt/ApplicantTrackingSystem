@@ -61,13 +61,16 @@ PORT="$WEB_PORT" BASE_PATH=/ API_PROXY_TARGET="http://localhost:${API_PORT}" \
 PIDS+=($!)
 
 sleep 2
+# 개발용 HTTPS: .env.development에 DEV_HTTPS_CERT/DEV_HTTPS_KEY가 있으면 https로 뜬다 (docs/HTTPS.md)
+WEB_SCHEME="http"
+if [ -n "${DEV_HTTPS_CERT:-}" ]; then WEB_SCHEME="https"; fi
 echo ""
 echo -e "${GREEN}=========================================${NC}"
 echo -e "${GREEN} 개발 서버 실행 중${NC}"
 echo -e "${GREEN}=========================================${NC}"
-echo -e "  웹:      ${CYAN}http://localhost:${WEB_PORT}${NC}"
+echo -e "  웹:      ${CYAN}${WEB_SCHEME}://localhost:${WEB_PORT}${NC}"
 echo -e "  API:     ${CYAN}http://localhost:${API_PORT}/api/healthz${NC}"
-echo -e "  관리자:  ${CYAN}http://localhost:${WEB_PORT}/admin${NC}"
+echo -e "  관리자:  ${CYAN}${WEB_SCHEME}://localhost:${WEB_PORT}/admin${NC}"
 echo -e "  종료:    Ctrl+C"
 echo ""
 
