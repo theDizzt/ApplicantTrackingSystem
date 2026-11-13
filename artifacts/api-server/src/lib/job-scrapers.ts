@@ -55,10 +55,42 @@ async function fetchHtml(url: string): Promise<string | null> {
 //       <span>근무지</span><span>경력</span><span>학력</span>…
 //     </div>
 //   </li>
-export async function scrapeSaramin(keyword: string, limit = 8): Promise<ScrapedPosting[]> {
+/**
+ * 사람인 근무지역 코드 (loc_mcd). 지역마다 검색해 결과 근무지로 확인한 값 (2026-11).
+ * 여러 지역은 쉼표로 이어 한 번에 검색할 수 있다.
+ */
+export const SARAMIN_REGION_CODES: Record<string, string> = {
+  서울: "101000",
+  경기: "102000",
+  인천: "108000",
+  부산: "106000",
+  대구: "104000",
+  광주: "103000",
+  대전: "105000",
+  울산: "107000",
+  세종: "118000",
+  강원: "109000",
+  충북: "114000",
+  충남: "115000",
+  전북: "113000",
+  전남: "112000",
+  경북: "111000",
+  경남: "110000",
+  제주: "116000",
+};
+
+/** 알려진 지역 이름만 남긴다 (순서 유지, 중복 제거). */
+export function normalizeRegions(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value.filter((v): v is string => typeof v === "string" && v in SARAMIN_REGION_CODES))];
+}
+
+export async function scrapeSaramin(keyword: string, limit = 8, regions: string[] = []): Promise<ScrapedPosting[]> {
+  const locCodes = normalizeRegions(regions).map((r) => SARAMIN_REGION_CODES[r]);
   const url =
     `https://www.saramin.co.kr/zf_user/search/recruit` +
-    `?searchType=search&searchword=${encodeURIComponent(keyword)}&recruitSort=relation&recruitPage=1&recruitPageCount=10`;
+    `?searchType=search&searchword=${encodeURIComponent(keyword)}&recruitSort=relation&recruitPage=1&recruitPageCount=10` +
+    (locCodes.length ? `&loc_mcd=${encodeURIComponent(locCodes.join(","))}` : "");
 
   const html = await fetchHtml(url);
   if (!html) return [];

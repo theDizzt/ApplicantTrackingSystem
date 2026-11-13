@@ -1296,6 +1296,11 @@ components:
           type: array
           items:
             type: string
+        regions:
+          type: array
+          description: 선호 근무지역 (서울·경기 등 시·도 이름, 비우면 전국)
+          items:
+            type: string
 
     JobPosting:
       type: object

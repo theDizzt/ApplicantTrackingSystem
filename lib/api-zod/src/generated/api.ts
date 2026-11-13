@@ -127,7 +127,8 @@ export const CancelSubscriptionResponse = zod.object({
 export const FetchPostingsBody = zod.object({
   "careerLevel": zod.array(zod.string()).optional(),
   "educationLevel": zod.string().optional(),
-  "recruitmentField": zod.array(zod.string()).optional()
+  "recruitmentField": zod.array(zod.string()).optional(),
+  "regions": zod.array(zod.string()).optional().describe('선호 근무지역 (서울·경기 등 시·도 이름, 비우면 전국)')
 })
 
 export const FetchPostingsResponseItem = zod.object({

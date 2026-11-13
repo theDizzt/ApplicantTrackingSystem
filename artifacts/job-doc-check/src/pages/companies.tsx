@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react"
+import { useState, useMemo, useEffect } from "react"
 import { useMutation } from "@tanstack/react-query"
 import {
   useListCompanies,
@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge"
 import {
   Building2, Globe, Trash2, Plus, FileText, Star, RefreshCw,
   ChevronDown, Filter, X, CloudDownload, Check, ExternalLink,
-  Loader2, Sparkles, Search,
+  Loader2, Sparkles, Search, MapPin,
 } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useQueryClient } from "@tanstack/react-query"
@@ -32,6 +32,7 @@ import {
 } from "@/components/ui/dialog"
 import {
   DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger,
+  DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
 import { useToast } from "@/hooks/use-toast"
@@ -58,6 +59,82 @@ const CAREER_COLORS: Record<string, string> = {
 }
 
 // ── 토글 필터 칩 ──────────────────────────────────────────────────────────────
+/** 선호 근무지역 (사람인 시·도 단위) */
+const REGIONS = [
+  "서울", "경기", "인천", "부산", "대구", "광주", "대전", "울산", "세종",
+  "강원", "충북", "충남", "전북", "전남", "경북", "경남", "제주",
+] as const
+const REGION_STORAGE_KEY = "ats.preferredRegions"
+
+/** 브라우저에 기억해 두는 선호 지역 (다음에 와도 그대로) */
+function usePreferredRegions() {
+  const [regions, setRegions] = useState<string[]>(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem(REGION_STORAGE_KEY) ?? "[]")
+      return Array.isArray(saved) ? saved.filter((r): r is string => (REGIONS as readonly string[]).includes(r)) : []
+    } catch {
+      return []
+    }
+  })
+  useEffect(() => {
+    try { localStorage.setItem(REGION_STORAGE_KEY, JSON.stringify(regions)) } catch { /* 저장 실패는 무시 */ }
+  }, [regions])
+  return [regions, setRegions] as const
+}
+
+function regionLabel(regions: string[]) {
+  if (regions.length === 0) return "전국"
+  if (regions.length <= 2) return regions.join("·")
+  return `${regions[0]} 외 ${regions.length - 1}곳`
+}
+
+function RegionPicker({ value, onChange }: { value: string[]; onChange: (next: string[]) => void }) {
+  const toggle = (region: string) =>
+    onChange(value.includes(region) ? value.filter(r => r !== region) : REGIONS.filter(r => r === region || value.includes(r)))
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          className={cn("gap-1.5 max-w-[180px]", value.length > 0 && "border-primary/40 text-primary")}
+          data-testid="button-region-picker"
+        >
+          <MapPin className="w-3.5 h-3.5 shrink-0" />
+          <span className="truncate">선호 지역: {regionLabel(value)}</span>
+          <ChevronDown className="w-3.5 h-3.5 shrink-0 opacity-60" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuLabel className="text-xs text-muted-foreground font-normal">
+          여러 곳을 고를 수 있어요. 비우면 전국에서 찾습니다.
+        </DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        <div className="grid grid-cols-2 gap-x-1 max-h-72 overflow-y-auto">
+          {REGIONS.map(region => (
+            <DropdownMenuCheckboxItem
+              key={region}
+              checked={value.includes(region)}
+              onCheckedChange={() => toggle(region)}
+              onSelect={e => e.preventDefault()}
+            >
+              {region}
+            </DropdownMenuCheckboxItem>
+          ))}
+        </div>
+        {value.length > 0 && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => onChange([])} className="text-xs justify-center text-muted-foreground">
+              선택 해제 (전국)
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
 function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
     <button
@@ -107,7 +184,7 @@ type FoundPosting = JobPosting & {
   deadlineText?: string | null
 }
 
-type DiscoverResponse = { jobs: string[]; keywords: string[]; postings: FoundPosting[] }
+type DiscoverResponse = { jobs: string[]; keywords: string[]; regions?: string[]; postings: FoundPosting[] }
 
 function matchScoreClass(score: number) {
   if (score >= 70) return "bg-emerald-50 text-emerald-700 ring-emerald-200"
@@ -291,6 +368,7 @@ export default function CompaniesPage() {
   const [filterCareer,    setFilterCareer]    = useState<string[]>([])
   const [filterEducation, setFilterEducation] = useState<string[]>([])
   const [filterField,     setFilterField]     = useState<string[]>([])
+  const [preferredRegions, setPreferredRegions] = usePreferredRegions()
 
   const toggleFilter = (set: React.Dispatch<React.SetStateAction<string[]>>, val: string) =>
     set(prev => prev.includes(val) ? prev.filter(v => v !== val) : [...prev, val])
@@ -302,16 +380,16 @@ export default function CompaniesPage() {
   const [dialogOpen,  setDialogOpen]  = useState(false)
   const [postings,    setPostings]    = useState<FoundPosting[]>([])
   const [dialogMode,  setDialogMode]  = useState<"filter" | "resume">("filter")
-  const [discoverInfo, setDiscoverInfo] = useState<{ jobs: string[]; keywords: string[] } | null>(null)
+  const [discoverInfo, setDiscoverInfo] = useState<{ jobs: string[]; keywords: string[]; regions: string[] } | null>(null)
 
   // ── 이력서로 채용공고 찾기 ──────────────────────────────────────────────────
   const discover = useMutation({
-    mutationFn: async (resumeId: number): Promise<DiscoverResponse> => {
+    mutationFn: async ({ resumeId, regions }: { resumeId: number; regions: string[] }): Promise<DiscoverResponse> => {
       const res = await fetch("/api/companies/discover", {
         method: "POST",
         credentials: "include",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resumeId }),
+        body: JSON.stringify({ resumeId, regions }),
       })
       const body = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(body.error || "채용공고를 찾지 못했습니다.")
@@ -331,6 +409,7 @@ export default function CompaniesPage() {
           careerLevel:     filterCareer.length     ? filterCareer     : undefined,
           educationLevel:  filterEducation.length  ? filterEducation[0] : undefined,
           recruitmentField: filterField.length     ? filterField      : undefined,
+          regions:          preferredRegions.length ? preferredRegions : undefined,
         },
       },
       {
@@ -401,10 +480,10 @@ export default function CompaniesPage() {
     if (!rid) return
     setAddingIds(new Set())
     setAddedIds(new Set())
-    discover.mutate(rid, {
+    discover.mutate({ resumeId: rid, regions: preferredRegions }, {
       onSuccess: (data) => {
         setPostings(data.postings)
-        setDiscoverInfo({ jobs: data.jobs, keywords: data.keywords })
+        setDiscoverInfo({ jobs: data.jobs, keywords: data.keywords, regions: data.regions ?? [] })
         setDialogMode("resume")
         setDialogOpen(true)
       },
@@ -502,7 +581,8 @@ export default function CompaniesPage() {
                     : <>먼저 <Link href="/resumes/new" className="text-primary hover:underline">이력서를 등록</Link>해주세요.</>}
                 </p>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <RegionPicker value={preferredRegions} onChange={setPreferredRegions} />
                 {resumePicker}
                 <Button
                   size="sm"
@@ -626,6 +706,12 @@ export default function CompaniesPage() {
             ))}
           </div>
 
+          {/* 근무지역 (채용공고 검색에만 적용) */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-500 w-14 shrink-0">근무지역</span>
+            <RegionPicker value={preferredRegions} onChange={setPreferredRegions} />
+          </div>
+
           {/* 안내 문구 */}
           <p className="text-[11px] text-muted-foreground pt-0.5">
             {hasActiveFilter
@@ -660,6 +746,12 @@ export default function CompaniesPage() {
             {RECRUITMENT_FIELDS.map(opt => (
               <FilterChip key={opt} label={opt} active={filterField.includes(opt)} onClick={() => toggleFilter(setFilterField, opt)} />
             ))}
+          </div>
+
+          {/* 근무지역 (채용공고 검색에만 적용) */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-xs text-slate-500 w-14 shrink-0">근무지역</span>
+            <RegionPicker value={preferredRegions} onChange={setPreferredRegions} />
           </div>
           <Button
             size="sm"
@@ -813,6 +905,7 @@ export default function CompaniesPage() {
             <div className="rounded-lg bg-muted/60 px-3 py-2 text-xs space-y-1">
               {discoverInfo.jobs.length > 0 && <p><span className="font-semibold">추천 직무</span> · {discoverInfo.jobs.join(", ")}</p>}
               {discoverInfo.keywords.length > 0 && <p className="text-muted-foreground"><span className="font-semibold">검색어</span> · {discoverInfo.keywords.join(", ")}</p>}
+              <p className="text-muted-foreground"><span className="font-semibold">근무지역</span> · {regionLabel(discoverInfo.regions)}</p>
             </div>
           ) : undefined,
         } : {})}

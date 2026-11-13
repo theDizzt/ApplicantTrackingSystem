@@ -5,7 +5,7 @@ import { requireAuth } from "../middlewares/auth";
 import { aiBlockedMessage, getAI } from "../lib/openai";
 import { logger } from "../lib/logger";
 import { parseScheduleInput } from "../lib/application-schedule";
-import { scrapeSaramin, buildKeyword, getJobkoreaSearchUrl } from "../lib/job-scrapers";
+import { scrapeSaramin, buildKeyword, getJobkoreaSearchUrl, normalizeRegions } from "../lib/job-scrapers";
 import { extractPostingDates, parseSaraminDeadline } from "../lib/posting-dates";
 
 const router: IRouter = Router();
@@ -69,11 +69,13 @@ router.post("/companies/fetch-postings", requireAuth, async (req, res): Promise<
     educationLevel?: string;
     recruitmentField?: string[];
   };
+  const regions = normalizeRegions((req.body as { regions?: unknown }).regions);
 
   if (
     (!careerLevel || careerLevel.length === 0) &&
     !educationLevel &&
-    (!recruitmentField || recruitmentField.length === 0)
+    (!recruitmentField || recruitmentField.length === 0) &&
+    regions.length === 0
   ) {
     res.status(400).json({ error: "필터 조건을 하나 이상 선택해주세요." });
     return;
@@ -83,6 +85,7 @@ router.post("/companies/fetch-postings", requireAuth, async (req, res): Promise<
   if (careerLevel?.length)      conditions.push(`경력구분: ${careerLevel.join(", ")}`);
   if (educationLevel)           conditions.push(`최소 학력: ${educationLevel} 이상`);
   if (recruitmentField?.length) conditions.push(`모집분야: ${recruitmentField.join(", ")}`);
+  if (regions.length)           conditions.push(`근무지역: ${regions.join(", ")} (이 지역 공고만)`);
 
   try {
     // ── 1단계: 잡코리아 · 사람인 병렬 스크래핑 ──────────────────────────────
@@ -91,7 +94,7 @@ router.post("/companies/fetch-postings", requireAuth, async (req, res): Promise<
 
     // ── 1단계: 사람인 스크래핑 + 잡코리아 검색 URL 생성 (병렬) ──────────────
     const [saraminResults] = await Promise.all([
-      scrapeSaramin(keyword, 8),
+      scrapeSaramin(keyword, 8, regions),
     ]);
     const jobkoreaSearchUrl = getJobkoreaSearchUrl(keyword);
 
@@ -308,6 +311,8 @@ router.post("/companies/discover", requireAuth, async (req, res): Promise<void> 
     res.status(400).json({ error: "이력서를 선택해주세요." });
     return;
   }
+  // 선호 근무지역 (비어 있으면 전국)
+  const regions = normalizeRegions((req.body as { regions?: unknown })?.regions);
   const userId = req.session.userId!;
   const [resume] = await db.select().from(resumesTable)
     .where(and(eq(resumesTable.id, resumeId), eq(resumesTable.userId, userId)));
@@ -374,7 +379,7 @@ JSON 객체만 반환하세요:
     const seen = new Set<string>();
     const scraped: Awaited<ReturnType<typeof scrapeSaramin>> = [];
     for (const keyword of keywords) {
-      const found = await scrapeSaramin(`${keyword} ${careerWord}`, DISCOVER_PER_KEYWORD);
+      const found = await scrapeSaramin(`${keyword} ${careerWord}`, DISCOVER_PER_KEYWORD, regions);
       for (const p of found) {
         if (seen.has(p.jobPostingUrl)) continue;
         seen.add(p.jobPostingUrl);
@@ -385,7 +390,7 @@ JSON 객체만 반환하세요:
     const candidates = scraped.slice(0, DISCOVER_MAX_POSTINGS);
     logger.info({ resumeId, keywords, found: candidates.length }, "이력서 기반 공고 검색 완료");
     if (candidates.length === 0) {
-      res.json({ jobs, keywords, postings: [] });
+      res.json({ jobs, keywords, regions, postings: [] });
       return;
     }
 
@@ -407,7 +412,8 @@ JSON 객체만 반환하세요:
 {"results": [{"index": 공고 번호, "score": 0-100, "reason": "적합 이유 또는 부족한 점 (한국어 1~2문장, 이력서 근거 포함)", "careerLevel": [...], "educationLevel": "...", "recruitmentField": [...]}]}
 규칙:
 - 목록의 모든 공고를 평가하세요. 공고를 새로 만들거나 회사명을 바꾸지 마세요.
-- 공고 제목과 조건만으로 판단하고, 확인할 수 없는 내용은 추측하지 마세요.
+- 공고 제목과 조건만으로 판단하고, 확인할 수 없는 내용은 추측하지 마세요.${regions.length ? `
+- 지원자의 선호 근무지역은 ${regions.join(", ")}입니다. 근무지가 이와 다르면 점수를 낮추고 reason에 적으세요.` : ""}
 - careerLevel: ${JSON.stringify(CAREER_LEVELS)} 중 공고 조건에 맞는 것 (경력 3년 초과만 받으면 빈 배열)
 - educationLevel: ${JSON.stringify(EDUCATION_LEVELS)} 중 하나, 학력무관이면 빈 문자열
 - recruitmentField: ${JSON.stringify(RECRUITMENT_FIELDS)} 중 맞는 것`,
@@ -447,7 +453,7 @@ JSON 객체만 반환하세요:
       };
     }).sort((a, b) => (b.matchScore ?? -1) - (a.matchScore ?? -1));
 
-    res.json({ jobs, keywords, postings });
+    res.json({ jobs, keywords, regions, postings });
   } catch (err) {
     logger.error({ err, resumeId }, "discover 오류");
     const blocked = aiBlockedMessage();

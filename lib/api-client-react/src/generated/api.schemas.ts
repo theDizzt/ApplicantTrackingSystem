@@ -370,6 +370,8 @@ export interface FetchPostingsInput {
   careerLevel?: string[];
   educationLevel?: string;
   recruitmentField?: string[];
+  /** 선호 근무지역 (서울·경기 등 시·도 이름, 비우면 전국) */
+  regions?: string[];
 }
 
 export interface JobPosting {
