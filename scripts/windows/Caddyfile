@@ -1,0 +1,27 @@
+# Windows PC에서 도메인으로 서비스할 때 쓰는 Caddy 설정 (host-windows.bat이 사용)
+# - {$DOMAIN}: .env의 DOMAIN (예: dragonascent.xyz)
+# - 인증서는 Let's Encrypt에서 자동 발급/갱신, http:// 는 https:// 로 자동 이동
+# - 보관 위치: %AppData%\Caddy (지우면 재발급)
+
+{$DOMAIN} {
+	encode zstd gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		-Server
+	}
+
+	request_body {
+		max_size 50MB
+	}
+
+	# 웹 개발 서버(Vite)로 전달. /api 요청은 Vite가 다시 API 서버(8080)로 넘긴다.
+	reverse_proxy 127.0.0.1:{$WEB_PORT:3000} {
+		transport http {
+			read_timeout 600s
+			write_timeout 600s
+		}
+	}
+}

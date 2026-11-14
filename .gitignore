@@ -63,3 +63,6 @@ attached_assets/
 # 개발용 HTTPS 인증서 (mkcert 등) — 개인 키이므로 커밋하지 않음
 certs/
 *.pem
+
+# 도메인 인증서 발급용 확인 파일 (도메인마다 달라서 커밋하지 않음)
+.well-known/
