@@ -416,7 +416,7 @@ export default function CoverLetterPage() {
                 <TabsList className="grid w-full grid-cols-3 max-w-lg mx-auto mb-8 bg-slate-100/50">
                   <TabsTrigger value="record" data-testid="tab-record" className="data-[state=active]:bg-white data-[state=active]:shadow-sm">음성 녹음</TabsTrigger>
                   <TabsTrigger value="upload" data-testid="tab-upload" className="data-[state=active]:bg-white data-[state=active]:shadow-sm">파일 업로드</TabsTrigger>
-                  <TabsTrigger value="guided" data-testid="tab-guided" className="data-[state=active]:bg-white data-[state=active]:shadow-sm">음성 가이드 녹음</TabsTrigger>
+                  <TabsTrigger value="guided" data-testid="tab-guided" className="data-[state=active]:bg-white data-[state=active]:shadow-sm"><span className="sm:hidden">가이드 녹음</span><span className="hidden sm:inline">음성 가이드 녹음</span></TabsTrigger>
                 </TabsList>
                 
                 <TabsContent value="guided" className="flex flex-col border-2 border-dashed border-slate-200 rounded-xl bg-slate-50/50 hover:bg-slate-50 transition-colors p-6 sm:p-8">

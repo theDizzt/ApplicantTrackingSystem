@@ -18,7 +18,7 @@ export default function Dashboard() {
     return (
       <div className="space-y-6">
         <h1 className="text-3xl font-bold tracking-tight">대시보드</h1>
-        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4">
           {[1,2,3,4].map(i => <Skeleton key={i} className="h-32 rounded-xl" />)}
         </div>
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-7">
@@ -55,7 +55,7 @@ export default function Dashboard() {
         </Link>
       )}
       
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 md:gap-4 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between pb-2">
             <CardTitle className="text-sm font-medium">등록 이력서</CardTitle>
@@ -110,7 +110,7 @@ export default function Dashboard() {
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-7">
-        <Card className="col-span-4">
+        <Card className="lg:col-span-4">
           <CardHeader>
             <CardTitle>최근 심사</CardTitle>
           </CardHeader>
@@ -151,7 +151,7 @@ export default function Dashboard() {
           </CardContent>
         </Card>
 
-        <Card className="col-span-3">
+        <Card className="lg:col-span-3">
           <CardHeader>
             <CardTitle>최근 면접</CardTitle>
           </CardHeader>

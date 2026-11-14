@@ -531,7 +531,7 @@ export default function ResumeDetail() {
     <>
       <div className="animate-in fade-in duration-500 pb-20">
         {/* 상단 고정 액션 바 */}
-        <div className="sticky top-0 z-50 -mx-4 px-4 sm:-mx-6 sm:px-6 py-4 bg-white/85 backdrop-blur-md border-b border-slate-200 flex items-center justify-between gap-4 mb-6 shadow-sm">
+        <div className="sticky top-14 md:top-0 z-20 -mx-4 px-4 sm:-mx-6 sm:px-6 py-4 bg-white/85 backdrop-blur-md border-b border-slate-200 flex items-center justify-between gap-4 mb-6 shadow-sm">
           <div className="flex items-center gap-3">
             <Button variant="ghost" size="icon" onClick={() => setLocation("/resumes")} className="shrink-0 -ml-2 text-slate-500 hover:text-slate-900">
               <ChevronLeft className="w-5 h-5" />

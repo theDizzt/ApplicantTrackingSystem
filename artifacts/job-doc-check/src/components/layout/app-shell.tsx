@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { Link, useLocation } from "wouter"
-import { FileText, Building2, Users, CreditCard, LogOut, LayoutDashboard, BrainCircuit, Menu, X, Mic, CalendarDays, Award, ShieldCheck } from "lucide-react"
+import { FileText, Building2, Users, CreditCard, LogOut, LayoutDashboard, BrainCircuit, Menu, Mic, CalendarDays, Award, ShieldCheck } from "lucide-react"
+import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { useGetMe, useLogout, getGetMeQueryKey } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
 import { cn } from "@/lib/utils"
@@ -114,33 +115,92 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </>
   )
 
+  // 모바일 하단 탭: 자주 쓰는 4개 + 전체 메뉴
+  const tabItems = [
+    { href: "/dashboard", label: "홈", icon: LayoutDashboard },
+    { href: "/resumes", label: "이력서", icon: FileText },
+    { href: "/companies", label: "지원 회사", icon: Building2 },
+    { href: "/analyses", label: "AI 심사", icon: BrainCircuit },
+  ]
+  const tabActive = tabItems.some(t => location.startsWith(t.href))
+  const currentLabel = navItems.find(n => location.startsWith(n.href))?.label ?? "My ATS"
+
   return (
     <div className="flex min-h-screen w-full bg-background flex-col md:flex-row">
 
       {/* ── 모바일 상단 바 ── */}
-      <header className="md:hidden sticky top-0 z-20 flex items-center justify-between px-4 py-3 border-b bg-card">
-        <Link href="/" className="flex items-center gap-2.5">
-          <img src="/logo.png" alt="My ATS" className="h-7 w-auto" />
-          <span className="text-sm font-bold text-slate-800">My ATS</span>
+      <header className="md:hidden sticky top-0 z-30 flex h-14 items-center justify-between gap-3 px-4 border-b bg-card/95 backdrop-blur">
+        <Link href="/dashboard" className="flex min-w-0 items-center gap-2.5">
+          <img src="/logo.png" alt="My ATS" className="h-7 w-auto shrink-0" />
+          <span className="truncate text-sm font-bold text-slate-800">{currentLabel}</span>
         </Link>
         <button
-          className="relative p-1.5 rounded-md hover:bg-slate-100 transition-colors"
-          onClick={() => setMobileNavOpen(v => !v)}
+          className="relative -mr-1.5 flex h-10 w-10 items-center justify-center rounded-md hover:bg-slate-100 transition-colors"
+          onClick={() => setMobileNavOpen(true)}
           aria-label={upcoming.length ? `메뉴 열기 (3일 안의 일정 ${upcoming.length}개)` : "메뉴 열기"}
         >
-          {mobileNavOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
-          {!mobileNavOpen && upcoming.length > 0 && (
-            <span className="absolute top-0.5 right-0.5 w-2 h-2 rounded-full bg-rose-500" />
+          <Menu className="w-5 h-5" />
+          {upcoming.length > 0 && (
+            <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-rose-500" />
           )}
         </button>
       </header>
 
-      {/* ── 모바일 드롭다운 메뉴 ── */}
-      {mobileNavOpen && (
-        <div className="md:hidden border-b bg-card flex flex-col z-10">
+      {/* ── 모바일 전체 메뉴 (오른쪽에서 열림) ── */}
+      <Sheet open={mobileNavOpen} onOpenChange={setMobileNavOpen}>
+        <SheetContent side="right" className="md:hidden flex w-[82vw] max-w-xs flex-col gap-0 p-0 pb-[env(safe-area-inset-bottom)]">
+          <SheetHeader className="h-14 flex-row items-center gap-2.5 space-y-0 border-b px-4 text-left">
+            <img src="/logo.png" alt="" className="h-7 w-auto" />
+            <SheetTitle className="text-sm font-bold">My ATS</SheetTitle>
+            <SheetDescription className="sr-only">전체 메뉴</SheetDescription>
+          </SheetHeader>
           {sidebarContent}
+        </SheetContent>
+      </Sheet>
+
+      {/* ── 모바일 하단 탭 바 ── */}
+      <nav
+        className="md:hidden fixed inset-x-0 bottom-0 z-30 border-t bg-card/95 backdrop-blur pb-[env(safe-area-inset-bottom)]"
+        aria-label="주요 메뉴"
+      >
+        <div className="grid grid-cols-5">
+          {tabItems.map((item) => {
+            const Icon = item.icon
+            const isActive = location.startsWith(item.href)
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={cn(
+                  "flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
+                  isActive ? "text-primary" : "text-muted-foreground",
+                )}
+                aria-current={isActive ? "page" : undefined}
+              >
+                <Icon className={cn("h-5 w-5", isActive && "stroke-[2.4]")} />
+                {item.label}
+              </Link>
+            )
+          })}
+          <button
+            type="button"
+            onClick={() => setMobileNavOpen(true)}
+            className={cn(
+              "relative flex h-16 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors",
+              !tabActive ? "text-primary" : "text-muted-foreground",
+            )}
+            aria-label={upcoming.length ? `전체 메뉴 (3일 안의 일정 ${upcoming.length}개)` : "전체 메뉴"}
+          >
+            <Menu className="h-5 w-5" />
+            전체
+            {upcoming.length > 0 && (
+              <span className="absolute top-2.5 left-1/2 ml-2 min-w-4 rounded-full bg-rose-500 px-1 text-center text-[10px] font-bold leading-4 text-white">
+                {upcoming.length}
+              </span>
+            )}
+          </button>
         </div>
-      )}
+      </nav>
 
       {/* ── 데스크톱 사이드바 ── */}
       <aside className="hidden md:flex md:w-64 border-r bg-card flex-col md:fixed md:h-screen z-10 shrink-0">
@@ -156,7 +216,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       </aside>
 
       {/* ── 메인 콘텐츠 ── */}
-      <main className="flex-1 md:ml-64 p-4 md:p-8 animate-in fade-in duration-300 min-h-screen">
+      {/* 모바일: 하단 탭 바(4rem + 안전 영역)에 내용이 가리지 않게 여백 */}
+      <main className="flex-1 min-w-0 md:ml-64 p-4 pb-[calc(5rem+env(safe-area-inset-bottom))] md:p-8 animate-in fade-in duration-300 min-h-screen">
         <div className="max-w-6xl mx-auto">
           {children}
         </div>
