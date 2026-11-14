@@ -236,7 +236,7 @@ mkcert -cert-file certs/dev-cert.pem -key-file certs/dev-key.pem localhost 127.0
 
 ### 5-3. 환경변수 설정
 
-`.env.local`(macOS는 `.env.development`)에 두 줄을 추가합니다. 경로는 저장소 루트 기준이며 절대 경로도 됩니다.
+`.env`에 두 줄을 추가합니다. 경로는 저장소 루트 기준이며 절대 경로도 됩니다.
 
 ```dotenv
 DEV_HTTPS_CERT=certs/dev-cert.pem
@@ -262,7 +262,7 @@ DEV_HTTPS_KEY=certs/dev-key.pem
      - iOS: 파일을 열어 프로필 설치 → 설정 → 일반 → 정보 → 인증서 신뢰 설정에서 켜기
 5. 음성 자소서 화면에서 마이크 권한을 허용하면 녹음 파형이 움직입니다.
 
-> 설정을 끄려면 `.env.local`에서 두 줄을 지우거나 앞에 `#`를 붙이고 다시 실행하면 됩니다.
+> 설정을 끄려면 `.env`에서 두 줄을 지우거나 앞에 `#`를 붙이고 다시 실행하면 됩니다.
 
 ---
 
@@ -352,6 +352,6 @@ echo | openssl s_client -connect ats.example.com:443 -servername ats.example.com
 - [ ] `ADMIN_EMAILS`에는 정말 관리자인 계정만 넣었다
 - [ ] Node API 포트(8080)와 DB 포트(5432)는 외부에 공개하지 않았다 (기본 설정은 `127.0.0.1`에만 열림)
 - [ ] HTTPS 앞단(방법 A)을 쓸 때 앱 컨테이너의 80 포트가 외부에 열려 있지 않다 (`docker compose ps`의 PORTS 확인)
-- [ ] 개발용 인증서(`certs/*.pem`)와 `.env`, `.env.local`을 커밋하지 않았다
+- [ ] 개발용 인증서(`certs/*.pem`)와 `.env`를 커밋하지 않았다
 - [ ] Cloudflare 임시 터널은 시연이 끝나면 종료했다
 - [ ] `Strict-Transport-Security`를 켠 도메인은 1년 동안 HTTP로 접속할 수 없다는 점을 알고 있다 (HTTPS를 그만둘 계획이 있다면 `docker/Caddyfile`의 `max-age`를 줄일 것)

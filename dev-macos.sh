@@ -11,7 +11,12 @@ set -euo pipefail
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
 
 INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
-ENV_FILE="${INSTALL_DIR}/.env.development"
+# 예전 이름(.env.development)을 쓰던 경우 .env 하나로 합친다
+if [ ! -f "${INSTALL_DIR}/.env" ] && [ -f "${INSTALL_DIR}/.env.development" ]; then
+    mv "${INSTALL_DIR}/.env.development" "${INSTALL_DIR}/.env"
+    echo "[안내] .env.development 파일을 .env로 이름을 바꿨습니다."
+fi
+ENV_FILE="${INSTALL_DIR}/.env"
 API_PORT="${API_PORT:-8080}"
 WEB_PORT="${WEB_PORT:-3000}"
 
@@ -20,7 +25,7 @@ if [ ! -f "$ENV_FILE" ]; then
     exit 1
 fi
 
-# .env.development 로드
+# .env 로드
 set -a
 source "$ENV_FILE"
 set +a
@@ -61,7 +66,7 @@ PORT="$WEB_PORT" BASE_PATH=/ API_PROXY_TARGET="http://localhost:${API_PORT}" \
 PIDS+=($!)
 
 sleep 2
-# 개발용 HTTPS: .env.development에 DEV_HTTPS_CERT/DEV_HTTPS_KEY가 있으면 https로 뜬다 (docs/HTTPS.md)
+# 개발용 HTTPS: .env에 DEV_HTTPS_CERT/DEV_HTTPS_KEY가 있으면 https로 뜬다 (docs/HTTPS.md)
 WEB_SCHEME="http"
 if [ -n "${DEV_HTTPS_CERT:-}" ]; then WEB_SCHEME="https"; fi
 echo ""

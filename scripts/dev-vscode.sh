@@ -2,11 +2,16 @@
 set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-ENV_FILE="${ROOT_DIR}/.env.local"
+# 예전 이름(.env.local)을 쓰던 경우 .env 하나로 합친다
+if [ ! -f "${ROOT_DIR}/.env" ] && [ -f "${ROOT_DIR}/.env.local" ]; then
+    mv "${ROOT_DIR}/.env.local" "${ROOT_DIR}/.env"
+    echo "[안내] .env.local 파일을 .env로 이름을 바꿨습니다."
+fi
+ENV_FILE="${ROOT_DIR}/.env"
 
 if [[ ! -f "$ENV_FILE" ]]; then
-  echo "[오류] .env.local 파일이 없습니다."
-  echo "먼저 cp .env.local.example .env.local 을 실행하고 SESSION_SECRET을 바꾸세요."
+  echo "[오류] .env 파일이 없습니다."
+  echo "먼저 cp .env.example .env 을 실행하고 SESSION_SECRET을 바꾸세요."
   exit 1
 fi
 
@@ -20,8 +25,8 @@ set -a
 source "$ENV_FILE"
 set +a
 
-: "${DATABASE_URL:?DATABASE_URL을 .env.local에 설정하세요}"
-: "${SESSION_SECRET:?SESSION_SECRET을 .env.local에 설정하세요}"
+: "${DATABASE_URL:?DATABASE_URL을 .env에 설정하세요}"
+: "${SESSION_SECRET:?SESSION_SECRET을 .env에 설정하세요}"
 
 API_PORT="${API_PORT:-8080}"
 WEB_PORT="${WEB_PORT:-3000}"
@@ -58,7 +63,7 @@ for _ in $(seq 1 60); do
   fi
   if ! kill -0 "$API_PID" 2>/dev/null; then
     wait "$API_PID" || true
-    echo "[오류] API 서버가 시작되지 않았습니다. DB 연결과 .env.local을 확인하세요."
+    echo "[오류] API 서버가 시작되지 않았습니다. DB 연결과 .env를 확인하세요."
     exit 1
   fi
   sleep 1

@@ -24,6 +24,11 @@ CYAN='\033[0;36m'
 NC='\033[0m'
 
 INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# 예전 이름(.env.production)을 쓰던 경우 .env 하나로 합친다
+if [ ! -f "${INSTALL_DIR}/.env" ] && [ -f "${INSTALL_DIR}/.env.production" ]; then
+    mv "${INSTALL_DIR}/.env.production" "${INSTALL_DIR}/.env"
+    echo "[안내] .env.production 파일을 .env로 이름을 바꿨습니다."
+fi
 APP_NAME="ats-checker"
 API_PORT="${API_PORT:-8080}"
 WEB_PORT="${WEB_PORT:-80}"
@@ -144,14 +149,14 @@ install_postgres() {
         if [ -z "$DATABASE_URL" ]; then
             echo -e "${RED}[오류] DATABASE_URL이 비어 있습니다.${NC}"; exit 1
         fi
-        # 재실행 시 기존 .env.production의 DATABASE_URL을 새 값으로 갱신 (빌드/서비스 불일치 방지)
-        ENV_FILE="${INSTALL_DIR}/.env.production"
+        # 재실행 시 기존 .env의 DATABASE_URL을 새 값으로 갱신 (빌드/서비스 불일치 방지)
+        ENV_FILE="${INSTALL_DIR}/.env"
         if [ -f "$ENV_FILE" ] && grep -q "^DATABASE_URL=" "$ENV_FILE"; then
             TMP_ENV=$(mktemp)
             awk -v url="$DATABASE_URL" 'BEGIN{FS=OFS="="} /^DATABASE_URL=/{print "DATABASE_URL" OFS url; next} {print}' "$ENV_FILE" > "$TMP_ENV"
             cat "$TMP_ENV" > "$ENV_FILE"
             rm -f "$TMP_ENV"
-            echo -e "  기존 .env.production의 DATABASE_URL을 새 값으로 갱신했습니다."
+            echo -e "  기존 .env의 DATABASE_URL을 새 값으로 갱신했습니다."
         fi
         echo ""
         return
@@ -176,8 +181,8 @@ install_postgres() {
     fi
     $SUDO systemctl enable --now postgresql
 
-    # 재실행 시: 기존 .env.production의 DATABASE_URL을 그대로 사용 (비밀번호 불일치 방지)
-    ENV_FILE="${INSTALL_DIR}/.env.production"
+    # 재실행 시: 기존 .env의 DATABASE_URL을 그대로 사용 (비밀번호 불일치 방지)
+    ENV_FILE="${INSTALL_DIR}/.env"
     if [ -f "$ENV_FILE" ] && grep -q "^DATABASE_URL=" "$ENV_FILE"; then
         DATABASE_URL=$(grep "^DATABASE_URL=" "$ENV_FILE" | head -1 | cut -d= -f2-)
         # .env의 비밀번호를 DB에 다시 적용해 항상 일치하도록 보장
@@ -187,7 +192,7 @@ install_postgres() {
         if [ -n "$ENV_DB_PASS" ] && { [ "$ENV_DB_HOST" = "localhost" ] || [ "$ENV_DB_HOST" = "127.0.0.1" ]; }; then
             psql_as_postgres -c "ALTER USER ${DB_USER} WITH PASSWORD '${ENV_DB_PASS}';" 2>/dev/null || true
         fi
-        echo -e "  기존 .env.production의 DATABASE_URL 재사용 (비밀번호 동기화 완료)"
+        echo -e "  기존 .env의 DATABASE_URL 재사용 (비밀번호 동기화 완료)"
         echo ""
         return
     fi
@@ -212,7 +217,7 @@ install_postgres() {
 setup_env() {
     echo -e "${CYAN}[5/8] 환경변수 설정${NC}"
 
-    ENV_FILE="${INSTALL_DIR}/.env.production"
+    ENV_FILE="${INSTALL_DIR}/.env"
     if [ -f "$ENV_FILE" ]; then
         echo -e "  ${YELLOW}기존 ${ENV_FILE} 발견 — 재사용합니다.${NC}"
         # 기존 파일에서 DATABASE_URL이 없으면 추가
@@ -303,7 +308,7 @@ After=network.target postgresql.service
 Type=simple
 User=${RUN_USER}
 WorkingDirectory=${INSTALL_DIR}
-EnvironmentFile=${INSTALL_DIR}/.env.production
+EnvironmentFile=${INSTALL_DIR}/.env
 ExecStart=$(command -v node) --enable-source-maps ${INSTALL_DIR}/artifacts/api-server/dist/index.mjs
 Restart=always
 RestartSec=5
@@ -454,7 +459,7 @@ echo "   - OpenAI 사용:  Base URL=https://api.openai.com/v1, API 키=sk-..., �
 echo "  저장 후 '연결 테스트' 버튼으로 확인하세요."
 echo ""
 echo -e "${BLUE}[환경변수]${NC}"
-echo "  설정 파일: ${INSTALL_DIR}/.env.production"
+echo "  설정 파일: ${INSTALL_DIR}/.env"
 echo "  변경 후:   sudo systemctl restart ${APP_NAME}-api"
 echo ""
 echo -e "${BLUE}[업데이트 방법]${NC}"

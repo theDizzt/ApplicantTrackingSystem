@@ -51,8 +51,10 @@ Thumbs.db
 .local/
 
 # Docker 환경변수 (시크릿 포함 — 절대 커밋 금지)
+# 설정 파일은 .env 하나 (템플릿 .env.example만 커밋)
 .env
-.env.local
+.env.*
+!.env.example
 
 # Replit 홈 디렉터리 잔여물
 .config/

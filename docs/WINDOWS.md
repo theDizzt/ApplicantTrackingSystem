@@ -11,7 +11,7 @@ WSL이나 Docker 없이 Windows에서 `dev-windows.bat`을 더블클릭해 웹·
 |---|---|---|
 | 1 | Node.js, Git for Windows, PostgreSQL 설치 | – |
 | 2 | PostgreSQL에 전용 계정·DB 만들기 | ✅ 비밀번호 정하기 |
-| 3 | `.env.local` 만들기 | ✅ `DATABASE_URL`, `SESSION_SECRET` |
+| 3 | `.env` 만들기 | ✅ `DATABASE_URL`, `SESSION_SECRET` |
 | 4 | (선택) AI 키, 관리자 계정 | ✅ `AI_INTEGRATIONS_OPENAI_API_KEY`, `ADMIN_*` |
 | 5 | `dev-windows.bat` 실행 → 브라우저 자동 실행 | – |
 
@@ -72,12 +72,13 @@ CREATE DATABASE atsdb OWNER ats_local ENCODING 'UTF8';
 
 ---
 
-## 3. `.env.local` 작성하기 ✅
+## 3. `.env` 작성하기 ✅
 
-`dev-windows.bat`을 처음 실행하면 `.env.local.example`을 복사해 `.env.local`을 만들고 메모장으로 열어 준 뒤 멈춥니다.
-(직접 만들어도 됩니다: 프로젝트 루트에서 `copy .env.local.example .env.local`)
+`dev-windows.bat`을 처음 실행하면 `.env.example`을 복사해 `.env`를 만들고 메모장으로 열어 준 뒤 멈춥니다.
+(직접 만들어도 됩니다: 프로젝트 루트에서 `copy .env.example .env`)
+예전에 쓰던 `.env.local`이 있으면 실행할 때 자동으로 `.env`로 이름을 바꿔 줍니다.
 
-`.env.local`은 `.gitignore`에 들어 있어 **Git에 올라가지 않습니다.** 키와 비밀번호를 넣어도 됩니다.
+`.env`는 `.gitignore`에 들어 있어 **Git에 올라가지 않습니다.** 키와 비밀번호를 넣어도 됩니다.
 
 ### 3-1. 반드시 바꿔야 하는 값
 
@@ -224,18 +225,18 @@ dev-windows.bat
 | `database "atsdb" does not exist` | 2단계의 `CREATE DATABASE`를 실행하지 않았습니다. |
 | `ECONNREFUSED 127.0.0.1:5432` | PostgreSQL 서비스가 꺼져 있거나 포트가 다릅니다. |
 | `No schema files found` | 최신 코드인지 확인하세요 (`lib/db/drizzle.config.ts`의 Windows 경로 수정 포함). |
-| `SESSION_SECRET is required` | `.env.local`에 `SESSION_SECRET`이 비어 있습니다. |
+| `SESSION_SECRET is required` | `.env`에 `SESSION_SECRET`이 비어 있습니다. |
 | `API 서버가 120초 안에 뜨지 않았습니다` | `My ATS - API` 창의 로그를 확인하세요. 대부분 DB 접속 문제입니다. |
-| `Port 3000 is already in use` | 다른 프로그램이 포트를 쓰고 있습니다. `.env.local`의 `WEB_PORT`를 바꾸세요. |
+| `Port 3000 is already in use` | 다른 프로그램이 포트를 쓰고 있습니다. `.env`의 `WEB_PORT`를 바꾸세요. |
 | 웹 화면은 뜨는데 AI 기능만 오류 | `AI_INTEGRATIONS_OPENAI_API_KEY`가 비었거나 잘못되었습니다. |
 | esbuild / rollup / tailwind 관련 `Cannot find module ...win32-x64...` | `pnpm-workspace.yaml`에서 Windows 바이너리를 막는 줄이 되살아난 경우입니다. 해당 줄을 지우고 `npx --yes pnpm@10.26.1 install`을 다시 실행하세요. |
-| 처음부터 다시 하고 싶음 | `.env.local`을 지우고 다시 실행하면 새로 만들어 줍니다. DB 스키마만 다시 적용하려면 `--push`를 쓰세요. |
+| 처음부터 다시 하고 싶음 | `.env`를 지우고 다시 실행하면 새로 만들어 줍니다. DB 스키마만 다시 적용하려면 `--push`를 쓰세요. |
 
 ---
 
 ## 참고: bat가 내부적으로 하는 일
 
-- `.env.local`의 값을 환경 변수로 읽어 들입니다.
+- `.env`의 값을 환경 변수로 읽어 들입니다.
 - `npm_config_script_shell`을 Git Bash로 지정해 bash 문법 스크립트가 cmd에서도 돌게 합니다.
 - `MSYS_NO_PATHCONV=1`, `MSYS2_ENV_CONV_EXCL=*`를 설정해 Git Bash가 `BASE_PATH=/` 같은 값을 `C:/Program Files/Git/`로 바꾸지 않게 합니다.
 - 웹 서버는 `BASE_PATH=/`, `API_PROXY_TARGET=http://127.0.0.1:<API_PORT>`로 실행되어 `/api` 요청을 API 서버로 전달합니다.

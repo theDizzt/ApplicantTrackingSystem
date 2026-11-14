@@ -59,26 +59,31 @@ if not defined PNPM (
   goto :fail
 )
 
-rem ---- 2. 환경 변수 (.env.local) -----------------------------
-if not exist ".env.local" (
-  copy /y ".env.local.example" ".env.local" >nul
-  echo [안내] .env.local 파일을 새로 만들었습니다.
+rem ---- 2. 환경 변수 (.env) -----------------------------
+rem 예전 이름(.env.local)을 쓰던 경우 .env 하나로 합친다
+if not exist ".env" if exist ".env.local" (
+  ren ".env.local" ".env"
+  echo [안내] .env.local 파일을 .env로 이름을 바꿨습니다.
+)
+if not exist ".env" (
+  copy /y ".env.example" ".env" >nul
+  echo [안내] .env 파일을 새로 만들었습니다.
   echo        DATABASE_URL을 이 PC의 PostgreSQL 계정에 맞게 고치고,
   echo        SESSION_SECRET을 임의의 긴 문자열로 바꾼 뒤 다시 실행하세요.
-  start "" notepad ".env.local"
+  start "" notepad ".env"
   goto :fail
 )
 
-for /f "usebackq eol=# tokens=1,* delims==" %%K in (".env.local") do (
+for /f "usebackq eol=# tokens=1,* delims==" %%K in (".env") do (
   if not "%%K"=="" set "%%K=%%L"
 )
 
 if not defined DATABASE_URL (
-  echo [오류] .env.local에 DATABASE_URL이 없습니다.
+  echo [오류] .env에 DATABASE_URL이 없습니다.
   goto :fail
 )
 if not defined SESSION_SECRET (
-  echo [오류] .env.local에 SESSION_SECRET이 없습니다.
+  echo [오류] .env에 SESSION_SECRET이 없습니다.
   goto :fail
 )
 if not defined API_PORT set "API_PORT=8080"
@@ -88,7 +93,7 @@ if "%API_PORT%"=="%WEB_PORT%" (
   goto :fail
 )
 
-rem 개발용 HTTPS: .env.local에 DEV_HTTPS_CERT/DEV_HTTPS_KEY가 있으면 웹 서버가 https로 뜬다 (docs/HTTPS.md)
+rem 개발용 HTTPS: .env에 DEV_HTTPS_CERT/DEV_HTTPS_KEY가 있으면 웹 서버가 https로 뜬다 (docs/HTTPS.md)
 set "WEB_SCHEME=http"
 if defined DEV_HTTPS_CERT set "WEB_SCHEME=https"
 

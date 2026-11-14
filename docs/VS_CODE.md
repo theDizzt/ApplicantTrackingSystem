@@ -26,16 +26,16 @@ VS Code 통합 터미널에서:
 
 ```bash
 pnpm install --frozen-lockfile
-cp .env.local.example .env.local
+cp .env.example .env
 ```
 
-`.env.local`을 열어 `SESSION_SECRET`을 임의의 값으로 바꾸세요. 예:
+`.env`를 열어 `SESSION_SECRET`을 임의의 값으로 바꾸세요. 예:
 
 ```bash
 openssl rand -hex 32
 ```
 
-AI 분석 기능을 사용할 때만 `AI_INTEGRATIONS_OPENAI_API_KEY`에 본인의 키를 입력합니다. 키가 비어 있어도 웹·API 서버는 실행되지만, AI 분석 요청은 동작하지 않습니다. `.env.local`은 Git에서 제외됩니다.
+AI 분석 기능을 사용할 때만 `AI_INTEGRATIONS_OPENAI_API_KEY`에 본인의 키를 입력합니다. 키가 비어 있어도 웹·API 서버는 실행되지만, AI 분석 요청은 동작하지 않습니다. `.env`는 Git에서 제외됩니다.
 
 ## 데이터베이스와 서버 실행
 
@@ -46,7 +46,7 @@ AI 분석 기능을 사용할 때만 `AI_INTEGRATIONS_OPENAI_API_KEY`에 본인�
 
 나중에 데이터베이스만 시작하거나 중지하려면 **My ATS: Start local database** 또는 **My ATS: Stop local database** 작업을 실행합니다. 중지 작업은 저장된 DB 볼륨을 삭제하지 않습니다.
 
-기본 DB 포트 `5432`가 이미 사용 중이면 `.env.local`에서 `DB_PORT`와 `DATABASE_URL`의 포트를 같은 값(예: `5433`)으로 바꾸세요.
+기본 DB 포트 `5432`가 이미 사용 중이면 `.env`에서 `DB_PORT`와 `DATABASE_URL`의 포트를 같은 값(예: `5433`)으로 바꾸세요.
 
 ## 검사
 

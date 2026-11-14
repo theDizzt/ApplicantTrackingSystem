@@ -15,10 +15,15 @@ set -euo pipefail
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
 INSTALL_DIR="$(cd "$(dirname "$0")" && pwd)"
+# 예전 이름(.env.development)을 쓰던 경우 .env 하나로 합친다
+if [ ! -f "${INSTALL_DIR}/.env" ] && [ -f "${INSTALL_DIR}/.env.development" ]; then
+    mv "${INSTALL_DIR}/.env.development" "${INSTALL_DIR}/.env"
+    echo "[안내] .env.development 파일을 .env로 이름을 바꿨습니다."
+fi
 DB_NAME="${DB_NAME:-ats_checker_dev}"
 DB_USER="$(whoami)"   # Homebrew PostgreSQL은 현재 macOS 사용자 계정으로 접속
 PG_VERSION="${PG_VERSION:-16}"
-ENV_FILE="${INSTALL_DIR}/.env.development"
+ENV_FILE="${INSTALL_DIR}/.env"
 
 echo -e "${CYAN}=========================================${NC}"
 echo -e "${CYAN} AI 서류 심사관 — macOS 개발 환경 설정${NC}"
@@ -100,7 +105,7 @@ DATABASE_URL="postgres://${DB_USER}@localhost:5432/${DB_NAME}"
 echo ""
 
 # ----------------------------------------
-# 4. 환경변수 파일 (.env.development)
+# 4. 환경변수 파일 (.env)
 # ----------------------------------------
 echo -e "${CYAN}[4/5] 환경변수 설정${NC}"
 if [ -f "$ENV_FILE" ]; then

@@ -44,6 +44,7 @@ vi .env
 ```
 
 변경 필수 항목:
+- `DATABASE_URL` — 개발 PC용 줄(`127.0.0.1`) 대신 주석 처리된 Docker용 줄(`@db:5432`)을 사용하고, 비밀번호를 `POSTGRES_PASSWORD`와 맞춤
 - `POSTGRES_PASSWORD` — DB 비밀번호
 - `SESSION_SECRET` — 최소 32자 랜덤 문자열 (`openssl rand -hex 32`)
 - `AI_INTEGRATIONS_OPENAI_API_KEY` — OpenAI API 키
@@ -373,7 +374,7 @@ docker run --rm \
 sudo bash install.sh
 ```
 
-설치 스크립트는 Node.js 22, pnpm 10, PostgreSQL, Nginx, poppler-utils, ffmpeg를 설치하고, DB 스키마 적용과 프론트/API 빌드를 순서대로 수행합니다. 관리자 아이디와 8자 이상의 비밀번호를 입력받아 bcrypt 해시만 `.env.production`에 저장합니다.
+설치 스크립트는 Node.js 22, pnpm 10, PostgreSQL, Nginx, poppler-utils, ffmpeg를 설치하고, DB 스키마 적용과 프론트/API 빌드를 순서대로 수행합니다. 관리자 아이디와 8자 이상의 비밀번호를 입력받아 bcrypt 해시만 `.env`에 저장합니다. (예전 `.env.production`이 있으면 `.env`로 이름을 바꿔 그대로 씁니다.)
 
 직접 설치 후 확인:
 

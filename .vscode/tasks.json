@@ -17,7 +17,7 @@
       "args": [
         "compose",
         "--env-file",
-        ".env.local",
+        ".env",
         "-f",
         "docker-compose.vscode.yml",
         "up",
@@ -36,7 +36,7 @@
       "command": "bash",
       "args": [
         "-c",
-        "set -a; source .env.local; set +a; pnpm --filter @workspace/db run push"
+        "set -a; source .env; set +a; pnpm --filter @workspace/db run push"
       ],
       "options": {
         "cwd": "${workspaceFolder}"
@@ -72,7 +72,7 @@
       "args": [
         "compose",
         "--env-file",
-        ".env.local",
+        ".env",
         "-f",
         "docker-compose.vscode.yml",
         "down"
