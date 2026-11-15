@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Mic, Square, UploadCloud, Copy, RefreshCw, AlertCircle, CheckCircle2, Loader2, Save, ChevronLeft, ChevronRight } from 'lucide-react';
-import { useToast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 import {
   getGetResumeQueryKey,
   getListResumesQueryKey,
@@ -70,7 +70,6 @@ function coverLetterToHtml(value: string) {
 }
 
 export default function CoverLetterPage() {
-  const { toast } = useToast();
   const queryClient = useQueryClient();
   const [, setLocation] = useLocation();
   const { data: resumes, isLoading: resumesLoading } = useListResumes();
@@ -150,11 +149,7 @@ export default function CoverLetterPage() {
       setUsedFallbackPrompts(result.usedFallback);
       setCurrentPromptIndex(0);
     } catch (err: unknown) {
-      toast({
-        title: "가이드 질문 생성 실패",
-        description: err instanceof Error ? err.message : "질문을 불러오는데 실패했습니다.",
-        variant: "destructive"
-      });
+      toast.error("가이드 질문 생성 실패", { description: err instanceof Error ? err.message : "질문을 불러오는데 실패했습니다." });
     }
   };
 
@@ -249,11 +244,7 @@ export default function CoverLetterPage() {
           : 'microphone_unavailable';
       trackEvent('voice_recording_failed', { reason });
       if (mountedRef.current) {
-        toast({
-          title: "마이크 접근 오류",
-          description: "마이크 권한을 허용해주세요.",
-          variant: "destructive"
-        });
+        toast.error("마이크 접근 오류", { description: "마이크 권한을 허용해주세요." });
       }
     } finally {
       if (mountedRef.current) setAcquiringMic(false);
@@ -276,11 +267,7 @@ export default function CoverLetterPage() {
     if (!file) return;
     
     if (file.size > 50 * 1024 * 1024) {
-      toast({
-        title: "파일 크기 초과",
-        description: "50MB 이하의 오디오 파일만 업로드 가능합니다.",
-        variant: "destructive"
-      });
+      toast.error("파일 크기 초과", { description: "50MB 이하의 오디오 파일만 업로드 가능합니다." });
       return;
     }
     
@@ -342,16 +329,9 @@ export default function CoverLetterPage() {
     if (!coverLetter) return;
     try {
       await navigator.clipboard.writeText(coverLetter);
-      toast({
-        title: "복사 완료",
-        description: "자기소개서가 클립보드에 복사되었습니다.",
-      });
+      toast.success("복사 완료", { description: "자기소개서가 클립보드에 복사되었습니다." });
     } catch (err) {
-      toast({
-        title: "복사 실패",
-        description: "클립보드 복사에 실패했습니다.",
-        variant: "destructive"
-      });
+      toast.error("복사 실패", { description: "클립보드 복사에 실패했습니다." });
     }
   };
 
@@ -365,19 +345,12 @@ export default function CoverLetterPage() {
         onSuccess: updated => {
           queryClient.setQueryData(getGetResumeQueryKey(resumeId), updated);
           queryClient.invalidateQueries({ queryKey: getListResumesQueryKey() });
-          toast({
-            title: "이력서 반영 완료",
-            description: "생성된 자기소개서가 선택한 이력서에 저장되었습니다.",
-          });
+          toast.success("이력서 반영 완료", { description: "생성된 자기소개서가 선택한 이력서에 저장되었습니다." });
           trackEvent('cover_letter_applied_to_resume');
           setLocation(`/resumes/${resumeId}`);
         },
         onError: () => {
-          toast({
-            title: "이력서 반영 실패",
-            description: "자기소개서를 저장하지 못했습니다. 잠시 후 다시 시도해주세요.",
-            variant: "destructive",
-          });
+          toast.error("이력서 반영 실패", { description: "자기소개서를 저장하지 못했습니다. 잠시 후 다시 시도해주세요." });
         },
       },
     );

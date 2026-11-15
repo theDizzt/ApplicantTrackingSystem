@@ -35,7 +35,7 @@ import {
   DropdownMenuCheckboxItem, DropdownMenuLabel, DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu"
 import { cn } from "@/lib/utils"
-import { useToast } from "@/hooks/use-toast"
+import { toast } from "sonner"
 
 // ── 필터 옵션 ────────────────────────────────────────────────────────────────
 const CAREER_LEVELS      = ["신입", "1년이내", "3년이내"] as const
@@ -360,7 +360,6 @@ export default function CompaniesPage() {
   const createCompany  = useCreateCompany()
   const fetchPostings  = useFetchPostings()
   const queryClient    = useQueryClient()
-  const { toast }      = useToast()
 
   const [selectedResumeId, setSelectedResumeId] = useState<number | null>(null)
 
@@ -419,7 +418,7 @@ export default function CompaniesPage() {
           setDialogOpen(true)
         },
         onError: () => {
-          toast({ title: "오류", description: "채용공고를 가져오지 못했습니다.", variant: "destructive" })
+          toast.error("오류", { description: "채용공고를 가져오지 못했습니다." })
         },
       }
     )
@@ -448,11 +447,11 @@ export default function CompaniesPage() {
           setAddingIds(prev => { const s = new Set(prev); s.delete(index); return s })
           setAddedIds(prev => new Set(prev).add(index))
           queryClient.invalidateQueries({ queryKey: getListCompaniesQueryKey() })
-          toast({ title: "추가 완료", description: `${posting.name}이(가) 회사 목록에 추가됐습니다.` })
+          toast.success("추가 완료", { description: `${posting.name}이(가) 회사 목록에 추가됐습니다.` })
         },
         onError: () => {
           setAddingIds(prev => { const s = new Set(prev); s.delete(index); return s })
-          toast({ title: "오류", description: "회사 추가에 실패했습니다.", variant: "destructive" })
+          toast.error("오류", { description: "회사 추가에 실패했습니다." })
         },
       }
     )
@@ -488,7 +487,7 @@ export default function CompaniesPage() {
         setDialogOpen(true)
       },
       onError: (err) => {
-        toast({ title: "오류", description: err instanceof Error ? err.message : "채용공고를 찾지 못했습니다.", variant: "destructive" })
+        toast.error("오류", { description: err instanceof Error ? err.message : "채용공고를 찾지 못했습니다." })
       },
     })
   }

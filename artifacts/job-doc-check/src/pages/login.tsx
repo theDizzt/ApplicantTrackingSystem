@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { Link, useLocation } from "wouter"
+import { useQueryClient } from "@tanstack/react-query"
 import { useLogin, useGetMe, getGetMeQueryKey } from "@workspace/api-client-react"
 
 import { Button } from "@/components/ui/button"
@@ -22,6 +23,7 @@ export default function LoginPage() {
   const [, navigate] = useLocation()
   const { data: user, isSuccess } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } })
   const login = useLogin()
+  const queryClient = useQueryClient()
 
   // 서버에서 실제로 인증이 확인된 경우에만 대시보드로 이동
   // (isSuccess 없이 user만 보면 stale 캐시로도 redirect → AuthGuard와 무한루프 발생)
@@ -36,7 +38,13 @@ export default function LoginPage() {
 
   function onSubmit(values: z.infer<typeof loginSchema>) {
     login.mutate({ data: values }, {
-      onSuccess: () => navigate("/dashboard"),
+      onSuccess: (loggedIn) => {
+        // 이전 401 오류가 getMe 캐시에 남아 있으면 AuthGuard가 /login으로 되돌려 보내므로
+        // 응답으로 받은 사용자로 캐시를 먼저 채우고, 서버 값으로 한 번 더 동기화한다
+        queryClient.setQueryData(getGetMeQueryKey(), loggedIn)
+        queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() })
+        navigate("/dashboard")
+      },
       onError: (err) => {
         form.setError("root", {
           message: (err as any)?.data?.error || "로그인에 실패했습니다",

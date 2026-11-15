@@ -3,6 +3,7 @@ import { useForm } from "react-hook-form"
 import { zodResolver } from "@hookform/resolvers/zod"
 import * as z from "zod"
 import { Link, useLocation } from "wouter"
+import { useQueryClient } from "@tanstack/react-query"
 import { useRegister, useGetMe, getGetMeQueryKey } from "@workspace/api-client-react"
 
 import { Button } from "@/components/ui/button"
@@ -52,6 +53,7 @@ export default function RegisterPage() {
   const [, setLocation] = useLocation()
   const { data: user, isSuccess } = useGetMe({ query: { queryKey: getGetMeQueryKey(), retry: false } })
   const register = useRegister()
+  const queryClient = useQueryClient()
   const [orgs, setOrgs] = useState<Organization[]>([])
   const [selectedOrg, setSelectedOrg] = useState<Organization | null>(null)
 
@@ -85,7 +87,13 @@ export default function RegisterPage() {
     register.mutate(
       { data: payload as any },
       {
-        onSuccess: () => setLocation("/dashboard"),
+        onSuccess: (registered) => {
+          // 이전 401 오류가 getMe 캐시에 남아 있으면 AuthGuard가 /login으로 되돌려 보내므로
+          // 응답으로 받은 사용자로 캐시를 먼저 채우고, 서버 값으로 한 번 더 동기화한다
+          queryClient.setQueryData(getGetMeQueryKey(), registered)
+          queryClient.invalidateQueries({ queryKey: getGetMeQueryKey() })
+          setLocation("/dashboard")
+        },
         onError: (err) => {
           form.setError("root", { message: (err as any)?.data?.error || "회원가입에 실패했습니다" })
         },

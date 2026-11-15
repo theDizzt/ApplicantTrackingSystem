@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import CoverLetterPage from "./cover-letter";
 
 const mocks = vi.hoisted(() => ({
-  toast: vi.fn(),
+  toast: { success: vi.fn(), error: vi.fn() },
   generateCoverLetter: vi.fn(),
   generateGuidedPrompts: vi.fn(),
   updateResume: vi.fn(),
@@ -41,8 +41,8 @@ vi.mock("wouter", () => ({
   useLocation: () => ["/cover-letter", mocks.setLocation],
 }));
 
-vi.mock("@/hooks/use-toast", () => ({
-  useToast: () => ({ toast: mocks.toast }),
+vi.mock("sonner", () => ({
+  toast: mocks.toast,
 }));
 
 async function generateGuidedPrompts(usedFallback: boolean) {
