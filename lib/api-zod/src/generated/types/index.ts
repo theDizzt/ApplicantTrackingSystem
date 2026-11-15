@@ -43,6 +43,7 @@ export * from './recommendInput';
 export * from './registerInput';
 export * from './resume';
 export * from './resumeInput';
+export * from './resumeLanguage';
 export * from './resumeUpdate';
 export * from './spellcheckCorrection';
 export * from './spellcheckInput';

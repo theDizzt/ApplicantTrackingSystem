@@ -4,6 +4,7 @@ import { db, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import { startCareerAnalysis } from "./career-analysis";
+import { detectResumeLanguage } from "../lib/resume-language";
 
 const router: IRouter = Router();
 
@@ -17,6 +18,7 @@ function serializeResume(r: typeof resumesTable.$inferSelect) {
     desiredSalary: r.desiredSalary ?? null,
     photoUrl: r.photoUrl ?? null,
     fileUrl: r.fileUrl ?? null,
+    language: r.language ?? null,
     createdAt: r.createdAt.toISOString(),
   };
 }
@@ -41,6 +43,7 @@ router.post("/resumes", requireAuth, async (req, res): Promise<void> => {
       desiredSalary: desiredSalary != null ? Number(desiredSalary) : null,
       photoUrl: photoUrl ?? null,
       fileUrl: fileUrl ?? null,
+      language: detectResumeLanguage(content, coverLetter),
     })
     .returning();
   res.status(201).json(serializeResume(resume));
@@ -76,10 +79,20 @@ router.patch("/resumes/:id", requireAuth, async (req, res): Promise<void> => {
   if (photoUrl     !== undefined) updateData.photoUrl     = photoUrl;
   if (fileUrl      !== undefined) updateData.fileUrl      = fileUrl;
 
-  const [resume] = await db.update(resumesTable).set(updateData)
+  let [resume] = await db.update(resumesTable).set(updateData)
     .where(and(eq(resumesTable.id, id), eq(resumesTable.userId, req.session.userId!)))
     .returning();
   if (!resume) { res.status(404).json({ error: "이력서를 찾을 수 없습니다." }); return; }
+
+  // 본문·자기소개서가 바뀌면 저장된 최종 내용 기준으로 언어를 다시 판정한다.
+  if (content !== undefined || coverLetter !== undefined) {
+    const language = detectResumeLanguage(resume.content, resume.coverLetter);
+    if (language !== resume.language) {
+      [resume] = await db.update(resumesTable).set({ language })
+        .where(eq(resumesTable.id, resume.id))
+        .returning();
+    }
+  }
   res.json(serializeResume(resume));
 
   // 제목·본문·자기소개서가 수정된 경우 자동 커리어 분석 재실행 (fire-and-forget)

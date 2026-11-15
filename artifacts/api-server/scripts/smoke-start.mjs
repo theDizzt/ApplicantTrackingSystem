@@ -1,4 +1,9 @@
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+
+// Windows에서는 detached 자식마다 새 콘솔 창이 뜨고, 음수 PID(프로세스 그룹) 종료도
+// 지원되지 않아 창이 닫히지 않고 쌓인다. 그래서 Windows에서는 detached를 끄고
+// 창을 숨긴 뒤, taskkill /T로 프로세스 트리를 정리한다.
+const isWindows = process.platform === "win32";
 
 const port = process.env.SMOKE_TEST_PORT ?? "43123";
 const timeoutMs = Number(process.env.SMOKE_TEST_TIMEOUT_MS ?? "15000");
@@ -10,7 +15,8 @@ const serverEntry = process.env.SMOKE_TEST_SERVER_ENTRY ?? "./dist/index.mjs";
 
 const server = spawn(process.execPath, ["--enable-source-maps", serverEntry], {
   cwd: new URL("..", import.meta.url),
-  detached: true,
+  detached: !isWindows,
+  windowsHide: true,
   env: {
     ...process.env,
     NODE_ENV: "production",
@@ -84,6 +90,15 @@ async function stopServer() {
 
 function signalServerTree(signal) {
   if (server.pid === undefined) return;
+
+  if (isWindows) {
+    // Windows 콘솔 프로세스에는 정상 종료 신호를 보낼 방법이 없으므로 트리 전체를 강제 종료한다.
+    spawnSync("taskkill", ["/pid", String(server.pid), "/T", "/F"], {
+      stdio: "ignore",
+      windowsHide: true,
+    });
+    return;
+  }
 
   try {
     process.kill(-server.pid, signal);

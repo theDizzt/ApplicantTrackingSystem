@@ -11,6 +11,7 @@ export const resumesTable = pgTable("resumes", {
   desiredSalary: integer("desired_salary"), // 희망 연봉 (만원 단위)
   photoUrl: text("photo_url"),
   fileUrl: text("file_url"),
+  language: text("language"), // 이력서 언어: "ko" | "en" | "mixed" (NULL = 미판정)
   careerAnalysisResult: text("career_analysis_result"), // 커리어 분석 결과 (JSON string)
   careerAnalyzedAt: timestamp("career_analyzed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

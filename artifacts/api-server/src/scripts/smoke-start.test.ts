@@ -193,7 +193,9 @@ afterEach(async () => {
   );
 });
 
-describe("smoke-start process cleanup", () => {
+// POSIX 신호(SIGTERM 무시, SIGINT 종료 코드, 프로세스 그룹 종료)를 검증하는 테스트라 Windows에서는
+// 의미가 없고, 실패하면 자식 node 프로세스가 남는다. CI(ubuntu)에서만 실행한다.
+describe.skipIf(process.platform === "win32")("smoke-start process cleanup", () => {
   it("stops the child server after a successful health response", async () => {
     const result = await runSmokeCheck(200, 2_000);
 

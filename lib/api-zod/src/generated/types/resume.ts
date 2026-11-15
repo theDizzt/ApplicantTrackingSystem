@@ -5,6 +5,7 @@
  * My ATS API
  * OpenAPI spec version: 0.1.0
  */
+import type { ResumeLanguage } from './resumeLanguage';
 
 export interface Resume {
   id: number;
@@ -20,5 +21,7 @@ export interface Resume {
   photoUrl?: string | null;
   /** @nullable */
   fileUrl?: string | null;
+  /** 이력서 언어 (서버가 본문에서 자동 판정, NULL = 미판정) */
+  language?: ResumeLanguage;
   createdAt: string;
 }

@@ -1357,6 +1357,12 @@ components:
           type: ["string", "null"]
         fileUrl:
           type: ["string", "null"]
+        language:
+          description: 이력서 언어 (서버가 본문에서 자동 판정, NULL = 미판정)
+          oneOf:
+            - type: string
+              enum: [ko, en, mixed]
+            - type: "null"
         createdAt:
           type: string
 

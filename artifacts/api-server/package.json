@@ -4,9 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "export NODE_ENV=development && pnpm --filter @workspace/db run migrate:guided-prompt-monitor && node ./build.mjs --watch",
+    "dev": "export NODE_ENV=development && pnpm --filter @workspace/db run migrate && node ./build.mjs --watch",
     "build": "node ./build.mjs",
-    "start": "pnpm --filter @workspace/db run migrate:guided-prompt-monitor && node --enable-source-maps ./dist/index.mjs",
+    "start": "pnpm --filter @workspace/db run migrate && node --enable-source-maps ./dist/index.mjs",
     "smoke:start": "node ./scripts/smoke-start.mjs",
     "typecheck": "tsc -b ../../lib/db ../../lib/api-zod && tsc -p tsconfig.json --noEmit",
     "test": "vitest run"

@@ -505,6 +505,7 @@ export const ListResumesResponseItem = zod.object({
   "desiredSalary": zod.number().nullish(),
   "photoUrl": zod.string().nullish(),
   "fileUrl": zod.string().nullish(),
+  "language": zod.union([zod.enum(['ko', 'en', 'mixed']),zod.null()]).optional().describe('이력서 언어 (서버가 본문에서 자동 판정, NULL = 미판정)'),
   "createdAt": zod.string()
 })
 export const ListResumesResponse = zod.array(ListResumesResponseItem)
@@ -531,6 +532,7 @@ export const CreateResumeResponse = zod.object({
   "desiredSalary": zod.number().nullish(),
   "photoUrl": zod.string().nullish(),
   "fileUrl": zod.string().nullish(),
+  "language": zod.union([zod.enum(['ko', 'en', 'mixed']),zod.null()]).optional().describe('이력서 언어 (서버가 본문에서 자동 판정, NULL = 미판정)'),
   "createdAt": zod.string()
 })
 
@@ -575,6 +577,7 @@ export const GetResumeResponse = zod.object({
   "desiredSalary": zod.number().nullish(),
   "photoUrl": zod.string().nullish(),
   "fileUrl": zod.string().nullish(),
+  "language": zod.union([zod.enum(['ko', 'en', 'mixed']),zod.null()]).optional().describe('이력서 언어 (서버가 본문에서 자동 판정, NULL = 미판정)'),
   "createdAt": zod.string()
 })
 
@@ -604,6 +607,7 @@ export const UpdateResumeResponse = zod.object({
   "desiredSalary": zod.number().nullish(),
   "photoUrl": zod.string().nullish(),
   "fileUrl": zod.string().nullish(),
+  "language": zod.union([zod.enum(['ko', 'en', 'mixed']),zod.null()]).optional().describe('이력서 언어 (서버가 본문에서 자동 판정, NULL = 미판정)'),
   "createdAt": zod.string()
 })
 

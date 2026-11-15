@@ -394,6 +394,18 @@ export interface RecommendInput {
   resumeId: number;
 }
 
+/**
+ * 이력서 언어 (서버가 본문에서 자동 판정, NULL = 미판정)
+ */
+export type ResumeLanguage = typeof ResumeLanguage[keyof typeof ResumeLanguage] | null;
+
+
+export const ResumeLanguage = {
+  ko: 'ko',
+  en: 'en',
+  mixed: 'mixed',
+} as const;
+
 export interface Resume {
   id: number;
   userId: number;
@@ -408,6 +420,8 @@ export interface Resume {
   photoUrl?: string | null;
   /** @nullable */
   fileUrl?: string | null;
+  /** 이력서 언어 (서버가 본문에서 자동 판정, NULL = 미판정) */
+  language?: ResumeLanguage;
   createdAt: string;
 }
 

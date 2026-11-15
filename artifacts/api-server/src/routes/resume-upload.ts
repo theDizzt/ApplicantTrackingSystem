@@ -10,6 +10,7 @@ import { requireAuth } from "../middlewares/auth";
 import { logger } from "../lib/logger";
 import { getAI } from "../lib/openai";
 import { ocrPdfBuffer, VisionOcrError } from "../lib/vision-ocr";
+import { detectResumeLanguage } from "../lib/resume-language";
 import { startCareerAnalysis } from "./career-analysis";
 import { resumeHtmlToText } from "../lib/resume-text";
 
@@ -176,6 +177,7 @@ router.post("/resumes/upload", requireAuth, upload.single("file"), async (req, r
       coverLetter: normalizedCoverLetter,
       photoUrl:    null,
       fileUrl:     null,
+      language:    detectResumeLanguage(normalizedContent, normalizedCoverLetter),
     })
     .returning();
 
@@ -187,6 +189,7 @@ router.post("/resumes/upload", requireAuth, upload.single("file"), async (req, r
     coverLetter: resume.coverLetter ?? null,
     photoUrl:    resume.photoUrl    ?? null,
     fileUrl:     resume.fileUrl     ?? null,
+    language:    resume.language    ?? null,
     createdAt:   resume.createdAt.toISOString(),
   });
 
