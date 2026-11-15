@@ -3,6 +3,7 @@ import { eq, and } from "drizzle-orm";
 import { db, resumesTable } from "@workspace/db";
 import { requireAuth } from "../middlewares/auth";
 import { getAI } from "../lib/openai";
+import { buildSpellcheckPrompt, detectSpellcheckLanguages } from "../lib/spellcheck-prompt";
 
 const router: IRouter = Router();
 
@@ -38,17 +39,8 @@ router.post("/resumes/:id/spellcheck", requireAuth, async (req, res): Promise<vo
     return;
   }
 
-  const systemPrompt = `당신은 한국어 교정 전문가입니다. 이력서와 자기소개서의 오탈자, 맞춤법 오류, 문법 오류를 찾아 수정합니다.
-반드시 JSON 형식으로만 응답하세요:
-{
-  "corrections": [
-    { "field": "content" | "coverLetter", "original": "오류 원문", "corrected": "수정된 텍스트", "reason": "수정 이유" }
-  ],
-  "contentCorrected": "교정된 이력서 전체 텍스트",
-  "coverLetterCorrected": "교정된 자기소개서 전체 텍스트"
-}
-오류가 없으면 corrections 배열은 비워두고, 원문을 그대로 반환하세요.
-HTML 태그는 결과에 포함하지 마세요. 순수 텍스트로만 반환하세요.`;
+  // 편집 중(미저장) 내용을 검토하므로 저장된 language가 아니라 요청 본문에서 필드별로 판정한다.
+  const systemPrompt = buildSpellcheckPrompt(detectSpellcheckLanguages(contentText, coverLetterText));
 
   const userPrompt = [
     contentText     ? `## 이력서 내용\n${contentText.slice(0, 3000)}` : "",
