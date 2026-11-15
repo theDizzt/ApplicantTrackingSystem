@@ -11,6 +11,7 @@ import { logger } from "../lib/logger";
 import { getAI } from "../lib/openai";
 import { ocrPdfBuffer, VisionOcrError } from "../lib/vision-ocr";
 import { detectResumeLanguage } from "../lib/resume-language";
+import { buildResumeSplitPrompt } from "../lib/resume-split-prompt";
 import { startCareerAnalysis } from "./career-analysis";
 import { resumeHtmlToText } from "../lib/resume-text";
 
@@ -63,19 +64,8 @@ function extractTitle(filename: string): string {
 async function splitAndFormatWithAI(
   rawText: string
 ): Promise<{ resumeContent: string; coverLetter: string }> {
-  const systemPrompt = `당신은 이력서 파싱 전문가입니다. 아래 텍스트에서 이력서 본문과 자기소개서를 분리하고, 표 형태 데이터를 마크다운 테이블로 변환하세요.
-
-반환 형식 (JSON):
-{
-  "resumeContent": "이력서 본문 (자기소개서 완전 제외. 표는 마크다운 테이블로 변환)",
-  "coverLetter":   "자기소개서 전체 텍스트 (없으면 빈 문자열)"
-}
-
-규칙:
-1. 자기소개서: '자기소개서', '성장과정', '지원동기', '직무 역량', '입사 후 포부', '장단점' 등 서술형 에세이 섹션 전체를 coverLetter에 넣습니다. 이력서 본문에서는 완전히 제거합니다.
-2. 마크다운 테이블: 스페이스로 정렬된 열 데이터(학력, 경력, 자격증 목록 등)를 | 헤더1 | 헤더2 | 형식으로 변환합니다.
-3. 이력서 본문(resumeContent)은 마크다운 테이블과 일반 텍스트로만 구성하세요.
-4. 오직 JSON만 반환하세요. 마크다운 코드 블록 없이.`;
+  // 원문 언어에 맞춰 섹션 분리 규칙을 고른다 (영문: Summary는 본문, Cover Letter는 분리).
+  const systemPrompt = buildResumeSplitPrompt(detectResumeLanguage(rawText));
 
   try {
     const ai = await getAI("light");
