@@ -4,10 +4,14 @@ import {
   AnswerFollowUpBody,
   AnswerFollowUpParams,
   AnswerFollowUpResponse,
+  AnswerLiveQuestionParams,
+  AnswerLiveQuestionResponse,
   CreateInterviewBody,
   CreateInterviewResponse,
   EvaluateAnswersParams,
   EvaluateAnswersResponse,
+  FinishLiveInterviewParams,
+  FinishLiveInterviewResponse,
   GetInterviewParams,
   GetInterviewResponse,
   ListInterviewsResponse,
@@ -19,18 +23,25 @@ import { db, interviewSessionsTable, interviewQuestionsTable, resumesTable, comp
 import { requireAuth } from "../middlewares/auth";
 import { aiBlockedMessage, getAI } from "../lib/openai";
 import { resumeHtmlToText } from "../lib/resume-text";
+import { handleAudioUpload, limitConcurrentAudioJobs, transcribeUpload } from "../lib/audio-transcription";
 import {
   FOLLOW_UP_ANSWER_SYSTEM,
   FOLLOW_UP_RULES,
+  LIVE_ANSWER_SYSTEM,
+  LIVE_SUMMARY_SYSTEM,
   MAX_FOLLOW_UP_DEPTH,
   buildChain,
+  chainFrom,
   cleanFollowUpQuestion,
   descendantIds,
   extractWeaknesses,
+  formatChain,
   weaknessInstruction,
 } from "../lib/interview-followups";
 
 const router: IRouter = Router();
+const LIVE_ONLY_MESSAGE = "실시간 면접은 음성으로 한 문제씩 답합니다. 실시간 면접 화면에서 이어서 진행해주세요.";
+const MIN_SPOKEN_ANSWER_LENGTH = 2;
 
 function parseId(params: unknown, schema: typeof GetInterviewParams) {
   return schema.safeParse(params);
@@ -61,6 +72,7 @@ async function getSessionWithQuestions(sessionId: number, userId: number) {
     resumeId: session.resumeId,
     companyId: session.companyId,
     status: session.status,
+    mode: session.mode === "live" ? "live" as const : "text" as const,
     questions: questions.map((q) => ({
       id: q.id,
       question: q.question,
@@ -123,6 +135,7 @@ router.post("/interviews", requireAuth, async (req, res): Promise<void> => {
   }
   const userId = req.session.userId!;
   const { resumeId, companyId } = input.data;
+  const mode = input.data.mode ?? "text";
   const [[resume], [company], [latestAnalysis]] = await Promise.all([
     db.select().from(resumesTable).where(and(eq(resumesTable.id, resumeId), eq(resumesTable.userId, userId))),
     db.select().from(companiesTable).where(and(eq(companiesTable.id, companyId), eq(companiesTable.userId, userId))),
@@ -147,7 +160,7 @@ router.post("/interviews", requireAuth, async (req, res): Promise<void> => {
   }
 
   const [session] = await db.insert(interviewSessionsTable)
-    .values({ userId, resumeId, companyId, status: "pending" })
+    .values({ userId, resumeId, companyId, mode, status: "pending" })
     .returning();
 
   let generated = false; // 질문을 실제로 저장했는지
@@ -270,6 +283,10 @@ router.post("/interviews/:id/answers", requireAuth, async (req, res): Promise<vo
     res.status(404).json({ error: "면접 세션을 찾을 수 없습니다." });
     return;
   }
+  if (session.mode === "live") {
+    res.status(409).json({ error: LIVE_ONLY_MESSAGE });
+    return;
+  }
   // 일괄 제출은 기본 질문만 받는다. 꼬리 질문은 /follow-ups/:questionId/answer로 하나씩 답한다.
   const baseQuestions = session.questions.filter((question) => question.parentQuestionId == null);
   const submittedIds = input.data.answers.map((item) => item.questionId);
@@ -309,6 +326,10 @@ router.post("/interviews/:id/evaluate", requireAuth, async (req, res): Promise<v
   const session = await getSessionWithQuestions(params.data.id, userId);
   if (!session) {
     res.status(404).json({ error: "면접 세션을 찾을 수 없습니다." });
+    return;
+  }
+  if (session.mode === "live") {
+    res.status(409).json({ error: LIVE_ONLY_MESSAGE });
     return;
   }
   const baseQuestions = session.questions.filter((question) => question.parentQuestionId == null);
@@ -421,6 +442,10 @@ router.post("/interviews/:id/follow-ups/:questionId/answer", requireAuth, async 
     res.status(404).json({ error: "면접 세션을 찾을 수 없습니다." });
     return;
   }
+  if (session.mode === "live") {
+    res.status(409).json({ error: LIVE_ONLY_MESSAGE });
+    return;
+  }
   const target = session.questions.find((question) => question.id === params.data.questionId);
   if (!target || target.parentQuestionId == null) {
     res.status(404).json({ error: "꼬리 질문을 찾을 수 없습니다." });
@@ -489,6 +514,203 @@ router.post("/interviews/:id/follow-ups/:questionId/answer", requireAuth, async 
 
   const result = await getSessionWithQuestions(session.id, userId);
   res.json(AnswerFollowUpResponse.parse(result));
+});
+
+// ── 실시간(음성) 면접 ─────────────────────────────────────────────────────────
+// 질문 하나에 음성으로 답하면 STT → 바로 평가 → (필요하면) 꼬리 질문 추가. 화면은 돌려받은 세션에서 다음 질문을 고른다.
+
+async function getCompanyContext(companyId: number, userId: number) {
+  const [company] = await db.select({
+    name: companiesTable.name,
+    talentProfile: companiesTable.talentProfile,
+    jobDescription: companiesTable.jobDescription,
+  }).from(companiesTable).where(and(eq(companiesTable.id, companyId), eq(companiesTable.userId, userId)));
+  return company ?? null;
+}
+
+router.post(
+  "/interviews/:id/live/answers/:questionId",
+  requireAuth,
+  limitConcurrentAudioJobs,
+  handleAudioUpload,
+  async (req, res): Promise<void> => {
+    const params = AnswerLiveQuestionParams.safeParse(req.params);
+    if (!params.success) {
+      res.status(400).json({ error: params.error.message });
+      return;
+    }
+    if (!req.file) {
+      res.status(400).json({ error: "답변 녹음을 첨부해주세요." });
+      return;
+    }
+    const userId = req.session.userId!;
+    const session = await getSessionWithQuestions(params.data.id, userId);
+    if (!session) {
+      res.status(404).json({ error: "면접 세션을 찾을 수 없습니다." });
+      return;
+    }
+    if (session.mode !== "live") {
+      res.status(409).json({ error: "실시간 면접 세션이 아닙니다." });
+      return;
+    }
+    if (session.status === "evaluated") {
+      res.status(409).json({ error: "이미 끝난 면접입니다." });
+      return;
+    }
+    const target = session.questions.find((question) => question.id === params.data.questionId);
+    if (!target) {
+      res.status(404).json({ error: "질문을 찾을 수 없습니다." });
+      return;
+    }
+    if (target.answer != null) {
+      res.status(409).json({ error: "이미 답한 질문입니다." });
+      return;
+    }
+    const company = await getCompanyContext(session.companyId, userId);
+    if (!company) {
+      res.status(404).json({ error: "회사를 찾을 수 없습니다." });
+      return;
+    }
+
+    let transcript: string;
+    try {
+      transcript = await transcribeUpload(req.file, req.log);
+    } catch (err) {
+      req.log.error({ err, sessionId: session.id, questionId: target.id }, "Live interview transcription failed");
+      res.status(502).json({
+        error: err instanceof Error && err.message.includes("설정되지 않았습니다")
+          ? err.message
+          : "음성을 글로 옮기지 못했습니다. 다시 답해주세요.",
+      });
+      return;
+    }
+    if (transcript.length < MIN_SPOKEN_ANSWER_LENGTH) {
+      res.status(422).json({ error: "답변 음성을 인식하지 못했습니다. 마이크를 확인하고 다시 답해주세요." });
+      return;
+    }
+
+    const chain = buildChain(session.questions, target.id)
+      .map((question) => (question.id === target.id ? { ...question, answer: transcript } : question));
+    const depth = target.depth ?? 0;
+    const canGoDeeper = depth < MAX_FOLLOW_UP_DEPTH;
+
+    try {
+      const ai = await getAI("interview");
+      const response = await ai.openai.chat.completions.create({
+        model: ai.model,
+        messages: [
+          { role: "system", content: LIVE_ANSWER_SYSTEM },
+          {
+            role: "user",
+            content: `지원 회사 정보:\n${companyContext(company)}${target.focus ? `\n\n이 질문으로 확인하려는 약점: ${target.focus}` : ""}\n\n질문·답변 흐름:\n${formatChain(chain)}${canGoDeeper ? "" : "\n\n이번이 마지막 꼬리 질문입니다. followUp은 빈 문자열로 두세요."}`,
+          },
+        ],
+        response_format: { type: "json_object" },
+      });
+      const parsed = JSON.parse(response.choices[0]?.message?.content ?? "{}") as { score?: unknown; feedback?: unknown; followUp?: unknown };
+      if (typeof parsed.score !== "number" || !Number.isInteger(parsed.score) || parsed.score < 0 || parsed.score > 100 ||
+        typeof parsed.feedback !== "string" || parsed.feedback.trim().length === 0) {
+        throw new Error("AI returned an invalid live answer evaluation");
+      }
+
+      await db.update(interviewQuestionsTable).set({ answer: transcript, score: parsed.score, feedback: parsed.feedback.trim() })
+        .where(and(eq(interviewQuestionsTable.id, target.id), eq(interviewQuestionsTable.sessionId, session.id)));
+      const next = canGoDeeper ? cleanFollowUpQuestion(parsed.followUp) : null;
+      if (next) {
+        await db.insert(interviewQuestionsTable).values({
+          sessionId: session.id,
+          question: next,
+          order: target.order,
+          parentQuestionId: target.id,
+          depth: depth + 1,
+          focus: target.focus ?? null,
+        });
+      }
+    } catch (err) {
+      req.log.error({ err, sessionId: session.id, questionId: target.id }, "Failed to evaluate live interview answer");
+      res.status(502).json({ error: aiBlockedMessage() ?? "답변을 평가하지 못했습니다. 다시 답해주세요." });
+      return;
+    }
+
+    const result = await getSessionWithQuestions(session.id, userId);
+    res.json(AnswerLiveQuestionResponse.parse({ transcript, session: result }));
+  },
+);
+
+router.post("/interviews/:id/live/finish", requireAuth, async (req, res): Promise<void> => {
+  const params = FinishLiveInterviewParams.safeParse(req.params);
+  if (!params.success) {
+    res.status(400).json({ error: params.error.message });
+    return;
+  }
+  const userId = req.session.userId!;
+  const session = await getSessionWithQuestions(params.data.id, userId);
+  if (!session) {
+    res.status(404).json({ error: "면접 세션을 찾을 수 없습니다." });
+    return;
+  }
+  if (session.mode !== "live") {
+    res.status(409).json({ error: "실시간 면접 세션이 아닙니다." });
+    return;
+  }
+  if (session.status === "evaluated") {
+    res.json(FinishLiveInterviewResponse.parse(session));
+    return;
+  }
+  const baseQuestions = session.questions.filter((question) => question.parentQuestionId == null);
+  if (!baseQuestions.some((question) => question.answer != null)) {
+    res.status(400).json({ error: "질문에 하나 이상 답한 뒤 면접을 끝낼 수 있습니다." });
+    return;
+  }
+  const company = await getCompanyContext(session.companyId, userId);
+  if (!company) {
+    res.status(404).json({ error: "회사를 찾을 수 없습니다." });
+    return;
+  }
+
+  // 답하지 않고 끝낸 꼬리 질문은 기록에서 뺀다 (기본 질문은 "답하지 않음"으로 남겨 평가에 반영)
+  const unansweredFollowUps = session.questions
+    .filter((question) => question.parentQuestionId != null && question.answer == null)
+    .map((question) => question.id);
+  const answeredQuestions = session.questions.filter((question) => !unansweredFollowUps.includes(question.id));
+  const transcriptText = baseQuestions
+    .map((base, index) =>
+      `[질문 ${index + 1}]${base.focus ? ` (확인할 약점: ${base.focus})` : ""}\n${formatChain(chainFrom(answeredQuestions, base.id))}`)
+    .join("\n\n");
+
+  try {
+    const ai = await getAI("interview");
+    const response = await ai.openai.chat.completions.create({
+      model: ai.model,
+      messages: [
+        { role: "system", content: LIVE_SUMMARY_SYSTEM },
+        { role: "user", content: `지원 회사 정보:\n${companyContext(company)}\n\n면접 기록:\n${transcriptText}` },
+      ],
+      response_format: { type: "json_object" },
+    });
+    const parsed = JSON.parse(response.choices[0]?.message?.content ?? "{}") as { overallScore?: unknown; overallFeedback?: unknown };
+    if (typeof parsed.overallScore !== "number" || !Number.isInteger(parsed.overallScore) || parsed.overallScore < 0 || parsed.overallScore > 100 ||
+      typeof parsed.overallFeedback !== "string" || parsed.overallFeedback.trim().length === 0) {
+      throw new Error("AI returned an invalid live interview summary");
+    }
+    if (unansweredFollowUps.length > 0) {
+      await db.delete(interviewQuestionsTable)
+        .where(and(eq(interviewQuestionsTable.sessionId, session.id), inArray(interviewQuestionsTable.id, unansweredFollowUps)));
+    }
+    await db.update(interviewSessionsTable).set({
+      status: "evaluated",
+      overallScore: parsed.overallScore,
+      overallFeedback: parsed.overallFeedback.trim(),
+      evaluatedAt: new Date(),
+    }).where(and(eq(interviewSessionsTable.id, session.id), eq(interviewSessionsTable.userId, userId)));
+  } catch (err) {
+    req.log.error({ err, sessionId: session.id }, "Failed to summarize live interview");
+    res.status(502).json({ error: aiBlockedMessage() ?? "종합 평가를 만들지 못했습니다. 잠시 후 다시 시도해주세요." });
+    return;
+  }
+
+  const result = await getSessionWithQuestions(session.id, userId);
+  res.json(FinishLiveInterviewResponse.parse(result));
 });
 
 export default router;

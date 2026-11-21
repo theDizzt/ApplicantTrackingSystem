@@ -786,6 +786,7 @@ export const ListInterviewsResponseItem = zod.object({
   "resumeId": zod.number(),
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
+  "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -812,7 +813,8 @@ export const ListInterviewsResponse = zod.array(ListInterviewsResponseItem)
  */
 export const CreateInterviewBody = zod.object({
   "resumeId": zod.number(),
-  "companyId": zod.number()
+  "companyId": zod.number(),
+  "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가')
 })
 
 export const CreateInterviewResponse = zod.object({
@@ -821,6 +823,7 @@ export const CreateInterviewResponse = zod.object({
   "resumeId": zod.number(),
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
+  "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -854,6 +857,7 @@ export const GetInterviewResponse = zod.object({
   "resumeId": zod.number(),
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
+  "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -894,6 +898,7 @@ export const SubmitAnswersResponse = zod.object({
   "resumeId": zod.number(),
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
+  "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -927,6 +932,7 @@ export const EvaluateAnswersResponse = zod.object({
   "resumeId": zod.number(),
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
+  "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -968,6 +974,83 @@ export const AnswerFollowUpResponse = zod.object({
   "resumeId": zod.number(),
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
+  "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
+  "questions": zod.array(zod.object({
+  "id": zod.number(),
+  "question": zod.string(),
+  "order": zod.number(),
+  "answer": zod.string().nullish(),
+  "feedback": zod.string().nullish(),
+  "score": zod.number().nullish(),
+  "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
+  "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
+})).optional(),
+  "overallScore": zod.number().nullish(),
+  "overallFeedback": zod.string().nullish(),
+  "resumeTitle": zod.string().nullish(),
+  "companyName": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "evaluatedAt": zod.string().nullish()
+})
+
+
+/**
+ * @summary Answer one question of a live (voice) interview by audio; returns the transcript and the session with an immediate evaluation and possibly a follow-up
+ */
+export const AnswerLiveQuestionParams = zod.object({
+  "id": zod.coerce.number(),
+  "questionId": zod.coerce.number()
+})
+
+export const AnswerLiveQuestionBody = zod.object({
+  "audio": zod.instanceof(File)
+})
+
+export const AnswerLiveQuestionResponse = zod.object({
+  "transcript": zod.string().describe('음성에서 인식한 답변'),
+  "session": zod.object({
+  "id": zod.number(),
+  "userId": zod.number(),
+  "resumeId": zod.number(),
+  "companyId": zod.number(),
+  "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
+  "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
+  "questions": zod.array(zod.object({
+  "id": zod.number(),
+  "question": zod.string(),
+  "order": zod.number(),
+  "answer": zod.string().nullish(),
+  "feedback": zod.string().nullish(),
+  "score": zod.number().nullish(),
+  "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
+  "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
+})).optional(),
+  "overallScore": zod.number().nullish(),
+  "overallFeedback": zod.string().nullish(),
+  "resumeTitle": zod.string().nullish(),
+  "companyName": zod.string().nullish(),
+  "createdAt": zod.string(),
+  "evaluatedAt": zod.string().nullish()
+})
+})
+
+
+/**
+ * @summary End a live interview and produce the overall score and feedback
+ */
+export const FinishLiveInterviewParams = zod.object({
+  "id": zod.coerce.number()
+})
+
+export const FinishLiveInterviewResponse = zod.object({
+  "id": zod.number(),
+  "userId": zod.number(),
+  "resumeId": zod.number(),
+  "companyId": zod.number(),
+  "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
+  "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -1029,6 +1112,7 @@ export const GetDashboardResponse = zod.object({
   "resumeId": zod.number(),
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
+  "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),

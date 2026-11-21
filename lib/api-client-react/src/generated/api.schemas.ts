@@ -567,12 +567,24 @@ export const InterviewSessionStatus = {
   evaluated: 'evaluated',
 } as const;
 
+/**
+ * text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가
+ */
+export type InterviewMode = typeof InterviewMode[keyof typeof InterviewMode];
+
+
+export const InterviewMode = {
+  text: 'text',
+  live: 'live',
+} as const;
+
 export interface InterviewSession {
   id: number;
   userId: number;
   resumeId: number;
   companyId: number;
   status: InterviewSessionStatus;
+  mode?: InterviewMode;
   questions?: InterviewQuestion[];
   /** @nullable */
   overallScore?: number | null;
@@ -608,6 +620,17 @@ export interface SpellcheckResult {
 export interface InterviewInput {
   resumeId: number;
   companyId: number;
+  mode?: InterviewMode;
+}
+
+export interface LiveAnswerAudioInput {
+  audio: Blob;
+}
+
+export interface LiveAnswerResult {
+  /** 음성에서 인식한 답변 */
+  transcript: string;
+  session: InterviewSession;
 }
 
 export interface QuestionAnswer {

@@ -39,6 +39,8 @@ import type {
   InterviewInput,
   InterviewSession,
   JobPosting,
+  LiveAnswerAudioInput,
+  LiveAnswerResult,
   LoginInput,
   MessageResponse,
   ProfileItem,
@@ -2867,6 +2869,153 @@ export const useAnswerFollowUp = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getAnswerFollowUpMutationOptions(options));
+    }
+
+export const getAnswerLiveQuestionUrl = (id: number,
+    questionId: number,) => {
+
+
+
+
+  return `/api/interviews/${id}/live/answers/${questionId}`
+}
+
+/**
+ * @summary Answer one question of a live (voice) interview by audio; returns the transcript and the session with an immediate evaluation and possibly a follow-up
+ */
+export const answerLiveQuestion = async (id: number,
+    questionId: number,
+    liveAnswerAudioInput: LiveAnswerAudioInput, options?: RequestInit): Promise<LiveAnswerResult> => {
+    const formData = new FormData();
+formData.append(`audio`, liveAnswerAudioInput.audio);
+
+  return customFetch<LiveAnswerResult>(getAnswerLiveQuestionUrl(id,questionId),
+  {
+    ...options,
+    method: 'POST'
+    ,
+    body: formData
+  }
+);}
+
+
+
+
+
+export const getAnswerLiveQuestionMutationOptions = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof answerLiveQuestion>>, TError,{id: number;questionId: number;data: BodyType<LiveAnswerAudioInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof answerLiveQuestion>>, TError,{id: number;questionId: number;data: BodyType<LiveAnswerAudioInput>}, TContext> => {
+
+const mutationKey = ['answerLiveQuestion'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof answerLiveQuestion>>, {id: number;questionId: number;data: BodyType<LiveAnswerAudioInput>}> = (props) => {
+          const {id,questionId,data} = props ?? {};
+
+          return  answerLiveQuestion(id,questionId,data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type AnswerLiveQuestionMutationResult = NonNullable<Awaited<ReturnType<typeof answerLiveQuestion>>>
+    export type AnswerLiveQuestionMutationBody = BodyType<LiveAnswerAudioInput>
+    export type AnswerLiveQuestionMutationError = ErrorType<ErrorResponse>
+
+    /**
+ * @summary Answer one question of a live (voice) interview by audio; returns the transcript and the session with an immediate evaluation and possibly a follow-up
+ */
+export const useAnswerLiveQuestion = <TError = ErrorType<ErrorResponse>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof answerLiveQuestion>>, TError,{id: number;questionId: number;data: BodyType<LiveAnswerAudioInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof answerLiveQuestion>>,
+        TError,
+        {id: number;questionId: number;data: BodyType<LiveAnswerAudioInput>},
+        TContext
+      > => {
+      return useMutation(getAnswerLiveQuestionMutationOptions(options));
+    }
+
+export const getFinishLiveInterviewUrl = (id: number,) => {
+
+
+
+
+  return `/api/interviews/${id}/live/finish`
+}
+
+/**
+ * @summary End a live interview and produce the overall score and feedback
+ */
+export const finishLiveInterview = async (id: number, options?: RequestInit): Promise<InterviewSession> => {
+
+  return customFetch<InterviewSession>(getFinishLiveInterviewUrl(id),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+
+export const getFinishLiveInterviewMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finishLiveInterview>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof finishLiveInterview>>, TError,{id: number}, TContext> => {
+
+const mutationKey = ['finishLiveInterview'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof finishLiveInterview>>, {id: number}> = (props) => {
+          const {id} = props ?? {};
+
+          return  finishLiveInterview(id,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type FinishLiveInterviewMutationResult = NonNullable<Awaited<ReturnType<typeof finishLiveInterview>>>
+
+    export type FinishLiveInterviewMutationError = ErrorType<unknown>
+
+    /**
+ * @summary End a live interview and produce the overall score and feedback
+ */
+export const useFinishLiveInterview = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof finishLiveInterview>>, TError,{id: number}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof finishLiveInterview>>,
+        TError,
+        {id: number},
+        TContext
+      > => {
+      return useMutation(getFinishLiveInterviewMutationOptions(options));
     }
 
 export const getGetDashboardUrl = () => {

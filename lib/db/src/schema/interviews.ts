@@ -8,6 +8,8 @@ export const interviewSessionsTable = pgTable("interview_sessions", {
   resumeId: integer("resume_id").notNull(),
   companyId: integer("company_id").notNull(),
   status: text("status").notNull().default("pending"),
+  // text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가·꼬리 질문
+  mode: text("mode").notNull().default("text"),
   overallScore: integer("overall_score"),
   overallFeedback: text("overall_feedback"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),

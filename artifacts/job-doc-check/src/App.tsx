@@ -24,6 +24,7 @@ const AnalysisDetail = lazy(() => import('@/pages/analysis-detail'));
 const InterviewsPage = lazy(() => import('@/pages/interviews'));
 const NewInterviewPage = lazy(() => import('@/pages/interview-new'));
 const InterviewDetail = lazy(() => import('@/pages/interview-detail'));
+const InterviewLivePage = lazy(() => import('@/pages/interview-live'));
 const CoverLetterPage = lazy(() => import('@/pages/cover-letter'));
 const SchedulePage = lazy(() => import('@/pages/schedule'));
 const ProfileItemsPage = lazy(() => import('@/pages/profile-items'));
@@ -84,6 +85,7 @@ function Router() {
 
       <ProtectedRoute path="/interviews" component={InterviewsPage} />
       <ProtectedRoute path="/interviews/new" component={NewInterviewPage} />
+      <ProtectedRoute path="/interviews/:id/live" component={InterviewLivePage} />
       <ProtectedRoute path="/interviews/:id" component={InterviewDetail} />
 
       <ProtectedRoute path="/cover-letter" component={CoverLetterPage} />

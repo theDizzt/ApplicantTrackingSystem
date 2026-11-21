@@ -1,12 +1,6 @@
-import { execFile } from "child_process";
-import fs from "fs/promises";
-import os from "os";
-import path from "path";
-import { promisify } from "util";
-import { Router, type IRouter, type RequestHandler } from "express";
+import { Router, type IRouter } from "express";
 import { and, eq } from "drizzle-orm";
-import multer from "multer";
-import OpenAI, { toFile } from "openai";
+import OpenAI from "openai";
 import { db, resumesTable } from "@workspace/db";
 import {
   GenerateCoverLetterResponse,
@@ -18,128 +12,17 @@ import {
   recordGuidedPromptGeneration,
   type GuidedPromptFailureType,
 } from "../lib/guided-prompt-monitor";
-import { DEFAULT_STT_MODEL, createAIClient, getAI, getSetting } from "../lib/openai";
+import { getAI } from "../lib/openai";
+import { handleAudioUpload, limitConcurrentAudioJobs, transcribeUpload } from "../lib/audio-transcription";
 import { resumeHtmlToText } from "../lib/resume-text";
 
-const execFileAsync = promisify(execFile);
 const router: IRouter = Router();
-const MAX_AUDIO_BYTES = 50 * 1024 * 1024;
-const MAX_AUDIO_SECONDS = 10 * 60;
-const MAX_CONCURRENT_AUDIO_JOBS = 2;
-const ALLOWED_EXTENSIONS = new Set([".webm", ".wav", ".mp3", ".m4a", ".mp4", ".ogg", ".oga", ".aac", ".flac"]);
-let activeAudioJobs = 0;
-
-const upload = multer({
-  storage: multer.memoryStorage(),
-  limits: { fileSize: MAX_AUDIO_BYTES },
-  fileFilter(_req, file, callback) {
-    const extension = path.extname(file.originalname).toLowerCase();
-    if (file.mimetype.startsWith("audio/") || ALLOWED_EXTENSIONS.has(extension)) callback(null, true);
-    else callback(new Error("지원하지 않는 오디오 형식입니다."));
-  },
-});
-
-const handleAudioUpload: RequestHandler = (req, res, next) => {
-  upload.single("audio")(req, res, (error: unknown) => {
-    if (!error) {
-      next();
-      return;
-    }
-    if (error instanceof multer.MulterError && error.code === "LIMIT_FILE_SIZE") {
-      res.status(413).json({ error: "오디오 파일은 50MB 이하만 업로드할 수 있습니다." });
-      return;
-    }
-    if (error instanceof Error && error.message === "지원하지 않는 오디오 형식입니다.") {
-      res.status(415).json({ error: error.message });
-      return;
-    }
-    req.log.warn({ err: error }, "Cover letter audio upload rejected");
-    res.status(400).json({ error: "오디오 파일을 업로드하지 못했습니다." });
-  });
-};
-
-const limitConcurrentAudioJobs: RequestHandler = (_req, res, next) => {
-  if (activeAudioJobs >= MAX_CONCURRENT_AUDIO_JOBS) {
-    res.setHeader("Retry-After", "15");
-    res.status(429).json({ error: "현재 음성 처리가 많습니다. 잠시 후 다시 시도해주세요." });
-    return;
-  }
-
-  activeAudioJobs += 1;
-  let released = false;
-  const release = () => {
-    if (released) return;
-    released = true;
-    activeAudioJobs = Math.max(0, activeAudioJobs - 1);
-  };
-  res.once("finish", release);
-  res.once("close", release);
-  next();
-};
-
-function getTranscriptionClient(): OpenAI {
-  const apiKey = process.env.AI_INTEGRATIONS_OPENAI_API_KEY;
-  const baseURL = process.env.AI_INTEGRATIONS_OPENAI_BASE_URL;
-  if (!apiKey || !baseURL) throw new Error("음성 인식 서비스가 설정되지 않았습니다.");
-  return createAIClient({ apiKey, baseURL });
-}
-
-async function convertToWav(buffer: Buffer, originalName: string): Promise<Buffer> {
-  const id = `${Date.now()}_${Math.random().toString(36).slice(2)}`;
-  const inputExtension = path.extname(originalName).toLowerCase() || ".webm";
-  const inputPath = path.join(os.tmpdir(), `cover_letter_${id}${inputExtension}`);
-  const outputPath = path.join(os.tmpdir(), `cover_letter_${id}.wav`);
-  try {
-    await fs.writeFile(inputPath, buffer);
-    await execFileAsync("ffmpeg", [
-      "-hide_banner", "-loglevel", "error", "-y",
-      "-i", inputPath,
-      "-t", String(MAX_AUDIO_SECONDS),
-      "-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le",
-      outputPath,
-    ], { maxBuffer: 1024 * 1024, timeout: 90_000 });
-    const wav = await fs.readFile(outputPath);
-    if (wav.length > MAX_AUDIO_BYTES) throw new Error("변환된 오디오가 허용 크기를 초과했습니다.");
-    return wav;
-  } finally {
-    await Promise.all([
-      fs.unlink(inputPath).catch(() => {}),
-      fs.unlink(outputPath).catch(() => {}),
-    ]);
-  }
-}
 
 function cleanGeneratedText(value: string): string {
   return value
     .replace(/^```(?:markdown)?\s*/i, "")
     .replace(/\s*```$/i, "")
     .trim();
-}
-
-async function transcribeAudio(
-  client: OpenAI,
-  wav: Buffer,
-  model: string,
-): Promise<{ text: string; usedModel: string }> {
-  const transcribe = async (selectedModel: string) => client.audio.transcriptions.create({
-    file: await toFile(wav, "recording.wav", { type: "audio/wav" }),
-    model: selectedModel,
-    language: "ko",
-    response_format: "json",
-  });
-
-  try {
-    const result = await transcribe(model);
-    return { text: result.text, usedModel: model };
-  } catch (error) {
-    const unsupportedModel =
-      error instanceof OpenAI.APIError &&
-      (error.code === "UNSUPPORTED_MODEL" || error.message.toLowerCase().includes("not supported"));
-    if (!unsupportedModel || model === DEFAULT_STT_MODEL) throw error;
-
-    const result = await transcribe(DEFAULT_STT_MODEL);
-    return { text: result.text, usedModel: DEFAULT_STT_MODEL };
-  }
 }
 
 const FALLBACK_GUIDED_PROMPTS = [
@@ -294,17 +177,7 @@ router.post(
     }
 
     try {
-      const wav = await convertToWav(req.file.buffer, req.file.originalname);
-      const transcriptionClient = getTranscriptionClient();
-      const sttModel = (await getSetting("ai_stt_model"))?.trim() || DEFAULT_STT_MODEL;
-      const transcription = await transcribeAudio(transcriptionClient, wav, sttModel);
-      if (transcription.usedModel !== sttModel) {
-        req.log.warn(
-          { configuredModel: sttModel, fallbackModel: transcription.usedModel },
-          "Configured STT model unsupported; used default model",
-        );
-      }
-      const transcript = transcription.text.trim();
+      const transcript = await transcribeUpload(req.file, req.log);
       if (transcript.length < 10) {
         res.status(422).json({ error: "음성에서 충분한 내용을 인식하지 못했습니다. 조금 더 길고 또렷하게 녹음해주세요." });
         return;

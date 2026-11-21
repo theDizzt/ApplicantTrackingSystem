@@ -5,8 +5,10 @@
  * My ATS API
  * OpenAPI spec version: 0.1.0
  */
+import type { InterviewMode } from './interviewMode';
 
 export interface InterviewInput {
   resumeId: number;
   companyId: number;
+  mode?: InterviewMode;
 }

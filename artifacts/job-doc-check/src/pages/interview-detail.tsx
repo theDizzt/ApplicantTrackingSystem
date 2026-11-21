@@ -11,7 +11,7 @@ import { Button } from "@/components/ui/button"
 import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
-import { ChevronLeft, BrainCircuit, CheckCircle2, CornerDownRight, Target } from "lucide-react"
+import { ChevronLeft, BrainCircuit, CheckCircle2, CornerDownRight, Mic, Target } from "lucide-react"
 
 // ── 꼬리 질문 ────────────────────────────────────────────────────────────────
 /** 기본 질문 아래로 이어진 꼬리 질문들(얕은 것부터) */
@@ -203,6 +203,26 @@ export default function InterviewDetail() {
     )
   }
 
+  const isLive = interview.mode === "live"
+
+  // 진행 중인 실시간 면접은 글 입력 대신 실시간 면접 화면으로 안내한다
+  if (isLive && !isCompleted) {
+    const answeredCount = interview.questions?.filter(q => q.parentQuestionId == null && q.answer != null).length ?? 0
+    const total = interview.questions?.filter(q => q.parentQuestionId == null).length ?? 0
+    return (
+      <div className="h-[60vh] flex flex-col items-center justify-center text-center gap-4 animate-in fade-in">
+        <Mic className="w-12 h-12 text-primary" />
+        <h3 className="text-xl font-semibold">실시간 음성 면접 진행 중</h3>
+        <p className="text-muted-foreground max-w-md">
+          {interview.companyName} • 질문 {answeredCount}/{total}개 답변. 이어서 진행하면 답하지 않은 질문부터 다시 묻습니다.
+        </p>
+        <Link href={`/interviews/${interviewId}/live`} className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">
+          실시간 면접 이어서 하기
+        </Link>
+      </div>
+    )
+  }
+
   return (
     <div className="space-y-8 animate-in fade-in duration-500 max-w-4xl mx-auto">
       <div className="flex items-center gap-4">
@@ -215,6 +235,7 @@ export default function InterviewDetail() {
         <div className="flex-1">
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
             면접 연습
+            {isLive && <Badge variant="secondary" className="gap-1"><Mic className="w-3 h-3" />실시간 음성</Badge>}
             {isCompleted && <Badge variant="success">평가 완료</Badge>}
           </h1>
           <p className="text-muted-foreground mt-1">
@@ -273,9 +294,11 @@ export default function InterviewDetail() {
               {isCompleted ? (
                 <>
                   <div>
-                    <div className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">나의 답변</div>
-                    <div className="text-sm p-4 bg-slate-50 dark:bg-slate-900 rounded-md whitespace-pre-wrap">
-                      {q.answer}
+                    <div className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">
+                      {isLive ? "나의 답변 (음성 인식)" : "나의 답변"}
+                    </div>
+                    <div className={`text-sm p-4 bg-slate-50 dark:bg-slate-900 rounded-md whitespace-pre-wrap ${q.answer == null ? "text-muted-foreground italic" : ""}`}>
+                      {q.answer ?? "답하지 않음"}
                     </div>
                   </div>
                   {q.feedback && (

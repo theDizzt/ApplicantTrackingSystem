@@ -929,6 +929,79 @@ paths:
               schema:
                 $ref: "#/components/schemas/InterviewSession"
 
+  /interviews/{id}/live/answers/{questionId}:
+    post:
+      operationId: answerLiveQuestion
+      tags: [interviews]
+      summary: Answer one question of a live (voice) interview by audio; returns the transcript and the session with an immediate evaluation and possibly a follow-up
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: questionId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              $ref: "#/components/schemas/LiveAnswerAudioInput"
+      responses:
+        "200":
+          description: Answer transcribed and evaluated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LiveAnswerResult"
+        "409":
+          description: The question was already answered or the interview is finished
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "413":
+          description: Audio file is too large
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "415":
+          description: Unsupported audio format
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "422":
+          description: No speech recognized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /interviews/{id}/live/finish:
+    post:
+      operationId: finishLiveInterview
+      tags: [interviews]
+      summary: End a live interview and produce the overall score and feedback
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Live interview evaluated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InterviewSession"
+
   # Dashboard
   /dashboard:
     get:
@@ -1544,6 +1617,8 @@ components:
         status:
           type: string
           enum: [pending, questions_generated, answers_submitted, evaluated]
+        mode:
+          $ref: "#/components/schemas/InterviewMode"
         questions:
           type: array
           items:
@@ -1603,6 +1678,31 @@ components:
           type: integer
         companyId:
           type: integer
+        mode:
+          $ref: "#/components/schemas/InterviewMode"
+
+    InterviewMode:
+      type: string
+      enum: [text, live]
+      description: text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가
+
+    LiveAnswerAudioInput:
+      type: object
+      required: [audio]
+      properties:
+        audio:
+          type: string
+          format: binary
+
+    LiveAnswerResult:
+      type: object
+      required: [transcript, session]
+      properties:
+        transcript:
+          type: string
+          description: 음성에서 인식한 답변
+        session:
+          $ref: "#/components/schemas/InterviewSession"
 
     QuestionAnswer:
       type: object

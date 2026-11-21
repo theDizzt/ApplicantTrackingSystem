@@ -1,7 +1,7 @@
 import { useListInterviews } from "@workspace/api-client-react"
 import { Link } from "wouter"
 import { Card, CardContent } from "@/components/ui/card"
-import { Users, Building2, Plus, FileText } from "lucide-react"
+import { Users, Building2, Plus, FileText, Mic } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
@@ -48,7 +48,11 @@ export default function InterviewsPage() {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           {interviews?.map(interview => (
-            <Link key={interview.id} href={`/interviews/${interview.id}`} className="block">
+            <Link
+              key={interview.id}
+              href={interview.mode === 'live' && interview.status !== 'evaluated' ? `/interviews/${interview.id}/live` : `/interviews/${interview.id}`}
+              className="block"
+            >
               <Card className="h-full hover:border-primary/50 transition-colors">
                 <CardContent className="p-6 flex flex-col h-full justify-between gap-4">
                   <div className="space-y-2">
@@ -57,9 +61,16 @@ export default function InterviewsPage() {
                         <Building2 className="w-4 h-4 text-primary" />
                         {interview.companyName || "회사 미등록"}
                       </div>
-                      <Badge variant={interview.status === 'evaluated' ? 'success' : 'secondary'} className="text-[10px]">
-                        {statusKorean[interview.status] || interview.status.replace('_', ' ')}
-                      </Badge>
+                      <div className="flex items-center gap-1.5">
+                        {interview.mode === 'live' && (
+                          <Badge variant="outline" className="text-[10px] gap-1"><Mic className="w-3 h-3" />실시간</Badge>
+                        )}
+                        <Badge variant={interview.status === 'evaluated' ? 'success' : 'secondary'} className="text-[10px]">
+                          {interview.mode === 'live' && interview.status === 'questions_generated'
+                            ? '진행 중'
+                            : statusKorean[interview.status] || interview.status.replace('_', ' ')}
+                        </Badge>
+                      </div>
                     </div>
                     <div className="flex items-center gap-2 text-sm text-muted-foreground">
                       <FileText className="w-4 h-4" />

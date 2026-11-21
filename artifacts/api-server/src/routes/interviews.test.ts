@@ -408,6 +408,116 @@ describe("interview routes", () => {
   });
 });
 
+describe("live (voice) interview", () => {
+  const liveSession = { ...session, mode: "live" };
+  const base = { id: 41, sessionId: 11, question: "협업 경험은?", order: 1, answer: null, feedback: null, score: null, parentQuestionId: null, depth: 0, focus: "협업 근거 부족" };
+
+  it("creates a live session when mode is live", async () => {
+    mocks.aiCreate.mockResolvedValue({ choices: [{ message: { content: JSON.stringify({ questions: [{ question: "Q1", source: "resume" }] }) } }] });
+    mocks.insertResults.push([{ ...liveSession, status: "pending" }], []);
+    setSelectResults([
+      [{ id: 21, title: "이력서", content: "내용", coverLetter: "" }], [{ id: 31, ...company }], [],
+      [liveSession], [{ title: "이력서" }], [company], [base],
+    ]);
+    const response = await request(makeApp()).post("/interviews").set("x-user-id", "1").send({ resumeId: 21, companyId: 31, mode: "live" });
+    expect(response.status).toBe(201);
+    expect(mocks.insertedValues[0]).toEqual(expect.objectContaining({ mode: "live" }));
+    expect(response.body.mode).toBe("live");
+  });
+
+  it("transcribes the spoken answer, evaluates it right away and adds a follow-up", async () => {
+    mocks.transcribeCreate.mockResolvedValue({ text: " 백엔드 API 설계를 맡아 팀과 일정을 조율했습니다. " });
+    mocks.aiCreate.mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({ score: 75, feedback: "역할이 드러납니다.", followUp: "일정이 밀렸을 때는 어떻게 했나요?" }) } }],
+    });
+    const answered = { ...base, answer: "백엔드 API 설계를 맡아 팀과 일정을 조율했습니다.", score: 75, feedback: "역할이 드러납니다." };
+    setSelectResults([
+      [liveSession], [{ title: "이력서" }], [company], [base],
+      [company],
+      [liveSession], [{ title: "이력서" }], [company], [answered],
+    ]);
+
+    const response = await request(makeApp())
+      .post("/interviews/11/live/answers/41")
+      .set("x-user-id", "1")
+      .attach("audio", Buffer.from("fake audio"), { filename: "answer.webm", contentType: "audio/webm" });
+
+    expect(response.status).toBe(200);
+    expect(response.body.transcript).toBe("백엔드 API 설계를 맡아 팀과 일정을 조율했습니다.");
+    expect(response.body.session.mode).toBe("live");
+    const prompt = mocks.aiCreate.mock.calls[0][0].messages.map((message: { content: string }) => message.content).join("\n");
+    expect(prompt).toContain("음성을 자동으로 받아 적은 글");
+    expect(prompt).toContain("기본 질문: 협업 경험은?\n답변: 백엔드 API 설계를 맡아 팀과 일정을 조율했습니다.");
+    expect(prompt).toContain("확인하려는 약점: 협업 근거 부족");
+    expect(mocks.insertedValues).toContainEqual(expect.objectContaining({ question: "일정이 밀렸을 때는 어떻게 했나요?", parentQuestionId: 41, depth: 1 }));
+  });
+
+  it("asks to answer again when no speech is recognized, without calling the AI", async () => {
+    mocks.transcribeCreate.mockResolvedValue({ text: " " });
+    setSelectResults([[liveSession], [{ title: "이력서" }], [company], [base], [company]]);
+    const response = await request(makeApp())
+      .post("/interviews/11/live/answers/41")
+      .set("x-user-id", "1")
+      .attach("audio", Buffer.from("silence"), { filename: "answer.webm", contentType: "audio/webm" });
+    expect(response.status).toBe(422);
+    expect(mocks.aiCreate).not.toHaveBeenCalled();
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it("rejects already answered questions and text-mode sessions", async () => {
+    setSelectResults([[liveSession], [{ title: "이력서" }], [company], [{ ...base, answer: "이미 답함" }]]);
+    const again = await request(makeApp())
+      .post("/interviews/11/live/answers/41")
+      .set("x-user-id", "1")
+      .attach("audio", Buffer.from("a"), { filename: "answer.webm", contentType: "audio/webm" });
+    expect(again.status).toBe(409);
+
+    setSelectResults([[session], [{ title: "이력서" }], [company], [base]]);
+    const textMode = await request(makeApp())
+      .post("/interviews/11/live/answers/41")
+      .set("x-user-id", "1")
+      .attach("audio", Buffer.from("a"), { filename: "answer.webm", contentType: "audio/webm" });
+    expect(textMode.status).toBe(409);
+    expect(mocks.transcribeCreate).not.toHaveBeenCalled();
+  });
+
+  it("blocks the text answer endpoints for live sessions", async () => {
+    setSelectResults([[liveSession], [{ title: "이력서" }], [company], [base]]);
+    const response = await request(makeApp()).post("/interviews/11/answers").set("x-user-id", "1").send({ answers: [{ questionId: 41, answer: "글 답변" }] });
+    expect(response.status).toBe(409);
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it("finishes with an overall evaluation and drops unanswered follow-ups", async () => {
+    const answeredBase = { ...base, answer: "협업했습니다.", score: 70, feedback: "f" };
+    const answeredFollowUp = { id: 42, sessionId: 11, question: "역할은?", order: 1, answer: "API 설계", feedback: "f", score: 80, parentQuestionId: 41, depth: 1, focus: null };
+    const pendingFollowUp = { id: 43, sessionId: 11, question: "갈등은?", order: 1, answer: null, feedback: null, score: null, parentQuestionId: 42, depth: 2, focus: null };
+    const unansweredBase = { id: 44, sessionId: 11, question: "지원 동기는?", order: 2, answer: null, feedback: null, score: null, parentQuestionId: null, depth: 0, focus: null };
+    mocks.aiCreate.mockResolvedValue({ choices: [{ message: { content: JSON.stringify({ overallScore: 68, overallFeedback: "구체적인 사례가 좋았습니다." }) } }] });
+    setSelectResults([
+      [liveSession], [{ title: "이력서" }], [company], [answeredBase, answeredFollowUp, pendingFollowUp, unansweredBase],
+      [company],
+      [{ ...liveSession, status: "evaluated", overallScore: 68, overallFeedback: "구체적인 사례가 좋았습니다." }], [{ title: "이력서" }], [company], [answeredBase, answeredFollowUp, unansweredBase],
+    ]);
+
+    const response = await request(makeApp()).post("/interviews/11/live/finish").set("x-user-id", "1");
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(expect.objectContaining({ status: "evaluated", overallScore: 68 }));
+    const prompt = mocks.aiCreate.mock.calls[0][0].messages.map((message: { content: string }) => message.content).join("\n");
+    expect(prompt).toContain("꼬리 질문 1: 역할은?\n답변: API 설계");
+    expect(prompt).not.toContain("갈등은?");
+    expect(prompt).toContain("지원 동기는?\n답변: (답하지 않음)");
+    expect(mocks.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses to finish before any question is answered", async () => {
+    setSelectResults([[liveSession], [{ title: "이력서" }], [company], [base]]);
+    const response = await request(makeApp()).post("/interviews/11/live/finish").set("x-user-id", "1");
+    expect(response.status).toBe(400);
+    expect(mocks.aiCreate).not.toHaveBeenCalled();
+  });
+});
+
 describe("guided cover letter prompts", () => {
   const resume = {
     id: 21,

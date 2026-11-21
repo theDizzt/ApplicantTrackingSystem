@@ -86,6 +86,18 @@ export function buildChain<T extends ChainQuestion>(questions: T[], questionId: 
   return chain;
 }
 
+/** 기본 질문과 그 아래로 이어진 꼬리 질문들(얕은 것부터). 순환이 있으면 거기서 멈춘다. */
+export function chainFrom<T extends { id: number; parentQuestionId: number | null }>(questions: T[], rootId: number): T[] {
+  const chain: T[] = [];
+  let current = questions.find((q) => q.id === rootId);
+  while (current && !chain.includes(current)) {
+    chain.push(current);
+    const parentId = current.id;
+    current = questions.find((q) => q.parentQuestionId === parentId);
+  }
+  return chain;
+}
+
 /** 어떤 질문 아래로 이어진 모든 꼬리 질문 ID (답변을 다시 하면 이전 꼬리는 무효가 된다) */
 export function descendantIds(questions: { id: number; parentQuestionId: number | null }[], rootId: number): number[] {
   const out: number[] = [];
@@ -107,7 +119,31 @@ export const FOLLOW_UP_RULES = `꼬리 질문(followUp) 작성 규칙:
 - 답변에 나온 구체적 표현(프로젝트명, 수치, 역할 등)을 인용해 이어지는 질문으로 만드세요. 처음 질문을 반복하거나 새 주제로 넘어가지 마세요.
 - 답변이 이미 충분히 구체적이고 검증 가능하면 빈 문자열("")로 두세요.`;
 
-export const FOLLOW_UP_ANSWER_SYSTEM = `당신은 채용 면접관입니다. 아래 지원 회사 정보와 지금까지의 질문·답변 흐름을 보고, 마지막 꼬리 질문에 대한 답변을 평가하세요.
+/** 기본 질문부터 이어진 질문·답변 흐름을 프롬프트용 글로 만든다. */
+export function formatChain(chain: { question: string; answer: string | null }[]): string {
+  return chain
+    .map((question, index) => `${index === 0 ? "기본 질문" : `꼬리 질문 ${index}`}: ${question.question}\n답변: ${question.answer ?? "(답하지 않음)"}`)
+    .join("\n\n");
+}
+
+const SPOKEN_ANSWER_RULE = `답변은 지원자의 음성을 자동으로 받아 적은 글입니다. 맞춤법·띄어쓰기·문장부호와 음성 인식 오류로 보이는 단어는 평가하지 말고 내용만 평가하세요.`;
+
+/** 실시간(음성) 면접: 방금 한 답변 하나를 평가하고 다음 꼬리 질문을 정한다. */
+export const LIVE_ANSWER_SYSTEM = `당신은 실시간 음성 면접을 진행하는 채용 면접관입니다. 아래 지원 회사 정보와 지금까지의 질문·답변 흐름을 보고, 마지막 질문에 대한 답변을 평가하세요.
+${SPOKEN_ANSWER_RULE}
+0~100 정수 점수와 한국어 피드백 2~3문장(잘한 점과 더 보완할 점)을 주세요. JSON만 반환하세요:
+{ "score": 0, "feedback": "피드백", "followUp": "다음 꼬리 질문 또는 빈 문자열" }
+
+${FOLLOW_UP_RULES}
+- 꼬리 질문은 면접관이 소리 내어 읽습니다. 말하듯 자연스러운 한두 문장으로 짧게 쓰세요.`;
+
+/** 실시간(음성) 면접을 마칠 때 전체 흐름으로 종합 평가한다. */
+export const LIVE_SUMMARY_SYSTEM = `당신은 채용 면접관입니다. 방금 끝난 실시간 음성 면접의 모든 질문·답변 흐름을 보고, 반드시 제공된 회사명·인재상·채용공고 기준으로 종합 평가하세요.
+${SPOKEN_ANSWER_RULE}
+답하지 않은 질문이 있으면 그 점도 반영하세요. 종합 점수는 0~100 정수, 종합 피드백은 한국어 4~6문장(강점, 보완할 점, 다음 연습 방향)으로 쓰세요. JSON만 반환하세요:
+{ "overallScore": 0, "overallFeedback": "종합 피드백" }`;
+
+export const FOLLOW_UP_ANSWER_SYSTEM =`당신은 채용 면접관입니다. 아래 지원 회사 정보와 지금까지의 질문·답변 흐름을 보고, 마지막 꼬리 질문에 대한 답변을 평가하세요.
 0~100 정수 점수와 한국어 피드백 2~3문장(잘한 점과 더 보완할 점)을 주세요. JSON만 반환하세요:
 { "score": 0, "feedback": "피드백", "followUp": "다음 꼬리 질문 또는 빈 문자열" }
 
