@@ -1,6 +1,6 @@
 import express, { type Request } from "express";
 import request from "supertest";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   checkAIHealth,
@@ -8,12 +8,14 @@ const {
   getAIHealthStatus,
   getDeliveryStatus,
   getSetting,
+  saveSetting,
 } = vi.hoisted(() => ({
   checkAIHealth: vi.fn(),
   getAIConfig: vi.fn(),
   getAIHealthStatus: vi.fn(),
   getDeliveryStatus: vi.fn(),
   getSetting: vi.fn(),
+  saveSetting: vi.fn(),
 }));
 
 vi.mock("@workspace/db", () => ({
@@ -28,7 +30,7 @@ vi.mock("../lib/openai", () => ({
   getAI: vi.fn(),
   getAIConfig,
   getSetting,
-  saveSetting: vi.fn(),
+  saveSetting,
   invalidateAICache: vi.fn(),
   checkAIHealth,
 }));
@@ -60,6 +62,7 @@ function makeApp(isAdmin: boolean) {
     (req as Request).session = { isAdmin } as Request["session"];
     next();
   });
+  app.use(express.json());
   app.use(adminRouter);
   return app;
 }
@@ -428,5 +431,47 @@ describe("admin alert delivery status contract", () => {
       lastDeliveryAt: "2026-09-07T00:00:00.000Z",
       successRate: 0.5,
     });
+  });
+});
+
+describe("admin minimum wage settings", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-22T03:00:00.000Z"));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("rejects non-admin requests", async () => {
+    const response = await request(makeApp(false)).get("/admin/settings/min-wage");
+    expect(response.status).toBe(403);
+    expect(getSetting).not.toHaveBeenCalled();
+  });
+
+  it("returns the value applied today, the built-in table and overrides", async () => {
+    getSetting.mockResolvedValue(JSON.stringify({ 2027: 10_500 }));
+    const response = await request(makeApp(true)).get("/admin/settings/min-wage");
+    expect(response.status).toBe(200);
+    expect(response.body.current).toEqual(expect.objectContaining({ year: 2026, hourly: 10_320, source: "table" }));
+    expect(response.body.table).toEqual(expect.objectContaining({ 2026: 10_320 }));
+    expect(response.body.overrides).toEqual({ 2027: 10_500 });
+  });
+
+  it("saves valid overrides and rejects invalid ones", async () => {
+    getSetting.mockResolvedValue(JSON.stringify({ 2026: 10_400 }));
+    const saved = await request(makeApp(true)).put("/admin/settings/min-wage").send({ overrides: { 2026: 10_400 } });
+    expect(saved.status).toBe(200);
+    expect(saveSetting).toHaveBeenCalledWith("min_wage_overrides", JSON.stringify({ 2026: 10_400 }));
+    expect(saved.body.current).toEqual(expect.objectContaining({ year: 2026, hourly: 10_400, source: "override" }));
+
+    saveSetting.mockClear();
+    for (const overrides of [{ 2026: 10.5 }, { 1990: 5000 }, { 2026: "10320" }, [10_320]]) {
+      const rejected = await request(makeApp(true)).put("/admin/settings/min-wage").send({ overrides });
+      expect(rejected.status).toBe(400);
+    }
+    expect(saveSetting).not.toHaveBeenCalled();
   });
 });

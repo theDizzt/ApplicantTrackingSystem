@@ -6,6 +6,13 @@ import { requireAdmin } from "../middlewares/admin";
 import { DEFAULT_STT_MODEL, getAI, getAIConfig, getSetting, saveSetting, invalidateAICache, checkAIHealth } from "../lib/openai";
 import { getAIHealthStatus } from "../lib/ai-health-monitor";
 import {
+  MIN_WAGE_HOURLY_BY_YEAR,
+  MIN_WAGE_SETTING_KEY,
+  isValidMinWageEntry,
+  parseMinWageOverrides,
+  resolveMinWage,
+} from "../lib/min-wage";
+import {
   getGuidedPromptDeliveryAdminStatus,
   type GuidedPromptDeliveryAdminStatus,
 } from "../lib/guided-prompt-monitor";
@@ -478,4 +485,39 @@ router.post("/admin/settings/ai/test", requireAdmin, async (_req, res): Promise<
     res.status(502).json({ ok: false, error: message });
   }
 });
+
+// ── 최저시급 (연봉 산정 기준) ────────────────────────────────────────────────
+async function minWageSettingsResponse() {
+  const overrides = parseMinWageOverrides(await getSetting(MIN_WAGE_SETTING_KEY));
+  return {
+    current: resolveMinWage(new Date(), overrides),
+    table: MIN_WAGE_HOURLY_BY_YEAR,
+    overrides,
+  };
+}
+
+router.get("/admin/settings/min-wage", requireAdmin, async (_req, res): Promise<void> => {
+  res.json(await minWageSettingsResponse());
+});
+
+// 연도별 덮어쓰기 값을 통째로 바꾼다. 기본 표에 없는 새 연도(예: 막 고시된 내년 값)를 넣거나 표의 값을 고칠 때 쓴다.
+router.put("/admin/settings/min-wage", requireAdmin, async (req, res): Promise<void> => {
+  const raw = (req.body as { overrides?: unknown } | undefined)?.overrides;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    res.status(400).json({ error: "연도별 최저시급을 { \"2027\": 10500 } 형식으로 보내주세요." });
+    return;
+  }
+  const overrides: Record<number, number> = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const year = Number(key);
+    if (!isValidMinWageEntry(year, value)) {
+      res.status(400).json({ error: `${key}년 값이 올바르지 않습니다. 연도는 2000~2100, 시급은 1,000~100,000원 사이 정수여야 합니다.` });
+      return;
+    }
+    overrides[year] = value as number;
+  }
+  await saveSetting(MIN_WAGE_SETTING_KEY, JSON.stringify(overrides));
+  res.json(await minWageSettingsResponse());
+});
+
 export default router;

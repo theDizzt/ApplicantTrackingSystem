@@ -5,6 +5,7 @@
  * My ATS API
  * OpenAPI spec version: 0.1.0
  */
+import type { InterviewDifficulty } from './interviewDifficulty';
 import type { InterviewMode } from './interviewMode';
 import type { InterviewQuestion } from './interviewQuestion';
 import type { InterviewSessionStatus } from './interviewSessionStatus';
@@ -16,6 +17,7 @@ export interface InterviewSession {
   companyId: number;
   status: InterviewSessionStatus;
   mode?: InterviewMode;
+  difficulty?: InterviewDifficulty;
   questions?: InterviewQuestion[];
   /** @nullable */
   overallScore?: number | null;

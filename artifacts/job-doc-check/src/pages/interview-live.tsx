@@ -15,6 +15,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { LiveWaveform } from "@/components/audio/live-waveform"
 import { cancelSpeech, hasKoreanVoice, liveProgress, nextLiveQuestion, speak } from "@/lib/live-interview"
+import { difficultyLabel } from "@/lib/interview-labels"
 
 /** 한 답변의 최대 녹음 시간 (넘으면 자동으로 답변 완료) */
 const MAX_ANSWER_SECONDS = 3 * 60
@@ -293,7 +294,7 @@ export default function InterviewLivePage() {
         </Link>
         <div className="flex-1 min-w-0">
           <h1 className="text-2xl md:text-3xl font-bold tracking-tight">실시간 AI 면접</h1>
-          <p className="text-muted-foreground mt-1 truncate">{interview.companyName} • {interview.resumeTitle}</p>
+          <p className="text-muted-foreground mt-1 truncate">{interview.companyName} • {interview.resumeTitle} • 난이도 {difficultyLabel(interview.difficulty)}</p>
         </div>
         <div className="text-right shrink-0">
           <div className="text-xs text-muted-foreground">진행</div>

@@ -340,6 +340,47 @@ describe("interview routes", () => {
     expect(inserted[1]).toEqual(expect.objectContaining({ focus: null }));
   });
 
+  it("stores the chosen difficulty and asks for pressure questions on hard", async () => {
+    mocks.insertResults.push([{ ...session, difficulty: "hard" }]);
+    mocks.aiCreate.mockResolvedValue({ choices: [{ message: { content: JSON.stringify({ questions: ["질문"] }) } }] });
+    setSelectResults([
+      [{ id: 21, userId: 1, title: "백엔드 이력서", content: "지원자 경력", coverLetter: null }],
+      [company],
+      [],
+      [{ ...session, difficulty: "hard" }], [{ title: "백엔드 이력서" }], [company], [],
+    ]);
+    const response = await request(makeApp()).post("/interviews").set("x-user-id", "1").send({ resumeId: 21, companyId: 31, difficulty: "hard" });
+    expect(response.status).toBe(201);
+    expect(response.body.difficulty).toBe("hard");
+    expect(mocks.insertedValues[0]).toEqual(expect.objectContaining({ difficulty: "hard" }));
+    const system = mocks.aiCreate.mock.calls[0][0].messages[0].content as string;
+    expect(system).toContain("압박 질문");
+    expect(system).toContain("사적인 질문");
+  });
+
+  it("on easy, attaches follow-ups only to the 3 weakest answers and tags their tone", async () => {
+    const easySession = { ...session, difficulty: "easy" };
+    const bases = [1, 2, 3, 4, 5].map((i) => ({ id: 40 + i, sessionId: 11, question: `Q${i}`, order: i, answer: `A${i}`, feedback: null, score: null, parentQuestionId: null, depth: 0, focus: null }));
+    const scores = { 41: 90, 42: 40, 43: 75, 44: 60, 45: 85 } as Record<number, number>;
+    mocks.aiCreate.mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({
+        overallScore: 70,
+        overallFeedback: "종합",
+        evaluations: bases.map((b) => ({ questionId: b.id, score: scores[b.id], feedback: "f", followUp: `꼬리 질문 ${b.id}` })),
+      }) } }],
+    });
+    setSelectResults([
+      [easySession], [{ title: "이력서" }], [company], bases,
+      [company],
+      [easySession], [{ title: "이력서" }], [company], bases,
+    ]);
+    const response = await request(makeApp()).post("/interviews/11/evaluate").set("x-user-id", "1");
+    expect(response.status).toBe(200);
+    const inserted = mocks.insertedValues.at(-1) as Array<{ parentQuestionId: number; tone: string }>;
+    expect(inserted.map((item) => item.parentQuestionId)).toEqual([42, 44, 43]);
+    expect(inserted.map((item) => item.tone)).toEqual(["neutral", "neutral", "positive"]);
+  });
+
   it("creates a follow-up question for each evaluated answer and ignores existing follow-ups when checking completeness", async () => {
     const base = { id: 41, sessionId: 11, question: "협업 경험은?", order: 1, answer: "팀과 협업했습니다.", feedback: null, score: null, parentQuestionId: null, depth: 0, focus: null };
     const oldFollowUp = { id: 42, sessionId: 11, question: "이전 꼬리 질문", order: 1, answer: null, feedback: null, score: null, parentQuestionId: 41, depth: 1, focus: null };
@@ -508,6 +549,53 @@ describe("live (voice) interview", () => {
     expect(prompt).not.toContain("갈등은?");
     expect(prompt).toContain("지원 동기는?\n답변: (답하지 않음)");
     expect(mocks.delete).toHaveBeenCalledTimes(1);
+  });
+
+  it("tags a weak spoken answer's follow-up as pressure on hard and sends a shortened job description", async () => {
+    const hardSession = { ...liveSession, difficulty: "hard" };
+    const longCompany = { ...company, jobDescription: `Node.js ${"상세 업무 ".repeat(400)}` };
+    mocks.transcribeCreate.mockResolvedValue({ text: "열심히 했습니다." });
+    mocks.aiCreate.mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({ score: 50, feedback: "근거가 없습니다.", followUp: "열심히 했다는 근거가 뭔가요?" }) } }],
+    });
+    setSelectResults([
+      [hardSession], [{ title: "이력서" }], [company], [base],
+      [longCompany],
+      [hardSession], [{ title: "이력서" }], [company], [base],
+    ]);
+    const response = await request(makeApp())
+      .post("/interviews/11/live/answers/41")
+      .set("x-user-id", "1")
+      .attach("audio", Buffer.from("a"), { filename: "answer.webm", contentType: "audio/webm" });
+    expect(response.status).toBe(200);
+    const [system, user] = mocks.aiCreate.mock.calls[0][0].messages.map((message: { content: string }) => message.content);
+    expect(system).toContain("점수 80점 미만: 압박형");
+    expect(user).toContain("…(이하 생략)");
+    expect(user.length).toBeLessThan(longCompany.jobDescription.length);
+    expect(mocks.insertedValues).toContainEqual(expect.objectContaining({ parentQuestionId: 41, tone: "pressure" }));
+  });
+
+  it("stops adding follow-ups once the session-wide limit is reached", async () => {
+    const easySession = { ...liveSession, difficulty: "easy" };
+    // 하: 면접 전체 꼬리 질문 3개까지 — 이미 3개 있으면 새 기본 질문 답변에도 꼬리 질문을 붙이지 않는다
+    const existing = [1, 2, 3].map((i) => ({ id: 50 + i, sessionId: 11, question: `꼬리 ${i}`, order: i + 1, answer: "답", feedback: "f", score: 70, parentQuestionId: 60 + i, depth: 1, focus: null }));
+    mocks.transcribeCreate.mockResolvedValue({ text: "제 답변입니다." });
+    mocks.aiCreate.mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({ score: 70, feedback: "좋습니다.", followUp: "더 묻고 싶은 질문" }) } }],
+    });
+    setSelectResults([
+      [easySession], [{ title: "이력서" }], [company], [base, ...existing],
+      [company],
+      [easySession], [{ title: "이력서" }], [company], [base, ...existing],
+    ]);
+    const response = await request(makeApp())
+      .post("/interviews/11/live/answers/41")
+      .set("x-user-id", "1")
+      .attach("audio", Buffer.from("a"), { filename: "answer.webm", contentType: "audio/webm" });
+    expect(response.status).toBe(200);
+    expect(mocks.insert).not.toHaveBeenCalled();
+    const user = mocks.aiCreate.mock.calls[0][0].messages[1].content as string;
+    expect(user).toContain("followUp은 빈 문자열");
   });
 
   it("refuses to finish before any question is answered", async () => {

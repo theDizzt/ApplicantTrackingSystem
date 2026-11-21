@@ -5,6 +5,7 @@ import { requireAuth } from "../middlewares/auth";
 import type { ChatCompletionMessageParam } from "openai/resources/chat/completions";
 import { getAI, getSecondaryAIs, checkAIHealth } from "../lib/openai";
 import { logger } from "../lib/logger";
+import { MONTHLY_HOURS, getMinWage, minWageBasis } from "../lib/min-wage";
 import { extractUrls, analyzeUrls, formatUrlAnalysisForPrompt } from "../lib/url-analyzer";
 import { jobSimilarityScore } from "../lib/similarity";
 import { consumeAnalysisQuota, hasUnlimitedAnalyses, syncSubscription } from "../lib/subscription-limits";
@@ -20,11 +21,6 @@ import {
 import type OpenAI from "openai";
 
 const router: IRouter = Router();
-
-// 2026년 최저시급 기준 (단위: 원)
-const MIN_WAGE_2026_HOURLY = 10_030;
-const MONTHLY_HOURS = 209;
-const MIN_WAGE_ANNUAL_WAN = Math.round((MIN_WAGE_2026_HOURLY * MONTHLY_HOURS * 12) / 10_000); // 만원
 
 function serializeAnalysis(
   a: typeof analysesTable.$inferSelect,
@@ -317,6 +313,11 @@ async function runAnalysis(
 ) {
   const today = new Date();
   const currentYear = today.getFullYear();
+  // 연봉 산정의 최저 기준: 오늘 날짜(한국 시간)의 연도 최저시급
+  const minWage = await getMinWage(today);
+  if (minWage.source === "fallback") {
+    logger.warn({ requestedYear: minWage.requestedYear, usedYear: minWage.year }, "Minimum wage for this year is not registered; using the latest known year");
+  }
   const threeYearsAgo = currentYear - 3; // 3년 전 기준년도
 
   const desiredSalaryNote = resume.desiredSalary
@@ -403,7 +404,7 @@ ${EVIDENCE_RULES}`;
   // ── 심사 3: 직무·조직 적합도 + 연봉 산정 + 예상 직급 + 졸업년도 격차 + 지원 동기 매칭 ──
   const prompt3System = `당신은 채용 심사 전문가입니다. 이력서를 분석하여 아래 모든 항목을 평가하세요.
 오늘 날짜: ${today.toISOString().split("T")[0]}
-2026년 최저시급: ${MIN_WAGE_2026_HOURLY.toLocaleString()}원/시간, 월 ${MONTHLY_HOURS}시간 기준 연 최저연봉: 약 ${MIN_WAGE_ANNUAL_WAN.toLocaleString()}만원
+${minWage.year}년 최저시급: ${minWage.hourly.toLocaleString()}원/시간, 월 ${MONTHLY_HOURS}시간 기준 연 최저연봉: 약 ${minWage.annualWan.toLocaleString()}만원
 
 오직 JSON만 반환하세요:
 {
@@ -422,7 +423,7 @@ ${EVIDENCE_RULES}`;
     "estimatedMax": 숫자(만원),
     "byField": [{"field": "직군명", "min": 숫자, "max": 숫자}],
     "desiredSalaryComment": "희망 연봉과 예상 연봉 비교 의견 (한국어 1~2문장, 희망 연봉 미기재 시 빈 문자열)",
-    "basis": "2026 최저시급(${MIN_WAGE_2026_HOURLY.toLocaleString()}원/시간) 및 업계 평균 기준 산정"
+    "basis": "${minWageBasis(minWage)}"
   },
   "expectedRank": {
     "applicable": true/false (경력자인 경우 true),
@@ -679,7 +680,10 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
       estimatedMax:          typeof salaryRaw?.estimatedMax          === "number" ? salaryRaw.estimatedMax          : 0,
       byField:               Array.isArray(salaryRaw?.byField)       ? salaryRaw.byField       : [],
       desiredSalaryComment:  typeof salaryRaw?.desiredSalaryComment  === "string" ? salaryRaw.desiredSalaryComment  : "",
-      basis:                 typeof salaryRaw?.basis                 === "string" ? salaryRaw.basis                 : "",
+      // 산정 기준 문구와 최저시급은 AI가 옮겨 적은 값 대신 서버가 실제로 쓴 값으로 고정한다
+      basis:                 minWageBasis(minWage),
+      minWageYear:           minWage.year,
+      minWageHourly:         minWage.hourly,
     },
     expectedRank: {
       applicable:        typeof rankRaw?.applicable        === "boolean" ? rankRaw.applicable        : false,

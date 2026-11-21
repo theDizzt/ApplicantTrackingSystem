@@ -5,6 +5,7 @@
  * My ATS API
  * OpenAPI spec version: 0.1.0
  */
+import type { FollowUpTone } from './followUpTone';
 
 export interface InterviewQuestion {
   id: number;
@@ -28,4 +29,6 @@ export interface InterviewQuestion {
      * @nullable
      */
   focus?: string | null;
+  /** 꼬리 질문 말투 (기본 질문은 null) */
+  tone?: FollowUpTone | null;
 }

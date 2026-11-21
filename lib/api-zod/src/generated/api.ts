@@ -787,6 +787,7 @@ export const ListInterviewsResponseItem = zod.object({
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
+  "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -796,7 +797,8 @@ export const ListInterviewsResponseItem = zod.object({
   "score": zod.number().nullish(),
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
-  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -814,7 +816,8 @@ export const ListInterviewsResponse = zod.array(ListInterviewsResponseItem)
 export const CreateInterviewBody = zod.object({
   "resumeId": zod.number(),
   "companyId": zod.number(),
-  "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가')
+  "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
+  "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)')
 })
 
 export const CreateInterviewResponse = zod.object({
@@ -824,6 +827,7 @@ export const CreateInterviewResponse = zod.object({
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
+  "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -833,7 +837,8 @@ export const CreateInterviewResponse = zod.object({
   "score": zod.number().nullish(),
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
-  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -858,6 +863,7 @@ export const GetInterviewResponse = zod.object({
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
+  "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -867,7 +873,8 @@ export const GetInterviewResponse = zod.object({
   "score": zod.number().nullish(),
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
-  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -899,6 +906,7 @@ export const SubmitAnswersResponse = zod.object({
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
+  "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -908,7 +916,8 @@ export const SubmitAnswersResponse = zod.object({
   "score": zod.number().nullish(),
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
-  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -933,6 +942,7 @@ export const EvaluateAnswersResponse = zod.object({
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
+  "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -942,7 +952,8 @@ export const EvaluateAnswersResponse = zod.object({
   "score": zod.number().nullish(),
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
-  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -975,6 +986,7 @@ export const AnswerFollowUpResponse = zod.object({
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
+  "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -984,7 +996,8 @@ export const AnswerFollowUpResponse = zod.object({
   "score": zod.number().nullish(),
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
-  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -1016,6 +1029,7 @@ export const AnswerLiveQuestionResponse = zod.object({
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
+  "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -1025,7 +1039,8 @@ export const AnswerLiveQuestionResponse = zod.object({
   "score": zod.number().nullish(),
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
-  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -1051,6 +1066,7 @@ export const FinishLiveInterviewResponse = zod.object({
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
+  "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -1060,7 +1076,8 @@ export const FinishLiveInterviewResponse = zod.object({
   "score": zod.number().nullish(),
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
-  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -1113,6 +1130,7 @@ export const GetDashboardResponse = zod.object({
   "companyId": zod.number(),
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
+  "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -1122,7 +1140,8 @@ export const GetDashboardResponse = zod.object({
   "score": zod.number().nullish(),
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
-  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)')
+  "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),

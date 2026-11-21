@@ -29,13 +29,20 @@ import {
   FOLLOW_UP_RULES,
   LIVE_ANSWER_SYSTEM,
   LIVE_SUMMARY_SYSTEM,
-  MAX_FOLLOW_UP_DEPTH,
+  COMPANY_CONTEXT_LIMITS,
+  DIFFICULTY_RULES,
   buildChain,
+  canAddFollowUp,
   chainFrom,
   cleanFollowUpQuestion,
   descendantIds,
   extractWeaknesses,
+  followUpTone,
   formatChain,
+  parseDifficulty,
+  questionStyleInstruction,
+  toneInstruction,
+  truncateForPrompt,
   weaknessInstruction,
 } from "../lib/interview-followups";
 
@@ -73,6 +80,7 @@ async function getSessionWithQuestions(sessionId: number, userId: number) {
     companyId: session.companyId,
     status: session.status,
     mode: session.mode === "live" ? "live" as const : "text" as const,
+    difficulty: parseDifficulty(session.difficulty),
     questions: questions.map((q) => ({
       id: q.id,
       question: q.question,
@@ -83,6 +91,7 @@ async function getSessionWithQuestions(sessionId: number, userId: number) {
       parentQuestionId: q.parentQuestionId ?? null,
       depth: q.depth ?? 0,
       focus: q.focus ?? null,
+      tone: q.tone === "pressure" || q.tone === "neutral" || q.tone === "positive" ? q.tone : null,
     })),
     overallScore: session.overallScore ?? null,
     overallFeedback: session.overallFeedback ?? null,
@@ -106,11 +115,20 @@ function detectGraduationYear(resumeText: string): number | null {
   return years.length > 0 ? Math.max(...years) : null;
 }
 
-function companyContext(company: { name: string; talentProfile: string | null; jobDescription: string | null }) {
+/**
+ * 프롬프트에 넣을 회사 정보. compact는 답변 하나마다 반복해서 보내는 호출(꼬리 질문·실시간 답변)용으로,
+ * 인재상·공고를 잘라 토큰을 아낀다. 질문 생성·일괄 평가·종합 평가는 전문을 쓴다.
+ */
+function companyContext(
+  company: { name: string; talentProfile: string | null; jobDescription: string | null },
+  compact = false,
+) {
+  const talentProfile = compact ? truncateForPrompt(company.talentProfile, COMPANY_CONTEXT_LIMITS.talentProfile) : company.talentProfile;
+  const jobDescription = compact ? truncateForPrompt(company.jobDescription, COMPANY_CONTEXT_LIMITS.jobDescription) : company.jobDescription;
   return [
     `회사명(정확히 이 회사): ${company.name}`,
-    `인재상: ${company.talentProfile || "(등록된 인재상 없음)"}`,
-    `채용공고/직무기술서: ${company.jobDescription || "(등록된 직무기술서 없음)"}`,
+    `인재상: ${talentProfile || "(등록된 인재상 없음)"}`,
+    `채용공고/직무기술서: ${jobDescription || "(등록된 직무기술서 없음)"}`,
   ].join("\n");
 }
 
@@ -136,6 +154,7 @@ router.post("/interviews", requireAuth, async (req, res): Promise<void> => {
   const userId = req.session.userId!;
   const { resumeId, companyId } = input.data;
   const mode = input.data.mode ?? "text";
+  const difficulty = input.data.difficulty ?? "normal";
   const [[resume], [company], [latestAnalysis]] = await Promise.all([
     db.select().from(resumesTable).where(and(eq(resumesTable.id, resumeId), eq(resumesTable.userId, userId))),
     db.select().from(companiesTable).where(and(eq(companiesTable.id, companyId), eq(companiesTable.userId, userId))),
@@ -160,7 +179,7 @@ router.post("/interviews", requireAuth, async (req, res): Promise<void> => {
   }
 
   const [session] = await db.insert(interviewSessionsTable)
-    .values({ userId, resumeId, companyId, mode, status: "pending" })
+    .values({ userId, resumeId, companyId, mode, difficulty, status: "pending" })
     .returning();
 
   let generated = false; // 질문을 실제로 저장했는지
@@ -189,7 +208,7 @@ router.post("/interviews", requireAuth, async (req, res): Promise<void> => {
       messages: [
         {
           role: "system",
-          content: `당신은 채용 면접관입니다. 반드시 아래에 제공된 정확한 회사명, 인재상, 채용공고/직무기술서에 맞춰 이력서 기반 면접 질문 5개를 생성하세요. 다른 회사나 일반적인 회사로 바꾸지 마세요.${gapInstruction}${paperWithAbstract ? "\n논문 Abstract가 제공된 경우 그 연구 내용·방법·기여를 직접 확인하는 질문을 1개 포함하고 source를 paper_abstract로 지정하세요." : ""}
+          content: `당신은 채용 면접관입니다. 반드시 아래에 제공된 정확한 회사명, 인재상, 채용공고/직무기술서에 맞춰 이력서 기반 면접 질문 5개를 생성하세요. 다른 회사나 일반적인 회사로 바꾸지 마세요.${questionStyleInstruction(difficulty)}${gapInstruction}${paperWithAbstract ? "\n논문 Abstract가 제공된 경우 그 연구 내용·방법·기여를 직접 확인하는 질문을 1개 포함하고 source를 paper_abstract로 지정하세요." : ""}
 JSON 형식으로만 반환: { "questions": [{ "question": "질문", "source": "resume|company|paper_abstract|weakness", "focus": "weakness일 때 약점 제목, 아니면 빈 문자열" }] }`,
         },
         { role: "user", content: `이력서:\n${resumeText || "(내용 없음)"}${paperContext}\n\n지원 회사 정보:\n${companyContext(company)}${weaknessInstruction(weaknesses)}` },
@@ -357,7 +376,9 @@ router.post("/interviews/:id/evaluate", requireAuth, async (req, res): Promise<v
           content: `당신은 채용 면접관입니다. 답변을 반드시 제공된 정확한 회사명, 인재상, 채용공고/직무기술서 기준으로 평가하세요. 각 질문을 0~100 정수 점수와 한국어 피드백 2~4문장으로 평가하고, 종합 점수와 피드백을 반환하세요. 각 답변마다 이어서 물어볼 꼬리 질문(followUp)도 함께 작성하세요. JSON만 반환하세요:
 { "overallScore": 0, "overallFeedback": "종합 피드백", "evaluations": [{ "questionId": 1, "score": 0, "feedback": "피드백", "followUp": "꼬리 질문 또는 빈 문자열" }] }
 
-${FOLLOW_UP_RULES}`,
+${FOLLOW_UP_RULES}
+
+${toneInstruction(session.difficulty)}`,
         },
         {
           role: "user",
@@ -395,12 +416,24 @@ ${FOLLOW_UP_RULES}`,
       await db.delete(interviewQuestionsTable)
         .where(and(eq(interviewQuestionsTable.sessionId, session.id), inArray(interviewQuestionsTable.id, oldFollowUpIds)));
     }
-    const followUps = baseQuestions.flatMap((question) => {
-      const text = cleanFollowUpQuestion(evaluations.get(question.id)!.followUp);
-      return text
-        ? [{ sessionId: session.id, question: text, order: question.order, parentQuestionId: question.id, depth: 1, focus: question.focus ?? null }]
-        : [];
-    });
+    // 면접 전체 꼬리 질문 수 상한이 있으므로, 점수가 낮은(더 파고들 필요가 있는) 답변부터 꼬리 질문을 붙인다
+    const followUps = baseQuestions
+      .flatMap((question) => {
+        const item = evaluations.get(question.id)!;
+        const text = cleanFollowUpQuestion(item.followUp);
+        return text ? [{ question, score: item.score, text }] : [];
+      })
+      .sort((a, b) => a.score - b.score || a.question.order - b.question.order)
+      .slice(0, DIFFICULTY_RULES[session.difficulty].maxFollowUps)
+      .map(({ question, score, text }) => ({
+        sessionId: session.id,
+        question: text,
+        order: question.order,
+        parentQuestionId: question.id,
+        depth: 1,
+        focus: question.focus ?? null,
+        tone: followUpTone(score, session.difficulty),
+      }));
     if (followUps.length > 0) {
       await db.insert(interviewQuestionsTable).values(followUps);
     }
@@ -466,17 +499,20 @@ router.post("/interviews/:id/follow-ups/:questionId/answer", requireAuth, async 
   const chain = buildChain(session.questions, target.id)
     .map((question) => (question.id === target.id ? { ...question, answer } : question));
   const depth = target.depth ?? 1;
-  const canGoDeeper = depth < MAX_FOLLOW_UP_DEPTH;
+  // 다시 답한 경우, 이전 답변에서 이어졌던 더 깊은 꼬리 질문은 무효 (개수 상한 계산에서도 뺀다)
+  const stale = descendantIds(session.questions, target.id);
+  const followUpCount = session.questions.filter((question) => question.parentQuestionId != null && !stale.includes(question.id)).length;
+  const canGoDeeper = canAddFollowUp(depth, followUpCount, session.difficulty);
 
   try {
     const ai = await getAI("interview");
     const response = await ai.openai.chat.completions.create({
       model: ai.model,
       messages: [
-        { role: "system", content: FOLLOW_UP_ANSWER_SYSTEM },
+        { role: "system", content: `${FOLLOW_UP_ANSWER_SYSTEM}\n\n${toneInstruction(session.difficulty)}` },
         {
           role: "user",
-          content: `지원 회사 정보:\n${companyContext(company)}${target.focus ? `\n\n이 질문으로 확인하려는 약점: ${target.focus}` : ""}\n\n질문·답변 흐름:\n${chain.map((question, index) => `${index === 0 ? "기본 질문" : `꼬리 질문 ${index}`}: ${question.question}\n답변: ${question.answer ?? "(없음)"}`).join("\n\n")}${canGoDeeper ? "" : "\n\n이번이 마지막 꼬리 질문입니다. followUp은 빈 문자열로 두세요."}`,
+          content: `지원 회사 정보:\n${companyContext(company, true)}${target.focus ? `\n\n이 질문으로 확인하려는 약점: ${target.focus}` : ""}\n\n질문·답변 흐름:\n${chain.map((question, index) => `${index === 0 ? "기본 질문" : `꼬리 질문 ${index}`}: ${question.question}\n답변: ${question.answer ?? "(없음)"}`).join("\n\n")}${canGoDeeper ? "" : "\n\n이번이 마지막 꼬리 질문입니다. followUp은 빈 문자열로 두세요."}`,
         },
       ],
       response_format: { type: "json_object" },
@@ -489,8 +525,6 @@ router.post("/interviews/:id/follow-ups/:questionId/answer", requireAuth, async 
 
     await db.update(interviewQuestionsTable).set({ answer, score: parsed.score, feedback: parsed.feedback.trim() })
       .where(and(eq(interviewQuestionsTable.id, target.id), eq(interviewQuestionsTable.sessionId, session.id)));
-    // 다시 답한 경우, 이전 답변에서 이어졌던 더 깊은 꼬리 질문은 무효
-    const stale = descendantIds(session.questions, target.id);
     if (stale.length > 0) {
       await db.delete(interviewQuestionsTable)
         .where(and(eq(interviewQuestionsTable.sessionId, session.id), inArray(interviewQuestionsTable.id, stale)));
@@ -504,6 +538,7 @@ router.post("/interviews/:id/follow-ups/:questionId/answer", requireAuth, async 
         parentQuestionId: target.id,
         depth: depth + 1,
         focus: target.focus ?? null,
+        tone: followUpTone(parsed.score, session.difficulty),
       });
     }
   } catch (err) {
@@ -592,17 +627,18 @@ router.post(
     const chain = buildChain(session.questions, target.id)
       .map((question) => (question.id === target.id ? { ...question, answer: transcript } : question));
     const depth = target.depth ?? 0;
-    const canGoDeeper = depth < MAX_FOLLOW_UP_DEPTH;
+    const followUpCount = session.questions.filter((question) => question.parentQuestionId != null).length;
+    const canGoDeeper = canAddFollowUp(depth, followUpCount, session.difficulty);
 
     try {
       const ai = await getAI("interview");
       const response = await ai.openai.chat.completions.create({
         model: ai.model,
         messages: [
-          { role: "system", content: LIVE_ANSWER_SYSTEM },
+          { role: "system", content: `${LIVE_ANSWER_SYSTEM}\n\n${toneInstruction(session.difficulty)}` },
           {
             role: "user",
-            content: `지원 회사 정보:\n${companyContext(company)}${target.focus ? `\n\n이 질문으로 확인하려는 약점: ${target.focus}` : ""}\n\n질문·답변 흐름:\n${formatChain(chain)}${canGoDeeper ? "" : "\n\n이번이 마지막 꼬리 질문입니다. followUp은 빈 문자열로 두세요."}`,
+            content: `지원 회사 정보:\n${companyContext(company, true)}${target.focus ? `\n\n이 질문으로 확인하려는 약점: ${target.focus}` : ""}\n\n질문·답변 흐름:\n${formatChain(chain)}${canGoDeeper ? "" : "\n\n이번이 마지막 꼬리 질문입니다. followUp은 빈 문자열로 두세요."}`,
           },
         ],
         response_format: { type: "json_object" },
@@ -624,6 +660,7 @@ router.post(
           parentQuestionId: target.id,
           depth: depth + 1,
           focus: target.focus ?? null,
+          tone: followUpTone(parsed.score, session.difficulty),
         });
       }
     } catch (err) {
@@ -683,7 +720,7 @@ router.post("/interviews/:id/live/finish", requireAuth, async (req, res): Promis
     const response = await ai.openai.chat.completions.create({
       model: ai.model,
       messages: [
-        { role: "system", content: LIVE_SUMMARY_SYSTEM },
+        { role: "system", content: `${LIVE_SUMMARY_SYSTEM}\n${DIFFICULTY_RULES[session.difficulty].scoringStyle}` },
         { role: "user", content: `지원 회사 정보:\n${companyContext(company)}\n\n면접 기록:\n${transcriptText}` },
       ],
       response_format: { type: "json_object" },

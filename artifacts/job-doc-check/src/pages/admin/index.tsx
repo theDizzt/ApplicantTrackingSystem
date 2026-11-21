@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react"
 import { useLocation } from "wouter"
 import {
   Users, Building2, Cpu, TrendingUp, LogOut, Plus, Pencil, Trash2,
-  Shield, RefreshCw, ChevronDown, AlertCircle, BellRing
+  Shield, RefreshCw, ChevronDown, AlertCircle, BellRing, Banknote
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -692,6 +692,157 @@ export function AISettingsTab() {
   )
 }
 
+// ── 최저시급 (연봉 산정 기준) ──────────────────────────────────────────────
+type MinWageSettings = {
+  current: { year: number; requestedYear: number; hourly: number; annualWan: number; source: "override" | "table" | "fallback" }
+  table: Record<string, number>
+  overrides: Record<string, number>
+}
+
+const MIN_WAGE_SOURCE_LABEL = { override: "관리자 입력값", table: "기본 표", fallback: "올해 값 없음 · 이전 연도 사용" } as const
+
+export function MinWageCard() {
+  const [data, setData] = useState<MinWageSettings | null>(null)
+  const [loadError, setLoadError] = useState(false)
+  const [overrides, setOverrides] = useState<Record<string, number>>({})
+  const [year, setYear] = useState("")
+  const [hourly, setHourly] = useState("")
+  const [saving, setSaving] = useState(false)
+
+  const apply = (next: MinWageSettings) => {
+    setData(next)
+    setOverrides(next.overrides)
+  }
+
+  useEffect(() => {
+    api("/admin/settings/min-wage")
+      .then(apply)
+      .catch(() => setLoadError(true))
+  }, [])
+
+  const save = async (next: Record<string, number>) => {
+    setSaving(true)
+    try {
+      apply(await api("/admin/settings/min-wage", { method: "PUT", body: JSON.stringify({ overrides: next }) }))
+      toast.success("최저시급을 저장했습니다")
+      return true
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "저장하지 못했습니다")
+      return false
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const addOverride = async () => {
+    const y = Number(year)
+    const h = Number(hourly.replace(/,/g, ""))
+    if (!Number.isInteger(y) || y < 2000 || y > 2100 || !Number.isInteger(h) || h < 1000 || h > 100000) {
+      toast.error("연도(2000~2100)와 시급(1,000~100,000원)을 정수로 입력해주세요")
+      return
+    }
+    if (await save({ ...overrides, [y]: h })) {
+      setYear("")
+      setHourly("")
+    }
+  }
+
+  const removeOverride = (key: string) => {
+    const { [key]: _removed, ...rest } = overrides
+    void save(rest)
+  }
+
+  const years = data
+    ? [...new Set([...Object.keys(data.table), ...Object.keys(overrides)])].map(Number).sort((a, b) => b - a)
+    : []
+
+  return (
+    <Card className="bg-slate-900 border-slate-800 max-w-2xl" data-testid="card-min-wage">
+      <CardHeader className="pb-3">
+        <CardTitle className="text-white text-base flex items-center gap-2">
+          <Banknote className="h-4 w-4 text-primary" /> 최저시급 (연봉 산정 기준)
+        </CardTitle>
+        <p className="text-xs text-slate-500 leading-relaxed">
+          서류 심사의 예상 연봉은 오늘 날짜(한국 시간) 연도의 최저시급을 최저 기준으로 씁니다. 1월 1일이 되면 자동으로 그 해 값으로 바뀝니다.
+          매년 8월 다음 해 최저시급이 고시되면 아래에 추가하세요.
+        </p>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {loadError ? (
+          <p className="text-sm text-red-300">최저시급 설정을 불러오지 못했습니다.</p>
+        ) : !data ? (
+          <p className="text-sm text-slate-400">불러오는 중...</p>
+        ) : (
+          <>
+            <div className={`rounded-lg border p-3 ${data.current.source === "fallback" ? "border-amber-500/50 bg-amber-500/10" : "border-slate-800 bg-slate-950/50"}`}>
+              <p className="text-xs text-slate-500">지금 적용 중</p>
+              <p className="text-lg font-bold text-white mt-1" data-testid="text-min-wage-current">
+                {data.current.year}년 · {fmt(data.current.hourly)}원/시간
+                <span className="text-sm font-normal text-slate-400 ml-2">연 약 {fmt(data.current.annualWan)}만원</span>
+              </p>
+              <p className={`text-xs mt-1 ${data.current.source === "fallback" ? "text-amber-300" : "text-slate-500"}`}>
+                {MIN_WAGE_SOURCE_LABEL[data.current.source]}
+                {data.current.source === "fallback" && ` — ${data.current.requestedYear}년 값을 추가해주세요`}
+              </p>
+            </div>
+
+            <Table>
+              <TableHeader>
+                <TableRow className="border-slate-800">
+                  <TableHead className="text-slate-400">연도</TableHead>
+                  <TableHead className="text-slate-400">시급</TableHead>
+                  <TableHead className="text-slate-400">출처</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {years.map(y => {
+                  const key = String(y)
+                  const override = overrides[key]
+                  const builtIn = data.table[key]
+                  return (
+                    <TableRow key={y} className="border-slate-800">
+                      <TableCell className="text-white font-mono">{y}</TableCell>
+                      <TableCell className="text-white font-mono">
+                        {fmt(override ?? builtIn)}원
+                        {override != null && builtIn != null && (
+                          <span className="text-xs text-slate-500 line-through ml-2">{fmt(builtIn)}원</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-xs text-slate-400">{override != null ? "관리자 입력" : "기본 표"}</TableCell>
+                      <TableCell className="text-right">
+                        {override != null && (
+                          <Button variant="ghost" size="sm" className="h-7 px-2 text-slate-400 hover:text-red-300" onClick={() => removeOverride(key)} disabled={saving} aria-label={`${y}년 입력값 삭제`}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  )
+                })}
+              </TableBody>
+            </Table>
+
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-400" htmlFor="min-wage-year">연도</Label>
+                <Input id="min-wage-year" value={year} onChange={e => setYear(e.target.value)} inputMode="numeric" placeholder={String((data.current.requestedYear ?? new Date().getFullYear()) + 1)} className="w-24 bg-slate-800 border-slate-700 text-white" />
+              </div>
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-400" htmlFor="min-wage-hourly">시급 (원)</Label>
+                <Input id="min-wage-hourly" value={hourly} onChange={e => setHourly(e.target.value)} inputMode="numeric" placeholder="예: 10500" className="w-36 bg-slate-800 border-slate-700 text-white" />
+              </div>
+              <Button onClick={() => void addOverride()} disabled={saving}>
+                {saving ? "저장 중..." : "추가·수정"}
+              </Button>
+            </div>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 type AIHealthBannerStatus = {
   checked: boolean
   ok?: boolean
@@ -1092,6 +1243,7 @@ export default function AdminPage() {
         {tab === "ai" && (
           <div className="space-y-6">
             <AISettingsTab />
+            <MinWageCard />
           </div>
         )}
       </div>

@@ -528,6 +528,18 @@ export interface AnalysisInput {
   companyId: number;
 }
 
+/**
+ * 꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정
+ */
+export type FollowUpTone = typeof FollowUpTone[keyof typeof FollowUpTone];
+
+
+export const FollowUpTone = {
+  pressure: 'pressure',
+  neutral: 'neutral',
+  positive: 'positive',
+} as const;
+
 export interface InterviewQuestion {
   id: number;
   question: string;
@@ -550,6 +562,8 @@ export interface InterviewQuestion {
      * @nullable
      */
   focus?: string | null;
+  /** 꼬리 질문 말투 (기본 질문은 null) */
+  tone?: FollowUpTone | null;
 }
 
 export interface FollowUpAnswerInput {
@@ -578,6 +592,18 @@ export const InterviewMode = {
   live: 'live',
 } as const;
 
+/**
+ * 면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)
+ */
+export type InterviewDifficulty = typeof InterviewDifficulty[keyof typeof InterviewDifficulty];
+
+
+export const InterviewDifficulty = {
+  easy: 'easy',
+  normal: 'normal',
+  hard: 'hard',
+} as const;
+
 export interface InterviewSession {
   id: number;
   userId: number;
@@ -585,6 +611,7 @@ export interface InterviewSession {
   companyId: number;
   status: InterviewSessionStatus;
   mode?: InterviewMode;
+  difficulty?: InterviewDifficulty;
   questions?: InterviewQuestion[];
   /** @nullable */
   overallScore?: number | null;
@@ -621,6 +648,7 @@ export interface InterviewInput {
   resumeId: number;
   companyId: number;
   mode?: InterviewMode;
+  difficulty?: InterviewDifficulty;
 }
 
 export interface LiveAnswerAudioInput {

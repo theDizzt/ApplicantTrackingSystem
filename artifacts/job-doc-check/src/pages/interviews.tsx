@@ -5,6 +5,7 @@ import { Users, Building2, Plus, FileText, Mic } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { format } from "date-fns"
+import { difficultyLabel } from "@/lib/interview-labels"
 
 const statusKorean: Record<string, string> = {
   pending: "생성 중",
@@ -62,6 +63,7 @@ export default function InterviewsPage() {
                         {interview.companyName || "회사 미등록"}
                       </div>
                       <div className="flex items-center gap-1.5">
+                        <Badge variant="outline" className="text-[10px]">난이도 {difficultyLabel(interview.difficulty)}</Badge>
                         {interview.mode === 'live' && (
                           <Badge variant="outline" className="text-[10px] gap-1"><Mic className="w-3 h-3" />실시간</Badge>
                         )}

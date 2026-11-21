@@ -1593,6 +1593,11 @@ components:
         focus:
           type: ["string", "null"]
           description: 질문 의도 (예. 서류 심사에서 찾은 약점)
+        tone:
+          oneOf:
+            - $ref: "#/components/schemas/FollowUpTone"
+            - type: "null"
+          description: 꼬리 질문 말투 (기본 질문은 null)
 
     FollowUpAnswerInput:
       type: object
@@ -1619,6 +1624,8 @@ components:
           enum: [pending, questions_generated, answers_submitted, evaluated]
         mode:
           $ref: "#/components/schemas/InterviewMode"
+        difficulty:
+          $ref: "#/components/schemas/InterviewDifficulty"
         questions:
           type: array
           items:
@@ -1680,6 +1687,18 @@ components:
           type: integer
         mode:
           $ref: "#/components/schemas/InterviewMode"
+        difficulty:
+          $ref: "#/components/schemas/InterviewDifficulty"
+
+    InterviewDifficulty:
+      type: string
+      enum: [easy, normal, hard]
+      description: 면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)
+
+    FollowUpTone:
+      type: string
+      enum: [pressure, neutral, positive]
+      description: 꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정
 
     InterviewMode:
       type: string

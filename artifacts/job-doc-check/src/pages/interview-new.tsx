@@ -1,6 +1,7 @@
 import { useState } from "react"
 import { useLocation } from "wouter"
-import { useListResumes, useListCompanies, useCreateInterview, type InterviewMode } from "@workspace/api-client-react"
+import { useListResumes, useListCompanies, useCreateInterview, type InterviewDifficulty, type InterviewMode } from "@workspace/api-client-react"
+import { DIFFICULTY_OPTIONS } from "@/lib/interview-labels"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/button"
 import { FileText, Building2, Users, Mic, Keyboard } from "lucide-react"
@@ -19,6 +20,7 @@ export default function NewInterviewPage() {
   const [selectedResumeId, setSelectedResumeId] = useState<number | null>(null)
   const [selectedCompanyId, setSelectedCompanyId] = useState<number | null>(null)
   const [mode, setMode] = useState<InterviewMode>("text")
+  const [difficulty, setDifficulty] = useState<InterviewDifficulty>("normal")
 
   const handleSubmit = () => {
     if (!selectedResumeId || !selectedCompanyId) {
@@ -31,6 +33,7 @@ export default function NewInterviewPage() {
         resumeId: selectedResumeId,
         companyId: selectedCompanyId,
         mode,
+        difficulty,
       }
     }, {
       onSuccess: (data) => {
@@ -114,6 +117,27 @@ export default function NewInterviewPage() {
             >
               <div className="font-medium flex items-center gap-2"><Icon className="w-4 h-4 text-primary" />{title}</div>
               <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">{description}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">4. 면접 난이도</h2>
+        <div className="grid md:grid-cols-3 gap-3" role="radiogroup" aria-label="면접 난이도">
+          {DIFFICULTY_OPTIONS.map(option => (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={difficulty === option.value}
+              onClick={() => setDifficulty(option.value)}
+              className={`text-left p-4 border rounded-xl transition-all ${
+                difficulty === option.value ? 'border-primary ring-1 ring-primary bg-primary/5' : 'hover:border-slate-300 bg-card'
+              }`}
+            >
+              <div className="font-medium">{option.title}</div>
+              <p className="text-sm text-muted-foreground mt-1.5 leading-relaxed">{option.description}</p>
             </button>
           ))}
         </div>

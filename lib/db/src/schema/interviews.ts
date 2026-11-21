@@ -10,6 +10,8 @@ export const interviewSessionsTable = pgTable("interview_sessions", {
   status: text("status").notNull().default("pending"),
   // text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가·꼬리 질문
   mode: text("mode").notNull().default("text"),
+  // 면접 난이도: easy(하) / normal(중) / hard(상) — 질문 강도, 채점 엄격도, 꼬리 질문 수가 달라진다
+  difficulty: text("difficulty").notNull().default("normal"),
   overallScore: integer("overall_score"),
   overallFeedback: text("overall_feedback"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -29,6 +31,8 @@ export const interviewQuestionsTable = pgTable("interview_questions", {
   depth: integer("depth").notNull().default(0),
   // 질문 의도: 서류 심사에서 찾은 약점(탈락 원인) 등 이 질문을 묻는 이유
   focus: text("focus"),
+  // 꼬리 질문 말투: pressure(압박) / neutral(중립) / positive(긍정). 이전 답변 점수로 정해진다. 기본 질문은 null
+  tone: text("tone"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

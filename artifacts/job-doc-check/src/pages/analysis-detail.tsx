@@ -49,6 +49,8 @@ interface RichAnalysis {
     estimatedMin: number; estimatedMax: number
     byField: SalaryField[]
     desiredSalaryComment: string; basis: string
+    /** 산정에 쓴 최저시급의 연도·시급 (이전 심사 결과에는 없음) */
+    minWageYear?: number; minWageHourly?: number
   }
   expectedRank?: {
     applicable: boolean; rank: string
@@ -531,7 +533,7 @@ export default function AnalysisDetail() {
               <CardHeader className="pb-2 pt-5 px-6">
                 <CardTitle className="text-base font-bold flex items-center gap-2 text-emerald-800">
                   <Banknote className="w-4 h-4" />
-                  예상 연봉 산정 (2026 최저시급 기준)
+                  예상 연봉 산정 ({salary.minWageYear ? `${salary.minWageYear} ` : ""}최저시급 기준)
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-6 pb-5 space-y-4">

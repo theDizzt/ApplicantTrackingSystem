@@ -12,6 +12,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { ChevronLeft, BrainCircuit, CheckCircle2, CornerDownRight, Mic, Target } from "lucide-react"
+import { TONE_LABEL, difficultyLabel } from "@/lib/interview-labels"
 
 // ── 꼬리 질문 ────────────────────────────────────────────────────────────────
 /** 기본 질문 아래로 이어진 꼬리 질문들(얕은 것부터) */
@@ -63,7 +64,13 @@ function FollowUpThread({ interviewId, questions, rootId }: { interviewId: numbe
             <div className="flex-1 min-w-0 space-y-2">
               <div className="flex items-start justify-between gap-3">
                 <p className="text-sm font-semibold leading-relaxed">
-                  <span className="text-xs font-bold text-primary mr-1.5">꼬리 질문 {fq.depth ?? 1}</span>{fq.question}
+                  <span className="text-xs font-bold text-primary mr-1.5">꼬리 질문 {fq.depth ?? 1}</span>
+                  {fq.tone && (
+                    <span className={`mr-1.5 inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-bold ring-1 align-middle ${TONE_LABEL[fq.tone].className}`}>
+                      {TONE_LABEL[fq.tone].label}
+                    </span>
+                  )}
+                  {fq.question}
                 </p>
                 {answered && (
                   <Badge variant={fq.score! >= 70 ? "success" : "warning"} className="font-mono text-xs px-2 shrink-0">{fq.score}/100</Badge>
@@ -236,6 +243,7 @@ export default function InterviewDetail() {
           <h1 className="text-3xl font-bold tracking-tight flex items-center gap-3">
             면접 연습
             {isLive && <Badge variant="secondary" className="gap-1"><Mic className="w-3 h-3" />실시간 음성</Badge>}
+            <Badge variant="outline">난이도 {difficultyLabel(interview.difficulty)}</Badge>
             {isCompleted && <Badge variant="success">평가 완료</Badge>}
           </h1>
           <p className="text-muted-foreground mt-1">

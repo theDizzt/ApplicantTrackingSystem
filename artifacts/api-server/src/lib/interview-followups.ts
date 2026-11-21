@@ -1,7 +1,109 @@
 // 꼬리 질문 면접: 서류 심사 약점을 면접 질문으로 연결하고, 답변에 따라 꼬리 질문을 이어간다.
 
-/** 기본 질문(depth 0) 아래로 이어지는 꼬리 질문의 최대 단계 */
+/** 기본 질문(depth 0) 아래로 이어지는 꼬리 질문의 최대 단계 (난이도별 값의 상한) */
 export const MAX_FOLLOW_UP_DEPTH = 2;
+
+// ── 면접 난이도 · 꼬리 질문 말투 ─────────────────────────────────────────────
+export type Difficulty = "easy" | "normal" | "hard";
+export type FollowUpTone = "pressure" | "neutral" | "positive";
+
+interface DifficultyRule {
+  label: string;
+  /** 질문 하나 아래로 이어지는 꼬리 질문 최대 단계 */
+  maxDepth: number;
+  /** 면접 전체 꼬리 질문 최대 개수 (AI 호출 수 상한) */
+  maxFollowUps: number;
+  /** 기본 질문을 만들 때의 지시 */
+  questionStyle: string;
+  /** 채점 기준 */
+  scoringStyle: string;
+}
+
+const GUARDRAIL = "외모·나이·성별·가족·종교·출신 지역 등 사적인 질문, 인신공격, 모욕적인 표현은 어떤 난이도에서도 금지입니다.";
+
+export const DIFFICULTY_RULES: Record<Difficulty, DifficultyRule> = {
+  easy: {
+    label: "하",
+    maxDepth: 1,
+    maxFollowUps: 3,
+    questionStyle: "난이도 '하': 지원 동기, 경험 소개, 배운 점처럼 준비하면 답할 수 있는 기본 질문 위주로, 부드럽고 격려하는 말투로 만드세요. 압박 질문은 넣지 마세요.",
+    scoringStyle: "난이도 '하': 처음 면접을 연습하는 지원자로 보고, 핵심을 전달했다면 너그럽게 채점하세요.",
+  },
+  normal: {
+    label: "중",
+    maxDepth: 2,
+    maxFollowUps: 5,
+    questionStyle: "난이도 '중': 경험을 검증하는 질문과 직무 역량 질문을 균형 있게, 실제 면접관처럼 정중하고 담백한 말투로 만드세요.",
+    scoringStyle: "난이도 '중': 실제 면접 기준으로 채점하세요.",
+  },
+  hard: {
+    label: "상",
+    maxDepth: 2,
+    maxFollowUps: 7,
+    questionStyle: "난이도 '상': 5개 중 2개 이상은 지원자의 멘탈을 흔드는 압박 질문으로 만드세요. 이력서의 약점·공백·과장 가능성을 정면으로 짚거나, \"그 성과는 팀 덕분 아닌가요?\"처럼 반박하거나, 답하기 곤란한 가정 상황을 던지세요. 말투는 정중하되 날카롭게.",
+    scoringStyle: "난이도 '상': 엄격하게 채점하세요. 근거 없는 주장, 모호한 역할, 압박에 흔들려 논리가 무너진 답변은 크게 감점하세요.",
+  },
+};
+
+export function parseDifficulty(value: unknown): Difficulty {
+  return value === "easy" || value === "hard" ? value : "normal";
+}
+
+/**
+ * 답변 점수와 난이도로 꼬리 질문 말투를 정한다. AI에게도 같은 기준을 알려 주고,
+ * 저장하는 값은 서버가 점수로 다시 계산한 것을 쓴다(AI가 기준을 어겨도 표시는 일관되게).
+ */
+const TONE_THRESHOLDS: Record<Difficulty, { pressureBelow: number; positiveFrom: number }> = {
+  easy: { pressureBelow: 0, positiveFrom: 70 },
+  normal: { pressureBelow: 60, positiveFrom: 80 },
+  hard: { pressureBelow: 80, positiveFrom: 90 },
+};
+
+export function followUpTone(score: number, difficulty: Difficulty): FollowUpTone {
+  const { pressureBelow, positiveFrom } = TONE_THRESHOLDS[difficulty];
+  if (score < pressureBelow) return "pressure";
+  if (score >= positiveFrom) return "positive";
+  return "neutral";
+}
+
+const TONE_GUIDE: Record<FollowUpTone, string> = {
+  pressure: "압박형 — 답변의 허점·모순·근거 부족을 정면으로 짚고 반례나 반박으로 몰아붙이는 질문 (예: \"방금 말씀은 결국 지시받은 일을 한 것 아닌가요?\")",
+  neutral: "중립형 — 모호한 부분을 담담하게 구체적인 사실·수치·역할로 확인하는 질문",
+  positive: "긍정형 — 잘한 점을 짧게 인정한 뒤(\"좋습니다. 그럼…\") 한 단계 더 깊은 응용·확장 역량을 묻는 질문",
+};
+
+/** 꼬리 질문 말투 규칙 (AI가 매긴 점수에 맞춰 고르게 한다) */
+export function toneInstruction(difficulty: Difficulty): string {
+  const { pressureBelow, positiveFrom } = TONE_THRESHOLDS[difficulty];
+  const lines = [
+    pressureBelow > 0 ? `- 점수 ${pressureBelow}점 미만: ${TONE_GUIDE.pressure}` : null,
+    `- 점수 ${pressureBelow > 0 ? `${pressureBelow}~${positiveFrom - 1}점` : `${positiveFrom}점 미만`}: ${TONE_GUIDE.neutral}`,
+    `- 점수 ${positiveFrom}점 이상: ${TONE_GUIDE.positive}`,
+  ].filter(Boolean);
+  return `꼬리 질문 말투는 이 답변에 매긴 점수에 따라 정하세요 (${DIFFICULTY_RULES[difficulty].scoringStyle}):\n${lines.join("\n")}\n${GUARDRAIL}`;
+}
+
+export function questionStyleInstruction(difficulty: Difficulty): string {
+  return `\n${DIFFICULTY_RULES[difficulty].questionStyle}\n${GUARDRAIL}`;
+}
+
+/**
+ * 꼬리 질문을 더 만들 수 있는지. 질문당 단계 제한과 면접 전체 개수 제한을 함께 본다.
+ * existingFollowUps에는 이번에 지워질 꼬리 질문을 빼고 센 값을 넣는다.
+ */
+export function canAddFollowUp(depth: number, existingFollowUps: number, difficulty: Difficulty): boolean {
+  const rule = DIFFICULTY_RULES[difficulty];
+  return depth < rule.maxDepth && existingFollowUps < rule.maxFollowUps;
+}
+
+/** 답변마다 반복해서 보내는 회사 정보는 길이를 제한해 토큰을 아낀다. */
+export const COMPANY_CONTEXT_LIMITS = { talentProfile: 600, jobDescription: 1500 } as const;
+
+export function truncateForPrompt(text: string | null | undefined, max: number): string | null {
+  if (!text) return null;
+  const clean = text.replace(/\s+/g, " ").trim();
+  return clean.length > max ? `${clean.slice(0, max)}…(이하 생략)` : clean;
+}
 const MAX_WEAKNESSES = 3;
 const MAX_QUESTION_LENGTH = 300;
 
