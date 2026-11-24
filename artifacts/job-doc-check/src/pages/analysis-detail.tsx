@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { useParams, Link } from "wouter"
 import { useGetAnalysis, getGetAnalysisQueryKey, useRetryAnalysis } from "@workspace/api-client-react"
 import { useQueryClient } from "@tanstack/react-query"
@@ -6,10 +7,11 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { AiEstimateBadge, AiEstimateNote } from "@/components/ai-estimate-badge"
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import {
   ChevronLeft, CheckCircle2, XCircle, AlertTriangle,
   Link2, ExternalLink, TrendingUp, Banknote, GraduationCap, Heart, RotateCcw, Users,
-  ListChecks, PlusCircle, MinusCircle, Quote as QuoteIcon, ShieldAlert, Wrench, Sparkles, Info,
+  ListChecks, PlusCircle, MinusCircle, Quote as QuoteIcon, ShieldAlert, Wrench, Sparkles, Info, MessageSquareQuote,
 } from "lucide-react"
 
 // ── 타입 ──────────────────────────────────────────────────────────────────
@@ -87,6 +89,18 @@ interface RichAnalysis {
     requirements: RequirementCheck[]
   }
   rejectionReport?: RejectionReport
+  interviewPrep?: InterviewPrep
+}
+
+interface InterviewPrep {
+  points: {
+    title: string
+    quote: string
+    quoteVerified: boolean
+    impression: string
+    rewrite: string
+    interviewTip: string
+  }[]
 }
 
 interface RejectionReport {
@@ -214,6 +228,89 @@ function RejectionReportCard({ report, passed }: { report: RejectionReport; pass
             </ul>
           </div>
         )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ── 면접 대비 보완점 ──────────────────────────────────────────────────────
+function InterviewPrepCard({ prep }: { prep: InterviewPrep }) {
+  const [open, setOpen] = useState(false)
+  const { points } = prep
+  if (points.length === 0) return null
+
+  return (
+    <Card className="rounded-2xl border border-indigo-100 shadow-sm bg-gradient-to-br from-indigo-50/40 to-white">
+      <CardHeader className="pb-2 pt-5 px-6">
+        <CardTitle className="text-base font-bold flex items-center gap-2">
+          <MessageSquareQuote className="w-4 h-4 text-indigo-500" />
+          면접 전에 점검할 보완점 {points.length}개
+        </CardTitle>
+        <p className="text-xs text-slate-500 leading-relaxed mt-1">
+          문서 표현에 대한 피드백이며, 성격 진단이나 합격·불합격 판단이 아닙니다.
+        </p>
+      </CardHeader>
+      <CardContent className="px-6 pb-6 space-y-4">
+        <ul className="flex flex-wrap gap-2">
+          {points.map((p, i) => (
+            <li key={i} className="rounded-full border border-indigo-100 bg-white px-3 py-1 text-xs font-medium text-indigo-800">
+              {p.title}
+            </li>
+          ))}
+        </ul>
+        <Dialog open={open} onOpenChange={setOpen}>
+          <Button variant="outline" onClick={() => setOpen(true)} className="w-full gap-2">
+            세부 분석 보기 <MessageSquareQuote className="w-4 h-4" />
+          </Button>
+          <DialogContent className="max-w-3xl max-h-[85vh] overflow-y-auto">
+            <DialogHeader>
+              <DialogTitle className="flex items-center gap-2">
+                <MessageSquareQuote className="w-5 h-5 text-indigo-600" />면접 대비 보완점
+              </DialogTitle>
+              <DialogDescription>
+                서류를 읽는 사람이 오해하거나 면접에서 질문받기 쉬운 표현입니다. 고친 문장의 [ ]는 직접 채워 넣으세요.
+              </DialogDescription>
+            </DialogHeader>
+            <ol className="space-y-5 pt-2">
+              {points.map((p, i) => (
+                <li key={i} className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-indigo-600 text-xs font-bold text-white">{i + 1}</span>
+                    <p className="text-sm font-bold text-slate-900">{p.title}</p>
+                    {p.quoteVerified && (
+                      <span className="rounded-full bg-indigo-50 px-2 py-0.5 text-[11px] font-semibold text-indigo-700 ring-1 ring-indigo-200">이력서 원문</span>
+                    )}
+                  </div>
+                  {p.quote && (
+                    <blockquote className="flex items-start gap-2 rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                      <QuoteIcon className="w-3.5 h-3.5 mt-0.5 shrink-0 text-slate-400" />
+                      <span className="break-words">{p.quote}</span>
+                      {!p.quoteVerified && (
+                        <span className="ml-auto shrink-0 rounded px-1.5 py-px text-[10px] font-semibold bg-slate-200 text-slate-500"
+                          title="AI가 인용한 문장이 이력서·자기소개서 원문에서 그대로 확인되지 않았습니다">원문 미확인</span>
+                      )}
+                    </blockquote>
+                  )}
+                  <div>
+                    <p className="text-xs font-bold text-slate-700 mb-0.5">읽는 사람이 받을 수 있는 인상</p>
+                    <p className="text-sm text-slate-600 leading-relaxed">{p.impression}</p>
+                    <p className="text-[11px] text-slate-400 mt-0.5">문장에서 받을 수 있는 인상이며, 실제 성격을 뜻하지 않습니다.</p>
+                  </div>
+                  <div className="rounded-lg bg-blue-50/70 px-3 py-2">
+                    <p className="text-xs font-bold text-blue-800 mb-0.5 flex items-center gap-1"><Wrench className="w-3.5 h-3.5" />이렇게 고쳐보세요</p>
+                    <p className="text-sm text-blue-900 leading-relaxed">{p.rewrite}</p>
+                  </div>
+                  {p.interviewTip && (
+                    <div className="rounded-lg bg-emerald-50/70 px-3 py-2">
+                      <p className="text-xs font-bold text-emerald-800 mb-0.5 flex items-center gap-1"><Users className="w-3.5 h-3.5" />면접 준비</p>
+                      <p className="text-sm text-emerald-900 leading-relaxed">{p.interviewTip}</p>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ol>
+          </DialogContent>
+        </Dialog>
       </CardContent>
     </Card>
   )
@@ -498,6 +595,7 @@ export default function AnalysisDetail() {
           {rich?.rejectionReport && (
             <RejectionReportCard report={rich.rejectionReport} passed={analysis.overallResult === "pass"} />
           )}
+          {rich?.interviewPrep && <InterviewPrepCard prep={rich.interviewPrep} />}
           {rich?.scoreEvidence && <ScoreEvidenceCard evidence={rich.scoreEvidence} />}
 
           {/* ── 서류 기본 점검 ── */}

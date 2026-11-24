@@ -18,6 +18,12 @@ import {
   type RejectionReport,
   type RejectionSignals,
 } from "../lib/rejection-report";
+import {
+  INTERVIEW_PREP_SYSTEM,
+  buildInterviewPrepInput,
+  sanitizeInterviewPrep,
+  type InterviewPrep,
+} from "../lib/interview-prep";
 import type OpenAI from "openai";
 
 const router: IRouter = Router();
@@ -561,6 +567,29 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
     }
   })();
 
+  // ── 면접 대비 보완점 — 위 리포트·모델별 의견과 병렬 실행 ───────────────────
+  // 이력서 원문이 필요해 별도 호출로 둔다. 실패하면 보완점 없이 심사를 마친다(규칙 기반 대체 없음).
+  const prepPromise = (async (): Promise<{ prep: InterviewPrep | null; inputTokens: number; outputTokens: number }> => {
+    try {
+      const res = await callAI([
+        { role: "system", content: INTERVIEW_PREP_SYSTEM },
+        {
+          role: "user",
+          content: buildInterviewPrepInput({
+            resumeContent: resume.content,
+            coverLetter: resume.coverLetter,
+            companyText,
+            minusFactors: scoreFactors.filter((f) => f.effect === "minus"),
+          }),
+        },
+      ]);
+      return { prep: sanitizeInterviewPrep(res.data, evidenceSource), inputTokens: res.inputTokens, outputTokens: res.outputTokens };
+    } catch (err) {
+      logger.warn({ analysisId, err }, "Interview prep AI call failed (analysis continues without it)");
+      return { prep: null, inputTokens: 0, outputTokens: 0 };
+    }
+  })();
+
   // ── 모델별 의견 (Task3) ──────────────────────────────────────────────────
   // 지원자의 구독 상태를 확인한다(한도 소비 없음). 무료 플랜은 보조 모델이 없으므로
   // 동일한 주 모델을 서로 다른 페르소나(인성 평가관·역량 평가관)로 두 번 호출한다.
@@ -642,6 +671,10 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
   totalInputTokens  += rejection.inputTokens;
   totalOutputTokens += rejection.outputTokens;
 
+  const interviewPrep = await prepPromise;
+  totalInputTokens  += interviewPrep.inputTokens;
+  totalOutputTokens += interviewPrep.outputTokens;
+
   const orgFit = r3.organizationalFit as Record<string, unknown> | undefined;
   const salaryRaw = r3.salaryAnalysis as Record<string, unknown> | undefined;
   const rankRaw   = r3.expectedRank   as Record<string, unknown> | undefined;
@@ -711,6 +744,7 @@ graduationGap 판정 규칙 (반드시 순서대로 적용):
     jobSimilarity,
     scoreEvidence: { factors: scoreFactors, requirements: requirementChecks },
     rejectionReport: rejection.report,
+    ...(interviewPrep.prep ? { interviewPrep: interviewPrep.prep } : {}),
   });
 
   await db.update(analysesTable).set({

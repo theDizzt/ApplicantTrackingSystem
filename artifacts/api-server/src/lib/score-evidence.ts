@@ -42,7 +42,7 @@ export const EVIDENCE_RULES = `근거 작성 규칙:
 - quote는 이력서·자기소개서에서 그 판단의 근거가 된 부분을 **원문 그대로** 짧게(80자 이내) 인용하세요. 요약하거나 바꿔 쓰지 마세요.
 - 근거가 '내용이 없다'는 것이면(예: 경력 기술 부재) quote는 빈 문자열로 두세요.`;
 
-function normalizeForMatch(s: string): string {
+export function normalizeForMatch(s: string): string {
   return s
     .replace(/<[^>]*>/g, "")
     .replace(/&nbsp;/g, " ")
