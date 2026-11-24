@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { normalizeRegions, scrapeSaramin, SARAMIN_REGION_CODES } from "./job-scrapers";
+import { keepScrapedPostings, normalizeRegions, scrapeSaramin, SARAMIN_REGION_CODES } from "./job-scrapers";
 
 describe("normalizeRegions", () => {
   it("keeps only known regions, without duplicates", () => {
@@ -34,5 +34,39 @@ describe("scrapeSaramin region filter", () => {
     vi.stubGlobal("fetch", fetchMock);
     await scrapeSaramin("개발자 신입", 8);
     expect(String((fetchMock.mock.calls[0] as unknown[])[0])).not.toContain("loc_mcd");
+  });
+});
+
+describe("keepScrapedPostings", () => {
+  const scraped = [
+    { source: "saramin" as const, name: "실제회사", title: "백엔드 개발자", jobPostingUrl: "https://www.saramin.co.kr/a" },
+  ];
+
+  it("drops postings whose URL was not scraped (AI-invented)", () => {
+    const result = keepScrapedPostings(
+      [
+        { name: "실제회사", jobPostingUrl: "https://www.saramin.co.kr/a" },
+        { name: "지어낸회사", jobPostingUrl: "https://www.jobkorea.co.kr/Search/?stext=개발자" },
+        { name: "URL 없음" },
+      ],
+      scraped,
+    );
+    expect(result).toHaveLength(1);
+    expect(result[0]?.jobPostingUrl).toBe("https://www.saramin.co.kr/a");
+  });
+
+  it("restores the scraped company name and removes duplicates", () => {
+    const result = keepScrapedPostings(
+      [
+        { name: "바뀐이름", jobPostingUrl: "https://www.saramin.co.kr/a" },
+        { name: "실제회사", jobPostingUrl: "https://www.saramin.co.kr/a" },
+      ],
+      scraped,
+    );
+    expect(result).toEqual([{ name: "실제회사", jobPostingUrl: "https://www.saramin.co.kr/a" }]);
+  });
+
+  it("returns an empty list when the AI response is not an array", () => {
+    expect(keepScrapedPostings({}, scraped)).toEqual([]);
   });
 });

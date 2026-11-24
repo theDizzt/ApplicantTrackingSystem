@@ -5,7 +5,7 @@ import { requireAuth } from "../middlewares/auth";
 import { aiBlockedMessage, getAI } from "../lib/openai";
 import { logger } from "../lib/logger";
 import { parseScheduleInput } from "../lib/application-schedule";
-import { scrapeSaramin, buildKeyword, getJobkoreaSearchUrl, normalizeRegions } from "../lib/job-scrapers";
+import { scrapeSaramin, buildKeyword, getJobkoreaSearchUrl, keepScrapedPostings, normalizeRegions } from "../lib/job-scrapers";
 import { extractPostingDates, parseSaraminDeadline } from "../lib/posting-dates";
 
 const router: IRouter = Router();
@@ -100,24 +100,29 @@ router.post("/companies/fetch-postings", requireAuth, async (req, res): Promise<
 
     logger.info({ saramin: saraminResults.length, jobkoreaUrl: jobkoreaSearchUrl }, "스크래핑 완료");
 
-    // ── 2단계: AI로 구조화·보강 ───────────────────────────────────────────────
-    const saraminSummary = saraminResults.length > 0
-      ? saraminResults.map(p =>
-          `[사람인] 회사: ${p.name} / 공고: ${p.title} / URL: ${p.jobPostingUrl}` +
-          (p.location      ? ` / 근무지: ${p.location}` : "") +
-          (p.careerText    ? ` / 경력: ${p.careerText}` : "") +
-          (p.educationText ? ` / 학력: ${p.educationText}` : "")
-        ).join("\n")
-      : "사람인 스크래핑 결과 없음";
+    // 수집한 공고가 없으면 AI를 부르지 않는다 (AI가 공고를 지어내지 않도록).
+    // 화면은 빈 결과와 함께 잡코리아 검색 링크를 안내한다.
+    if (saraminResults.length === 0) {
+      res.json([]);
+      return;
+    }
+
+    // ── 2단계: AI로 구조화·보강 (수집한 공고만) ──────────────────────────────
+    const saraminSummary = saraminResults.map(p =>
+      `[사람인] 회사: ${p.name} / 공고: ${p.title} / URL: ${p.jobPostingUrl}` +
+      (p.location      ? ` / 근무지: ${p.location}` : "") +
+      (p.careerText    ? ` / 경력: ${p.careerText}` : "") +
+      (p.educationText ? ` / 학력: ${p.educationText}` : "")
+    ).join("\n");
 
     const systemPrompt = `당신은 한국 채용 공고 데이터 전문가입니다.
-사람인에서 수집한 실제 채용공고와 잡코리아 검색 URL을 바탕으로, 조건에 맞는 공고 6개를 JSON 배열로 반환하세요.
+사람인에서 수집한 실제 채용공고만 사용해, 조건에 맞는 공고를 최대 6개까지 JSON 배열로 반환하세요.
 
 반환 형식 (순수 JSON 배열, 마크다운·주석 없이):
 [
   {
     "name": "회사명",
-    "siteUrl": "https://회사공식홈페이지.com",
+    "siteUrl": "",
     "jobPostingUrl": "공고 URL",
     "talentProfile": "인재상 1~2문장",
     "jobDescription": "담당업무 및 자격요건 200자 내외",
@@ -128,12 +133,13 @@ router.post("/companies/fetch-postings", requireAuth, async (req, res): Promise<
 ]
 
 규칙:
-1. 사람인 스크래핑 데이터가 있으면 해당 공고를 우선 사용하고, jobPostingUrl은 원본 URL 그대로 유지
-2. 사람인 공고 수가 6개 미만이면 잡코리아 검색 URL(${jobkoreaSearchUrl})을 jobPostingUrl로 하여 조건에 맞는 실제 한국 기업 공고를 생성해 채워넣기
-3. careerLevel: ["신입","1년이내","3년이내"] 중 조건에 맞는 것만
-4. educationLevel: "전문대","대학교","석사" 중 하나
-5. recruitmentField: ["개발","기획","디자인","영업","품질관리","테스터","기타"] 중 맞는 것
-6. 반환 총 6개 이하`;
+1. 아래 수집 공고 목록에 있는 공고만 반환. 목록에 없는 회사·공고를 새로 만들지 말 것. 개수가 6개보다 적어도 채워 넣지 말 것
+2. name은 수집한 회사명, jobPostingUrl은 수집한 URL을 한 글자도 바꾸지 말고 그대로 사용
+3. siteUrl·talentProfile·jobDescription은 수집 정보로 알 수 없으면 빈 문자열("")로 둘 것. 추측해서 쓰지 말 것
+4. careerLevel: ["신입","1년이내","3년이내"] 중 조건에 맞는 것만
+5. educationLevel: "전문대","대학교","석사" 중 하나
+6. recruitmentField: ["개발","기획","디자인","영업","품질관리","테스터","기타"] 중 맞는 것
+7. 반환 총 6개 이하`;
 
     const userPrompt = `필터 조건:\n${conditions.join("\n")}\n\n사람인 수집 공고:\n${saraminSummary}`;
 
@@ -158,7 +164,12 @@ router.post("/companies/fetch-postings", requireAuth, async (req, res): Promise<
       return;
     }
 
-    const postings = JSON.parse(jsonMatch[0]);
+    // AI가 목록에 없는 공고를 끼워 넣어도 서버에서 한 번 더 걸러낸다.
+    const parsed = JSON.parse(jsonMatch[0]);
+    const postings = keepScrapedPostings(parsed, saraminResults);
+    if (Array.isArray(parsed) && postings.length < parsed.length) {
+      logger.warn({ returned: parsed.length, kept: postings.length }, "수집 목록에 없는 AI 공고를 제외함");
+    }
     res.json(postings);
 
   } catch (err) {

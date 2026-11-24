@@ -8,8 +8,8 @@
 
 | # | 위험 | 위치 | 문제 | 고치는 방향 | 상태 |
 |---|---|---|---|---|---|
-| 1 | 🔴 높음 | `artifacts/api-server/src/routes/companies.ts` (AI 기업 추천 프롬프트 규칙 2) | 사람인 수집 공고가 6개 미만이면 "조건에 맞는 실제 한국 기업 공고를 생성해 채워넣기"를 지시. 존재하지 않는 회사·직무·인재상이 진짜 공고처럼 등록되고, 이후 서류 심사·면접도 지어낸 공고를 기준으로 진행됨 | 생성 지시 삭제. 수집된 공고만 반환하고, 부족하면 "잡코리아에서 더 찾아보기" 링크만 안내 | 예정 |
-| 2 | 🔴 높음 | `artifacts/api-server/src/routes/career-analysis.ts` (`CAREER_SYSTEM`) | `salaryGuide`(연봉 범위)와 `recommendedJobs[].outlook`·`outlookScore`(직업 전망)가 근거 자료 없이 모델 지식으로만 생성됨 | 단기: 화면에 "AI 추정치 · 출처 없음" 표시. 장기: 공공 통계(고용노동부 임금 정보, 워크넷 직업 전망 등)를 서버에서 조회해 근거로 제공 | 예정 |
+| 1 | 🔴 높음 | `artifacts/api-server/src/routes/companies.ts` (AI 기업 추천 프롬프트 규칙 2) | 사람인 수집 공고가 6개 미만이면 "조건에 맞는 실제 한국 기업 공고를 생성해 채워넣기"를 지시. 존재하지 않는 회사·직무·인재상이 진짜 공고처럼 등록되고, 이후 서류 심사·면접도 지어낸 공고를 기준으로 진행됨 | 생성 지시 삭제. 수집된 공고만 반환하고, 부족하면 "잡코리아에서 더 찾아보기" 링크만 안내 | **완료 (2026-11-24)** — 생성 지시 삭제, 수집 공고가 없으면 AI 호출 안 함, 서버에서 수집 URL과 대조해 목록에 없는 공고 제외(`keepScrapedPostings`), 결과 6개 미만이면 화면에 잡코리아 링크 |
+| 2 | 🔴 높음 | `artifacts/api-server/src/routes/career-analysis.ts` (`CAREER_SYSTEM`) | `salaryGuide`(연봉 범위)와 `recommendedJobs[].outlook`·`outlookScore`(직업 전망)가 근거 자료 없이 모델 지식으로만 생성됨 | 단기: 화면에 "AI 추정치 · 출처 없음" 표시. 장기: 공공 통계(고용노동부 임금 정보, 워크넷 직업 전망 등)를 서버에서 조회해 근거로 제공 | 단기 **완료 (2026-11-24)** — 커리어 분석의 가이드 연봉·미래 전망, 서류 심사의 예상 연봉 산정에 "AI 추정치" 배지와 안내 문구(`components/ai-estimate-badge.tsx`). 장기 예정 |
 | 3 | 🟡 중간 | `artifacts/api-server/src/routes/analyses.ts` (`requirementChecks` 규칙) | 공고에 요건이 없으면 AI가 "직무 수행에 꼭 필요한 요건을 추론"함. 추론한 요건의 미충족이 불합격 원인 리포트·면접 약점 질문까지 이어지는데, 화면에서 공고 요건과 구분되지 않음 | 요건마다 출처(`posting` / `inferred`) 표시, 화면에 "공고 미기재 · AI 추정" 배지, 불합격 원인에서 추정 요건은 최고 위험도로 올리지 않음 | **완료 (2026-11-09)** |
 | 4 | 🟢 낮음 | `artifacts/api-server/src/routes/career-analysis.ts` (NCS 분류) | NCS 대분류·수준을 모델 지식으로 판정 | 공식 NCS 분류표를 서버에 두고 AI 응답을 그 목록으로 검증 | 검토 |
 

@@ -5,6 +5,7 @@ import { toast } from "sonner"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { AiEstimateBadge, AiEstimateNote } from "@/components/ai-estimate-badge"
 import {
   ChevronLeft, CheckCircle2, XCircle, AlertTriangle,
   Link2, ExternalLink, TrendingUp, Banknote, GraduationCap, Heart, RotateCcw, Users,
@@ -500,7 +501,8 @@ export default function AnalysisDetail() {
           {rich?.scoreEvidence && <ScoreEvidenceCard evidence={rich.scoreEvidence} />}
 
           {/* ── 서류 기본 점검 ── */}
-          {rich?.documentChecks && (rich.documentChecks.photoMissing || rich.documentChecks.coverLetterTooShort) && (
+          {/* 얼굴 사진은 평가에서 제외하므로 사진 미등록은 표시하지 않음 (회의 #8) */}
+          {rich?.documentChecks?.coverLetterTooShort && (
             <Card className="rounded-2xl border border-amber-200 bg-amber-50/50 shadow-sm">
               <CardHeader className="pb-2 pt-5 px-6">
                 <CardTitle className="text-base font-bold flex items-center gap-2">
@@ -508,12 +510,6 @@ export default function AnalysisDetail() {
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-6 pb-5 space-y-2">
-                {rich.documentChecks.photoMissing && (
-                  <div className="flex items-start gap-2 text-sm text-slate-700">
-                    <XCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
-                    <span><b>사진 미등록</b> — 이력서에 사진이 없습니다. 지원 기업에 따라 사진이 요구될 수 있으니 확인하세요.</span>
-                  </div>
-                )}
                 {rich.documentChecks.coverLetterTooShort && (
                   <div className="flex items-start gap-2 text-sm text-slate-700">
                     <XCircle className="w-4 h-4 text-amber-600 mt-0.5 shrink-0" />
@@ -531,9 +527,10 @@ export default function AnalysisDetail() {
           {salary && (
             <Card className="rounded-2xl border border-emerald-100 shadow-sm bg-gradient-to-br from-emerald-50/60 to-white">
               <CardHeader className="pb-2 pt-5 px-6">
-                <CardTitle className="text-base font-bold flex items-center gap-2 text-emerald-800">
+                <CardTitle className="text-base font-bold flex flex-wrap items-center gap-2 text-emerald-800">
                   <Banknote className="w-4 h-4" />
                   예상 연봉 산정 ({salary.minWageYear ? `${salary.minWageYear} ` : ""}최저시급 기준)
+                  <AiEstimateBadge />
                 </CardTitle>
               </CardHeader>
               <CardContent className="px-6 pb-5 space-y-4">
@@ -582,6 +579,7 @@ export default function AnalysisDetail() {
                 {salary.basis && (
                   <p className="text-xs text-slate-400 leading-relaxed">{salary.basis}</p>
                 )}
+                <AiEstimateNote />
 
                 {/* 직급 근거 */}
                 {rank?.applicable && rank.reasoning && (

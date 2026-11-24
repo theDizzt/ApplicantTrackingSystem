@@ -87,7 +87,7 @@ export function buildRejectionReportInput(signals: RejectionSignals, companyText
 
   const extra: string[] = [];
   if (signals.documentChecks.coverLetterTooShort) extra.push(`자기소개서 분량 부족(공백 제외 ${signals.documentChecks.coverLetterLength}자)`);
-  if (signals.documentChecks.photoMissing) extra.push("이력서 사진 미등록");
+  // 얼굴 사진은 평가에서 제외한다 (회의 #8). photoMissing은 저장 형식 호환용으로만 남김.
   const sim = signals.jobSimilarity;
   if (sim.score !== null && sim.score <= sim.threshold) extra.push(`공고 직무 내용과 자기소개서의 문장 유사도 낮음(${sim.score}점)`);
   if (signals.graduationGap.isLongGap) {

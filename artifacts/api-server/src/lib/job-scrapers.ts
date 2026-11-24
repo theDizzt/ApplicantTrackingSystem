@@ -187,3 +187,28 @@ export function buildKeyword(opts: {
 
   return parts.join(" ").trim() || "개발자";
 }
+
+/**
+ * AI가 구조화한 공고 중 실제로 수집한 공고만 남긴다.
+ * - jobPostingUrl이 수집한 공고 URL과 같은 것만 통과 (AI가 지어낸 공고 차단)
+ * - 회사명은 수집한 원문으로 덮어쓰고, 같은 공고는 한 번만 남긴다.
+ */
+export function keepScrapedPostings<T extends { name?: unknown; jobPostingUrl?: unknown }>(
+  aiPostings: unknown,
+  scraped: ScrapedPosting[],
+): T[] {
+  if (!Array.isArray(aiPostings)) return [];
+  const byUrl = new Map(scraped.map((p) => [p.jobPostingUrl, p]));
+  const seen = new Set<string>();
+  const kept: T[] = [];
+  for (const item of aiPostings) {
+    if (!item || typeof item !== "object") continue;
+    const url = (item as T).jobPostingUrl;
+    if (typeof url !== "string") continue;
+    const source = byUrl.get(url);
+    if (!source || seen.has(url)) continue;
+    seen.add(url);
+    kept.push({ ...(item as T), name: source.name, jobPostingUrl: url });
+  }
+  return kept;
+}

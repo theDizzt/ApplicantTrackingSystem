@@ -907,8 +907,39 @@ export default function CompaniesPage() {
               <p className="text-muted-foreground"><span className="font-semibold">근무지역</span> · {regionLabel(discoverInfo.regions)}</p>
             </div>
           ) : undefined,
-        } : {})}
+        } : {
+          description: "사람인에서 실제로 수집한 공고만 보여줍니다. 추가할 공고를 선택하세요.",
+          summary: postings.length < 6 ? (
+            <div className="rounded-lg bg-muted/60 px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2">
+              <span className="text-muted-foreground">
+                {postings.length === 0 ? "조건에 맞는 사람인 공고를 찾지 못했습니다." : `사람인에서 찾은 공고는 ${postings.length}개입니다.`}
+              </span>
+              <a
+                href={jobkoreaSearchUrl(filterField, filterCareer)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 font-medium text-primary hover:underline"
+              >
+                <ExternalLink className="w-3 h-3" />잡코리아에서 더 찾아보기
+              </a>
+            </div>
+          ) : undefined,
+        })}
       />
     </div>
   )
+}
+
+// 서버 buildKeyword(lib/job-scrapers.ts)와 같은 규칙으로 잡코리아 검색어를 만든다.
+const JOBKOREA_FIELD_KEYWORD: Record<string, string> = {
+  개발: "개발자", 기획: "서비스기획", 디자인: "디자이너", 영업: "영업",
+  품질관리: "QA품질", 테스터: "QA테스터", 기타: "",
+}
+
+function jobkoreaSearchUrl(fields: string[], careers: string[]): string {
+  const parts = fields.map(f => JOBKOREA_FIELD_KEYWORD[f] ?? "").filter(Boolean)
+  if (careers.includes("신입")) parts.push("신입")
+  else if (careers.length) parts.push("경력")
+  const keyword = parts.join(" ").trim() || "개발자"
+  return `https://www.jobkorea.co.kr/Search/?stext=${encodeURIComponent(keyword)}&tabType=recruit`
 }

@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog"
 import { Badge } from "@/components/ui/badge"
+import { AiEstimateBadge, AiEstimateNote } from "@/components/ai-estimate-badge"
 import {
   Compass, Loader2, AlertTriangle, Sparkles, Award, TrendingUp,
   Banknote, SpellCheck, CheckCircle2, RefreshCw
@@ -254,7 +255,7 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
               </div>
               {result.salaryGuide && (result.salaryGuide.min > 0 || result.salaryGuide.max > 0) && (
                 <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 px-3.5 py-3 flex items-center justify-between gap-3">
-                  <span className="text-sm font-bold text-emerald-700 flex items-center gap-2"><Banknote className="w-4 h-4" />가이드 연봉</span>
+                  <span className="text-sm font-bold text-emerald-700 flex flex-wrap items-center gap-2"><Banknote className="w-4 h-4" />가이드 연봉<AiEstimateBadge label="AI 추정치" /></span>
                   <span className="text-sm font-extrabold text-emerald-700">연 {result.salaryGuide.min.toLocaleString()}~{result.salaryGuide.max.toLocaleString()}만원</span>
                 </div>
               )}
@@ -334,7 +335,7 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
                       <p className="text-sm text-slate-600 leading-relaxed">{j.reason}</p>
                       {j.salaryGuide && (j.salaryGuide.min > 0 || j.salaryGuide.max > 0) && (
                         <div className="rounded-lg border border-emerald-100 bg-emerald-50/60 p-3">
-                          <div className="text-sm font-bold text-emerald-700 flex items-center gap-1.5"><Banknote className="w-4 h-4" />가이드 연봉 · 연 {j.salaryGuide.min.toLocaleString()}~{j.salaryGuide.max.toLocaleString()}만원</div>
+                          <div className="text-sm font-bold text-emerald-700 flex items-center gap-1.5"><Banknote className="w-4 h-4" />가이드 연봉 · 연 {j.salaryGuide.min.toLocaleString()}~{j.salaryGuide.max.toLocaleString()}만원<AiEstimateBadge label="AI 추정치" /></div>
                           {j.salaryGuide.basis && <p className="mt-1 text-xs text-slate-500">{j.salaryGuide.basis}</p>}
                         </div>
                       )}
@@ -343,7 +344,7 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
                       <div className="rounded-lg bg-slate-50 border border-slate-100 p-3.5 space-y-2 mt-auto">
                         <div className="flex items-center justify-between">
                           <span className="text-xs font-bold text-slate-600 flex items-center gap-1.5">
-                            <TrendingUp className="w-3.5 h-3.5" />미래 전망
+                            <TrendingUp className="w-3.5 h-3.5" />미래 전망<AiEstimateBadge label="AI 추정치" />
                           </span>
                           <Badge variant="outline" className={`text-[10px] ${badge.cls} font-medium`}>
                             {badge.label} · {j.outlookScore}
@@ -361,7 +362,7 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
             {result.salaryGuide && (result.salaryGuide.min > 0 || result.salaryGuide.max > 0) && (
               <div className="rounded-xl border border-emerald-200 bg-emerald-50/60 p-5 space-y-2.5">
                 <h3 className="flex items-center gap-2 text-sm font-bold text-emerald-700">
-                  <Banknote className="w-4 h-4" />가이드 연봉
+                  <Banknote className="w-4 h-4" />가이드 연봉<AiEstimateBadge />
                 </h3>
                 <div className="text-2xl font-extrabold text-emerald-700 tracking-tight">
                   연 {result.salaryGuide.min.toLocaleString()}만원 ~ {result.salaryGuide.max.toLocaleString()}만원
@@ -369,6 +370,7 @@ export function CareerAnalysisPanel({ resumeId }: Props) {
                 {result.salaryGuide.basis && (
                   <p className="text-sm text-slate-600 leading-relaxed">{result.salaryGuide.basis}</p>
                 )}
+                <AiEstimateNote />
               </div>
             )}
 

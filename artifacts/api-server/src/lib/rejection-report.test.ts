@@ -122,4 +122,12 @@ describe("buildRejectionReportInput", () => {
     expect(input).toContain("자기소개서 분량 부족(공백 제외 120자)");
     expect(input).toContain("문장 유사도 낮음(40점)");
   });
+
+  it("never sends a missing photo to the AI (photos are excluded from evaluation)", () => {
+    const input = buildRejectionReportInput(
+      signals({ documentChecks: { photoMissing: true, coverLetterTooShort: false, coverLetterLength: 900 } }),
+      "회사: 테스트",
+    );
+    expect(input).not.toContain("사진");
+  });
 });
