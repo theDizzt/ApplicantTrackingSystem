@@ -2888,6 +2888,9 @@ export const answerLiveQuestion = async (id: number,
     liveAnswerAudioInput: LiveAnswerAudioInput, options?: RequestInit): Promise<LiveAnswerResult> => {
     const formData = new FormData();
 formData.append(`audio`, liveAnswerAudioInput.audio);
+if(liveAnswerAudioInput.camera !== undefined) {
+ formData.append(`camera`, liveAnswerAudioInput.camera);
+ }
 
   return customFetch<LiveAnswerResult>(getAnswerLiveQuestionUrl(id,questionId),
   {

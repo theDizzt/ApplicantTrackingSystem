@@ -788,6 +788,50 @@ export const ListInterviewsResponseItem = zod.object({
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
+  "speechHabits": zod.union([zod.object({
+  "answeredCount": zod.number(),
+  "totalSeconds": zod.number(),
+  "averageAnswerSeconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable().describe('분당 음절 수'),
+  "paceLevel": zod.enum(['slow', 'normal', 'fast', 'unknown']),
+  "fillerCount": zod.number().describe('음·어 같은 간투사 횟수'),
+  "fillersPerMinute": zod.number().nullable(),
+  "fillers": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})),
+  "habitWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('이제·약간·그냥 같은 습관어'),
+  "habitPhrases": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('~것 같습니다 같은 습관 표현'),
+  "repeatedWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('질문에 없는데 자주 반복한 단어'),
+  "answers": zod.array(zod.object({
+  "questionId": zod.number(),
+  "seconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable(),
+  "fillerCount": zod.number(),
+  "length": zod.enum(['short', 'long', 'ok', 'unknown'])
+})),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간(음성) 면접 말버릇 분석 (AI 없이 규칙으로 계산, 답한 질문이 없거나 글 면접이면 null)'),
+  "cameraPosture": zod.union([zod.object({
+  "analyzedCount": zod.number().describe('카메라로 분석한 답변 수'),
+  "faceVisiblePercent": zod.number().describe('얼굴이 화면에 보인 시간(%)'),
+  "gazeOnPercent": zod.number().nullable().describe('카메라를 바라본 시간(%)'),
+  "lookAwayPercent": zod.number().nullable().describe('고개를 옆으로 돌린 시간(%)'),
+  "headDownPercent": zod.number().nullable().describe('고개를 숙이거나 든 시간(%)'),
+  "tiltPercent": zod.number().nullable().describe('고개를 기울인 시간(%)'),
+  "gazeLevel": zod.enum(['good', 'fair', 'poor', 'unknown']),
+  "movementLevel": zod.enum(['steady', 'normal', 'restless', 'unknown']),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간 면접 카메라 자세·시선 분석 (카메라를 켜고 답한 질문이 없으면 null)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -798,7 +842,8 @@ export const ListInterviewsResponseItem = zod.object({
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
   "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
-  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)'),
+  "answerSeconds": zod.number().nullish().describe('실시간(음성) 면접 답변 녹음 길이(초)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -828,6 +873,50 @@ export const CreateInterviewResponse = zod.object({
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
+  "speechHabits": zod.union([zod.object({
+  "answeredCount": zod.number(),
+  "totalSeconds": zod.number(),
+  "averageAnswerSeconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable().describe('분당 음절 수'),
+  "paceLevel": zod.enum(['slow', 'normal', 'fast', 'unknown']),
+  "fillerCount": zod.number().describe('음·어 같은 간투사 횟수'),
+  "fillersPerMinute": zod.number().nullable(),
+  "fillers": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})),
+  "habitWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('이제·약간·그냥 같은 습관어'),
+  "habitPhrases": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('~것 같습니다 같은 습관 표현'),
+  "repeatedWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('질문에 없는데 자주 반복한 단어'),
+  "answers": zod.array(zod.object({
+  "questionId": zod.number(),
+  "seconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable(),
+  "fillerCount": zod.number(),
+  "length": zod.enum(['short', 'long', 'ok', 'unknown'])
+})),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간(음성) 면접 말버릇 분석 (AI 없이 규칙으로 계산, 답한 질문이 없거나 글 면접이면 null)'),
+  "cameraPosture": zod.union([zod.object({
+  "analyzedCount": zod.number().describe('카메라로 분석한 답변 수'),
+  "faceVisiblePercent": zod.number().describe('얼굴이 화면에 보인 시간(%)'),
+  "gazeOnPercent": zod.number().nullable().describe('카메라를 바라본 시간(%)'),
+  "lookAwayPercent": zod.number().nullable().describe('고개를 옆으로 돌린 시간(%)'),
+  "headDownPercent": zod.number().nullable().describe('고개를 숙이거나 든 시간(%)'),
+  "tiltPercent": zod.number().nullable().describe('고개를 기울인 시간(%)'),
+  "gazeLevel": zod.enum(['good', 'fair', 'poor', 'unknown']),
+  "movementLevel": zod.enum(['steady', 'normal', 'restless', 'unknown']),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간 면접 카메라 자세·시선 분석 (카메라를 켜고 답한 질문이 없으면 null)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -838,7 +927,8 @@ export const CreateInterviewResponse = zod.object({
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
   "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
-  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)'),
+  "answerSeconds": zod.number().nullish().describe('실시간(음성) 면접 답변 녹음 길이(초)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -864,6 +954,50 @@ export const GetInterviewResponse = zod.object({
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
+  "speechHabits": zod.union([zod.object({
+  "answeredCount": zod.number(),
+  "totalSeconds": zod.number(),
+  "averageAnswerSeconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable().describe('분당 음절 수'),
+  "paceLevel": zod.enum(['slow', 'normal', 'fast', 'unknown']),
+  "fillerCount": zod.number().describe('음·어 같은 간투사 횟수'),
+  "fillersPerMinute": zod.number().nullable(),
+  "fillers": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})),
+  "habitWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('이제·약간·그냥 같은 습관어'),
+  "habitPhrases": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('~것 같습니다 같은 습관 표현'),
+  "repeatedWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('질문에 없는데 자주 반복한 단어'),
+  "answers": zod.array(zod.object({
+  "questionId": zod.number(),
+  "seconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable(),
+  "fillerCount": zod.number(),
+  "length": zod.enum(['short', 'long', 'ok', 'unknown'])
+})),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간(음성) 면접 말버릇 분석 (AI 없이 규칙으로 계산, 답한 질문이 없거나 글 면접이면 null)'),
+  "cameraPosture": zod.union([zod.object({
+  "analyzedCount": zod.number().describe('카메라로 분석한 답변 수'),
+  "faceVisiblePercent": zod.number().describe('얼굴이 화면에 보인 시간(%)'),
+  "gazeOnPercent": zod.number().nullable().describe('카메라를 바라본 시간(%)'),
+  "lookAwayPercent": zod.number().nullable().describe('고개를 옆으로 돌린 시간(%)'),
+  "headDownPercent": zod.number().nullable().describe('고개를 숙이거나 든 시간(%)'),
+  "tiltPercent": zod.number().nullable().describe('고개를 기울인 시간(%)'),
+  "gazeLevel": zod.enum(['good', 'fair', 'poor', 'unknown']),
+  "movementLevel": zod.enum(['steady', 'normal', 'restless', 'unknown']),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간 면접 카메라 자세·시선 분석 (카메라를 켜고 답한 질문이 없으면 null)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -874,7 +1008,8 @@ export const GetInterviewResponse = zod.object({
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
   "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
-  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)'),
+  "answerSeconds": zod.number().nullish().describe('실시간(음성) 면접 답변 녹음 길이(초)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -907,6 +1042,50 @@ export const SubmitAnswersResponse = zod.object({
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
+  "speechHabits": zod.union([zod.object({
+  "answeredCount": zod.number(),
+  "totalSeconds": zod.number(),
+  "averageAnswerSeconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable().describe('분당 음절 수'),
+  "paceLevel": zod.enum(['slow', 'normal', 'fast', 'unknown']),
+  "fillerCount": zod.number().describe('음·어 같은 간투사 횟수'),
+  "fillersPerMinute": zod.number().nullable(),
+  "fillers": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})),
+  "habitWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('이제·약간·그냥 같은 습관어'),
+  "habitPhrases": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('~것 같습니다 같은 습관 표현'),
+  "repeatedWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('질문에 없는데 자주 반복한 단어'),
+  "answers": zod.array(zod.object({
+  "questionId": zod.number(),
+  "seconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable(),
+  "fillerCount": zod.number(),
+  "length": zod.enum(['short', 'long', 'ok', 'unknown'])
+})),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간(음성) 면접 말버릇 분석 (AI 없이 규칙으로 계산, 답한 질문이 없거나 글 면접이면 null)'),
+  "cameraPosture": zod.union([zod.object({
+  "analyzedCount": zod.number().describe('카메라로 분석한 답변 수'),
+  "faceVisiblePercent": zod.number().describe('얼굴이 화면에 보인 시간(%)'),
+  "gazeOnPercent": zod.number().nullable().describe('카메라를 바라본 시간(%)'),
+  "lookAwayPercent": zod.number().nullable().describe('고개를 옆으로 돌린 시간(%)'),
+  "headDownPercent": zod.number().nullable().describe('고개를 숙이거나 든 시간(%)'),
+  "tiltPercent": zod.number().nullable().describe('고개를 기울인 시간(%)'),
+  "gazeLevel": zod.enum(['good', 'fair', 'poor', 'unknown']),
+  "movementLevel": zod.enum(['steady', 'normal', 'restless', 'unknown']),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간 면접 카메라 자세·시선 분석 (카메라를 켜고 답한 질문이 없으면 null)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -917,7 +1096,8 @@ export const SubmitAnswersResponse = zod.object({
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
   "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
-  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)'),
+  "answerSeconds": zod.number().nullish().describe('실시간(음성) 면접 답변 녹음 길이(초)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -943,6 +1123,50 @@ export const EvaluateAnswersResponse = zod.object({
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
+  "speechHabits": zod.union([zod.object({
+  "answeredCount": zod.number(),
+  "totalSeconds": zod.number(),
+  "averageAnswerSeconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable().describe('분당 음절 수'),
+  "paceLevel": zod.enum(['slow', 'normal', 'fast', 'unknown']),
+  "fillerCount": zod.number().describe('음·어 같은 간투사 횟수'),
+  "fillersPerMinute": zod.number().nullable(),
+  "fillers": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})),
+  "habitWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('이제·약간·그냥 같은 습관어'),
+  "habitPhrases": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('~것 같습니다 같은 습관 표현'),
+  "repeatedWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('질문에 없는데 자주 반복한 단어'),
+  "answers": zod.array(zod.object({
+  "questionId": zod.number(),
+  "seconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable(),
+  "fillerCount": zod.number(),
+  "length": zod.enum(['short', 'long', 'ok', 'unknown'])
+})),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간(음성) 면접 말버릇 분석 (AI 없이 규칙으로 계산, 답한 질문이 없거나 글 면접이면 null)'),
+  "cameraPosture": zod.union([zod.object({
+  "analyzedCount": zod.number().describe('카메라로 분석한 답변 수'),
+  "faceVisiblePercent": zod.number().describe('얼굴이 화면에 보인 시간(%)'),
+  "gazeOnPercent": zod.number().nullable().describe('카메라를 바라본 시간(%)'),
+  "lookAwayPercent": zod.number().nullable().describe('고개를 옆으로 돌린 시간(%)'),
+  "headDownPercent": zod.number().nullable().describe('고개를 숙이거나 든 시간(%)'),
+  "tiltPercent": zod.number().nullable().describe('고개를 기울인 시간(%)'),
+  "gazeLevel": zod.enum(['good', 'fair', 'poor', 'unknown']),
+  "movementLevel": zod.enum(['steady', 'normal', 'restless', 'unknown']),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간 면접 카메라 자세·시선 분석 (카메라를 켜고 답한 질문이 없으면 null)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -953,7 +1177,8 @@ export const EvaluateAnswersResponse = zod.object({
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
   "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
-  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)'),
+  "answerSeconds": zod.number().nullish().describe('실시간(음성) 면접 답변 녹음 길이(초)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -987,6 +1212,50 @@ export const AnswerFollowUpResponse = zod.object({
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
+  "speechHabits": zod.union([zod.object({
+  "answeredCount": zod.number(),
+  "totalSeconds": zod.number(),
+  "averageAnswerSeconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable().describe('분당 음절 수'),
+  "paceLevel": zod.enum(['slow', 'normal', 'fast', 'unknown']),
+  "fillerCount": zod.number().describe('음·어 같은 간투사 횟수'),
+  "fillersPerMinute": zod.number().nullable(),
+  "fillers": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})),
+  "habitWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('이제·약간·그냥 같은 습관어'),
+  "habitPhrases": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('~것 같습니다 같은 습관 표현'),
+  "repeatedWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('질문에 없는데 자주 반복한 단어'),
+  "answers": zod.array(zod.object({
+  "questionId": zod.number(),
+  "seconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable(),
+  "fillerCount": zod.number(),
+  "length": zod.enum(['short', 'long', 'ok', 'unknown'])
+})),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간(음성) 면접 말버릇 분석 (AI 없이 규칙으로 계산, 답한 질문이 없거나 글 면접이면 null)'),
+  "cameraPosture": zod.union([zod.object({
+  "analyzedCount": zod.number().describe('카메라로 분석한 답변 수'),
+  "faceVisiblePercent": zod.number().describe('얼굴이 화면에 보인 시간(%)'),
+  "gazeOnPercent": zod.number().nullable().describe('카메라를 바라본 시간(%)'),
+  "lookAwayPercent": zod.number().nullable().describe('고개를 옆으로 돌린 시간(%)'),
+  "headDownPercent": zod.number().nullable().describe('고개를 숙이거나 든 시간(%)'),
+  "tiltPercent": zod.number().nullable().describe('고개를 기울인 시간(%)'),
+  "gazeLevel": zod.enum(['good', 'fair', 'poor', 'unknown']),
+  "movementLevel": zod.enum(['steady', 'normal', 'restless', 'unknown']),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간 면접 카메라 자세·시선 분석 (카메라를 켜고 답한 질문이 없으면 null)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -997,7 +1266,8 @@ export const AnswerFollowUpResponse = zod.object({
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
   "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
-  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)'),
+  "answerSeconds": zod.number().nullish().describe('실시간(음성) 면접 답변 녹음 길이(초)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -1017,7 +1287,8 @@ export const AnswerLiveQuestionParams = zod.object({
 })
 
 export const AnswerLiveQuestionBody = zod.object({
-  "audio": zod.instanceof(File)
+  "audio": zod.instanceof(File),
+  "camera": zod.string().optional().describe('카메라 자세·시선 요약 JSON (브라우저가 계산, 영상은 보내지 않음). 카메라를 끄면 생략')
 })
 
 export const AnswerLiveQuestionResponse = zod.object({
@@ -1030,6 +1301,50 @@ export const AnswerLiveQuestionResponse = zod.object({
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
+  "speechHabits": zod.union([zod.object({
+  "answeredCount": zod.number(),
+  "totalSeconds": zod.number(),
+  "averageAnswerSeconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable().describe('분당 음절 수'),
+  "paceLevel": zod.enum(['slow', 'normal', 'fast', 'unknown']),
+  "fillerCount": zod.number().describe('음·어 같은 간투사 횟수'),
+  "fillersPerMinute": zod.number().nullable(),
+  "fillers": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})),
+  "habitWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('이제·약간·그냥 같은 습관어'),
+  "habitPhrases": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('~것 같습니다 같은 습관 표현'),
+  "repeatedWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('질문에 없는데 자주 반복한 단어'),
+  "answers": zod.array(zod.object({
+  "questionId": zod.number(),
+  "seconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable(),
+  "fillerCount": zod.number(),
+  "length": zod.enum(['short', 'long', 'ok', 'unknown'])
+})),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간(음성) 면접 말버릇 분석 (AI 없이 규칙으로 계산, 답한 질문이 없거나 글 면접이면 null)'),
+  "cameraPosture": zod.union([zod.object({
+  "analyzedCount": zod.number().describe('카메라로 분석한 답변 수'),
+  "faceVisiblePercent": zod.number().describe('얼굴이 화면에 보인 시간(%)'),
+  "gazeOnPercent": zod.number().nullable().describe('카메라를 바라본 시간(%)'),
+  "lookAwayPercent": zod.number().nullable().describe('고개를 옆으로 돌린 시간(%)'),
+  "headDownPercent": zod.number().nullable().describe('고개를 숙이거나 든 시간(%)'),
+  "tiltPercent": zod.number().nullable().describe('고개를 기울인 시간(%)'),
+  "gazeLevel": zod.enum(['good', 'fair', 'poor', 'unknown']),
+  "movementLevel": zod.enum(['steady', 'normal', 'restless', 'unknown']),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간 면접 카메라 자세·시선 분석 (카메라를 켜고 답한 질문이 없으면 null)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -1040,7 +1355,8 @@ export const AnswerLiveQuestionResponse = zod.object({
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
   "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
-  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)'),
+  "answerSeconds": zod.number().nullish().describe('실시간(음성) 면접 답변 녹음 길이(초)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -1067,6 +1383,50 @@ export const FinishLiveInterviewResponse = zod.object({
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
+  "speechHabits": zod.union([zod.object({
+  "answeredCount": zod.number(),
+  "totalSeconds": zod.number(),
+  "averageAnswerSeconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable().describe('분당 음절 수'),
+  "paceLevel": zod.enum(['slow', 'normal', 'fast', 'unknown']),
+  "fillerCount": zod.number().describe('음·어 같은 간투사 횟수'),
+  "fillersPerMinute": zod.number().nullable(),
+  "fillers": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})),
+  "habitWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('이제·약간·그냥 같은 습관어'),
+  "habitPhrases": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('~것 같습니다 같은 습관 표현'),
+  "repeatedWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('질문에 없는데 자주 반복한 단어'),
+  "answers": zod.array(zod.object({
+  "questionId": zod.number(),
+  "seconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable(),
+  "fillerCount": zod.number(),
+  "length": zod.enum(['short', 'long', 'ok', 'unknown'])
+})),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간(음성) 면접 말버릇 분석 (AI 없이 규칙으로 계산, 답한 질문이 없거나 글 면접이면 null)'),
+  "cameraPosture": zod.union([zod.object({
+  "analyzedCount": zod.number().describe('카메라로 분석한 답변 수'),
+  "faceVisiblePercent": zod.number().describe('얼굴이 화면에 보인 시간(%)'),
+  "gazeOnPercent": zod.number().nullable().describe('카메라를 바라본 시간(%)'),
+  "lookAwayPercent": zod.number().nullable().describe('고개를 옆으로 돌린 시간(%)'),
+  "headDownPercent": zod.number().nullable().describe('고개를 숙이거나 든 시간(%)'),
+  "tiltPercent": zod.number().nullable().describe('고개를 기울인 시간(%)'),
+  "gazeLevel": zod.enum(['good', 'fair', 'poor', 'unknown']),
+  "movementLevel": zod.enum(['steady', 'normal', 'restless', 'unknown']),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간 면접 카메라 자세·시선 분석 (카메라를 켜고 답한 질문이 없으면 null)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -1077,7 +1437,8 @@ export const FinishLiveInterviewResponse = zod.object({
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
   "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
-  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)'),
+  "answerSeconds": zod.number().nullish().describe('실시간(음성) 면접 답변 녹음 길이(초)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),
@@ -1131,6 +1492,50 @@ export const GetDashboardResponse = zod.object({
   "status": zod.enum(['pending', 'questions_generated', 'answers_submitted', 'evaluated']),
   "mode": zod.enum(['text', 'live']).optional().describe('text = 글로 답하고 한 번에 평가, live = 음성으로 한 문제씩 답하고 바로 평가'),
   "difficulty": zod.enum(['easy', 'normal', 'hard']).optional().describe('면접 난이도 easy = 하, normal = 중, hard = 상(압박 질문 포함)'),
+  "speechHabits": zod.union([zod.object({
+  "answeredCount": zod.number(),
+  "totalSeconds": zod.number(),
+  "averageAnswerSeconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable().describe('분당 음절 수'),
+  "paceLevel": zod.enum(['slow', 'normal', 'fast', 'unknown']),
+  "fillerCount": zod.number().describe('음·어 같은 간투사 횟수'),
+  "fillersPerMinute": zod.number().nullable(),
+  "fillers": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})),
+  "habitWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('이제·약간·그냥 같은 습관어'),
+  "habitPhrases": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('~것 같습니다 같은 습관 표현'),
+  "repeatedWords": zod.array(zod.object({
+  "word": zod.string(),
+  "count": zod.number()
+})).describe('질문에 없는데 자주 반복한 단어'),
+  "answers": zod.array(zod.object({
+  "questionId": zod.number(),
+  "seconds": zod.number().nullable(),
+  "syllablesPerMinute": zod.number().nullable(),
+  "fillerCount": zod.number(),
+  "length": zod.enum(['short', 'long', 'ok', 'unknown'])
+})),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간(음성) 면접 말버릇 분석 (AI 없이 규칙으로 계산, 답한 질문이 없거나 글 면접이면 null)'),
+  "cameraPosture": zod.union([zod.object({
+  "analyzedCount": zod.number().describe('카메라로 분석한 답변 수'),
+  "faceVisiblePercent": zod.number().describe('얼굴이 화면에 보인 시간(%)'),
+  "gazeOnPercent": zod.number().nullable().describe('카메라를 바라본 시간(%)'),
+  "lookAwayPercent": zod.number().nullable().describe('고개를 옆으로 돌린 시간(%)'),
+  "headDownPercent": zod.number().nullable().describe('고개를 숙이거나 든 시간(%)'),
+  "tiltPercent": zod.number().nullable().describe('고개를 기울인 시간(%)'),
+  "gazeLevel": zod.enum(['good', 'fair', 'poor', 'unknown']),
+  "movementLevel": zod.enum(['steady', 'normal', 'restless', 'unknown']),
+  "tips": zod.array(zod.string())
+}),zod.null()]).optional().describe('실시간 면접 카메라 자세·시선 분석 (카메라를 켜고 답한 질문이 없으면 null)'),
   "questions": zod.array(zod.object({
   "id": zod.number(),
   "question": zod.string(),
@@ -1141,7 +1546,8 @@ export const GetDashboardResponse = zod.object({
   "parentQuestionId": zod.number().nullish().describe('꼬리 질문이면 이어진 질문의 ID, 기본 질문이면 null'),
   "depth": zod.number().optional().describe('0 = 기본 질문, 1 이상 = 꼬리 질문 단계'),
   "focus": zod.string().nullish().describe('질문 의도 (예. 서류 심사에서 찾은 약점)'),
-  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)')
+  "tone": zod.union([zod.enum(['pressure', 'neutral', 'positive']).describe('꼬리 질문 말투 pressure = 압박, neutral = 중립, positive = 긍정'),zod.null()]).optional().describe('꼬리 질문 말투 (기본 질문은 null)'),
+  "answerSeconds": zod.number().nullish().describe('실시간(음성) 면접 답변 녹음 길이(초)')
 })).optional(),
   "overallScore": zod.number().nullish(),
   "overallFeedback": zod.string().nullish(),

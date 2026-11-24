@@ -1,4 +1,4 @@
-import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, integer, real } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
 
@@ -33,6 +33,10 @@ export const interviewQuestionsTable = pgTable("interview_questions", {
   focus: text("focus"),
   // 꼬리 질문 말투: pressure(압박) / neutral(중립) / positive(긍정). 이전 답변 점수로 정해진다. 기본 질문은 null
   tone: text("tone"),
+  // 실시간(음성) 면접에서 답변 녹음 길이(초). 말 속도·말버릇 분석에 쓴다. 글 답변은 null
+  answerSeconds: real("answer_seconds"),
+  // 실시간 면접에서 카메라를 켰을 때 브라우저가 보낸 자세·시선 요약(JSON). 영상 자체는 저장하지 않는다
+  cameraMetrics: text("camera_metrics"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 

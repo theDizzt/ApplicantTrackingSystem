@@ -5,10 +5,12 @@
  * My ATS API
  * OpenAPI spec version: 0.1.0
  */
+import type { CameraPostureReport } from './cameraPostureReport';
 import type { InterviewDifficulty } from './interviewDifficulty';
 import type { InterviewMode } from './interviewMode';
 import type { InterviewQuestion } from './interviewQuestion';
 import type { InterviewSessionStatus } from './interviewSessionStatus';
+import type { SpeechHabitReport } from './speechHabitReport';
 
 export interface InterviewSession {
   id: number;
@@ -18,6 +20,10 @@ export interface InterviewSession {
   status: InterviewSessionStatus;
   mode?: InterviewMode;
   difficulty?: InterviewDifficulty;
+  /** 실시간(음성) 면접 말버릇 분석 (AI 없이 규칙으로 계산, 답한 질문이 없거나 글 면접이면 null) */
+  speechHabits?: SpeechHabitReport | null;
+  /** 실시간 면접 카메라 자세·시선 분석 (카메라를 켜고 답한 질문이 없으면 null) */
+  cameraPosture?: CameraPostureReport | null;
   questions?: InterviewQuestion[];
   /** @nullable */
   overallScore?: number | null;

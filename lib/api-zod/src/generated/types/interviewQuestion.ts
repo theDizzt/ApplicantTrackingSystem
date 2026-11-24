@@ -31,4 +31,9 @@ export interface InterviewQuestion {
   focus?: string | null;
   /** 꼬리 질문 말투 (기본 질문은 null) */
   tone?: FollowUpTone | null;
+  /**
+     * 실시간(음성) 면접 답변 녹음 길이(초)
+     * @nullable
+     */
+  answerSeconds?: number | null;
 }

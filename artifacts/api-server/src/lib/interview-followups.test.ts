@@ -5,7 +5,11 @@ import {
   cleanFollowUpQuestion,
   descendantIds,
   extractWeaknesses,
+  FOLLOW_UP_ANSWER_SYSTEM,
+  FOLLOW_UP_RULES,
   followUpTone,
+  LIVE_ANSWER_SYSTEM,
+  QUESTION_LENGTH_RULE,
   parseDifficulty,
   questionStyleInstruction,
   toneInstruction,
@@ -91,6 +95,15 @@ describe("difficulty rules", () => {
       expect(questionStyleInstruction(difficulty)).toContain("사적인 질문");
     }
     expect(questionStyleInstruction("hard")).toContain("압박 질문");
+  });
+
+  it("asks for short single-topic questions in base and follow-up prompts", () => {
+    for (const difficulty of ["easy", "normal", "hard"] as const) {
+      expect(questionStyleInstruction(difficulty)).toContain(QUESTION_LENGTH_RULE);
+    }
+    expect(FOLLOW_UP_RULES).toContain(QUESTION_LENGTH_RULE);
+    expect(LIVE_ANSWER_SYSTEM).toContain(QUESTION_LENGTH_RULE);
+    expect(FOLLOW_UP_ANSWER_SYSTEM).toContain(QUESTION_LENGTH_RULE);
   });
 
   it("limits follow-ups by depth and by the session-wide count", () => {

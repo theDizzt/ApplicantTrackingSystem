@@ -21,6 +21,12 @@ interface DifficultyRule {
 
 const GUARDRAIL = "외모·나이·성별·가족·종교·출신 지역 등 사적인 질문, 인신공격, 모욕적인 표현은 어떤 난이도에서도 금지입니다.";
 
+/** 질문 길이 규칙 — 긴 질문은 듣고 기억하기 어렵고, 음성 면접에서 읽는 데도 오래 걸린다. */
+export const QUESTION_LENGTH_RULE = `질문은 한 번에 한 가지만 묻는 짧은 단문으로 쓰세요. 한 문장(꼭 필요하면 두 문장), 60자 안팎이 기준입니다.
+- 여러 질문을 "그리고", "또한", "~와 함께"로 이어 붙이지 마세요.
+- 이력서·공고 내용을 길게 옮기거나 배경 설명을 늘어놓지 말고, 핵심 단어만 짚으세요.
+- 좋은 예: "그 프로젝트에서 맡은 역할은 무엇이었나요?" / 나쁜 예: "그 프로젝트의 배경과 본인의 역할, 어려웠던 점과 해결 방법, 그리고 배운 점을 말씀해 주세요."`;
+
 export const DIFFICULTY_RULES: Record<Difficulty, DifficultyRule> = {
   easy: {
     label: "하",
@@ -84,7 +90,7 @@ export function toneInstruction(difficulty: Difficulty): string {
 }
 
 export function questionStyleInstruction(difficulty: Difficulty): string {
-  return `\n${DIFFICULTY_RULES[difficulty].questionStyle}\n${GUARDRAIL}`;
+  return `\n${DIFFICULTY_RULES[difficulty].questionStyle}\n${QUESTION_LENGTH_RULE}\n${GUARDRAIL}`;
 }
 
 /**
@@ -219,7 +225,8 @@ export function descendantIds(questions: { id: number; parentQuestionId: number 
 export const FOLLOW_UP_RULES = `꼬리 질문(followUp) 작성 규칙:
 - 실제 면접관처럼 방금 답변에서 가장 모호하거나 근거가 부족한 부분, 또는 과장이 의심되는 부분을 한 가지만 콕 집어 더 깊이 묻는 질문 1개입니다.
 - 답변에 나온 구체적 표현(프로젝트명, 수치, 역할 등)을 인용해 이어지는 질문으로 만드세요. 처음 질문을 반복하거나 새 주제로 넘어가지 마세요.
-- 답변이 이미 충분히 구체적이고 검증 가능하면 빈 문자열("")로 두세요.`;
+- 답변이 이미 충분히 구체적이고 검증 가능하면 빈 문자열("")로 두세요.
+- ${QUESTION_LENGTH_RULE}`;
 
 /** 기본 질문부터 이어진 질문·답변 흐름을 프롬프트용 글로 만든다. */
 export function formatChain(chain: { question: string; answer: string | null }[]): string {
@@ -237,7 +244,7 @@ ${SPOKEN_ANSWER_RULE}
 { "score": 0, "feedback": "피드백", "followUp": "다음 꼬리 질문 또는 빈 문자열" }
 
 ${FOLLOW_UP_RULES}
-- 꼬리 질문은 면접관이 소리 내어 읽습니다. 말하듯 자연스러운 한두 문장으로 짧게 쓰세요.`;
+- 꼬리 질문은 면접관이 소리 내어 읽습니다. 말하듯 자연스럽게 쓰세요.`;
 
 /** 실시간(음성) 면접을 마칠 때 전체 흐름으로 종합 평가한다. */
 export const LIVE_SUMMARY_SYSTEM = `당신은 채용 면접관입니다. 방금 끝난 실시간 음성 면접의 모든 질문·답변 흐름을 보고, 반드시 제공된 회사명·인재상·채용공고 기준으로 종합 평가하세요.

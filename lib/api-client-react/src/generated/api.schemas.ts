@@ -564,6 +564,11 @@ export interface InterviewQuestion {
   focus?: string | null;
   /** 꼬리 질문 말투 (기본 질문은 null) */
   tone?: FollowUpTone | null;
+  /**
+     * 실시간(음성) 면접 답변 녹음 길이(초)
+     * @nullable
+     */
+  answerSeconds?: number | null;
 }
 
 export interface FollowUpAnswerInput {
@@ -604,6 +609,117 @@ export const InterviewDifficulty = {
   hard: 'hard',
 } as const;
 
+export type SpeechHabitReportPaceLevel = typeof SpeechHabitReportPaceLevel[keyof typeof SpeechHabitReportPaceLevel];
+
+
+export const SpeechHabitReportPaceLevel = {
+  slow: 'slow',
+  normal: 'normal',
+  fast: 'fast',
+  unknown: 'unknown',
+} as const;
+
+export interface SpeechCount {
+  word: string;
+  count: number;
+}
+
+export type SpeechHabitAnswerLength = typeof SpeechHabitAnswerLength[keyof typeof SpeechHabitAnswerLength];
+
+
+export const SpeechHabitAnswerLength = {
+  short: 'short',
+  long: 'long',
+  ok: 'ok',
+  unknown: 'unknown',
+} as const;
+
+export interface SpeechHabitAnswer {
+  questionId: number;
+  /** @nullable */
+  seconds: number | null;
+  /** @nullable */
+  syllablesPerMinute: number | null;
+  fillerCount: number;
+  length: SpeechHabitAnswerLength;
+}
+
+export interface SpeechHabitReport {
+  answeredCount: number;
+  totalSeconds: number;
+  /** @nullable */
+  averageAnswerSeconds: number | null;
+  /**
+     * 분당 음절 수
+     * @nullable
+     */
+  syllablesPerMinute: number | null;
+  paceLevel: SpeechHabitReportPaceLevel;
+  /** 음·어 같은 간투사 횟수 */
+  fillerCount: number;
+  /** @nullable */
+  fillersPerMinute: number | null;
+  fillers: SpeechCount[];
+  /** 이제·약간·그냥 같은 습관어 */
+  habitWords: SpeechCount[];
+  /** ~것 같습니다 같은 습관 표현 */
+  habitPhrases: SpeechCount[];
+  /** 질문에 없는데 자주 반복한 단어 */
+  repeatedWords: SpeechCount[];
+  answers: SpeechHabitAnswer[];
+  tips: string[];
+}
+
+export type CameraPostureReportGazeLevel = typeof CameraPostureReportGazeLevel[keyof typeof CameraPostureReportGazeLevel];
+
+
+export const CameraPostureReportGazeLevel = {
+  good: 'good',
+  fair: 'fair',
+  poor: 'poor',
+  unknown: 'unknown',
+} as const;
+
+export type CameraPostureReportMovementLevel = typeof CameraPostureReportMovementLevel[keyof typeof CameraPostureReportMovementLevel];
+
+
+export const CameraPostureReportMovementLevel = {
+  steady: 'steady',
+  normal: 'normal',
+  restless: 'restless',
+  unknown: 'unknown',
+} as const;
+
+export interface CameraPostureReport {
+  /** 카메라로 분석한 답변 수 */
+  analyzedCount: number;
+  /** 얼굴이 화면에 보인 시간(%) */
+  faceVisiblePercent: number;
+  /**
+     * 카메라를 바라본 시간(%)
+     * @nullable
+     */
+  gazeOnPercent: number | null;
+  /**
+     * 고개를 옆으로 돌린 시간(%)
+     * @nullable
+     */
+  lookAwayPercent: number | null;
+  /**
+     * 고개를 숙이거나 든 시간(%)
+     * @nullable
+     */
+  headDownPercent: number | null;
+  /**
+     * 고개를 기울인 시간(%)
+     * @nullable
+     */
+  tiltPercent: number | null;
+  gazeLevel: CameraPostureReportGazeLevel;
+  movementLevel: CameraPostureReportMovementLevel;
+  tips: string[];
+}
+
 export interface InterviewSession {
   id: number;
   userId: number;
@@ -612,6 +728,10 @@ export interface InterviewSession {
   status: InterviewSessionStatus;
   mode?: InterviewMode;
   difficulty?: InterviewDifficulty;
+  /** 실시간(음성) 면접 말버릇 분석 (AI 없이 규칙으로 계산, 답한 질문이 없거나 글 면접이면 null) */
+  speechHabits?: SpeechHabitReport | null;
+  /** 실시간 면접 카메라 자세·시선 분석 (카메라를 켜고 답한 질문이 없으면 null) */
+  cameraPosture?: CameraPostureReport | null;
   questions?: InterviewQuestion[];
   /** @nullable */
   overallScore?: number | null;
@@ -653,6 +773,8 @@ export interface InterviewInput {
 
 export interface LiveAnswerAudioInput {
   audio: Blob;
+  /** 카메라 자세·시선 요약 JSON (브라우저가 계산, 영상은 보내지 않음). 카메라를 끄면 생략 */
+  camera?: string;
 }
 
 export interface LiveAnswerResult {

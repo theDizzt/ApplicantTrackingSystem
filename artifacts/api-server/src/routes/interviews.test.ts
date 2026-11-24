@@ -598,6 +598,95 @@ describe("live (voice) interview", () => {
     expect(user).toContain("followUp은 빈 문자열");
   });
 
+  it("saves the recording length, asks STT to keep filler words and returns a speech-habit report", async () => {
+    const fs = (await import("fs/promises")).default;
+    // 16kHz 모노 16bit WAV 12초 분량
+    vi.mocked(fs.readFile).mockResolvedValueOnce(Buffer.alloc(44 + 32_000 * 12) as never);
+    const spoken = "음 저는 이제 API를 맡았고 이제 일정도 조율한 것 같습니다.";
+    mocks.transcribeCreate.mockResolvedValue({ text: spoken });
+    mocks.aiCreate.mockResolvedValue({ choices: [{ message: { content: JSON.stringify({ score: 70, feedback: "좋습니다.", followUp: "" }) } }] });
+    const answered = { ...base, answer: spoken, answerSeconds: 12, score: 70, feedback: "좋습니다." };
+    setSelectResults([
+      [liveSession], [{ title: "이력서" }], [company], [base],
+      [company],
+      [liveSession], [{ title: "이력서" }], [company], [answered],
+    ]);
+
+    const response = await request(makeApp())
+      .post("/interviews/11/live/answers/41")
+      .set("x-user-id", "1")
+      .attach("audio", Buffer.from("a"), { filename: "answer.webm", contentType: "audio/webm" });
+
+    expect(response.status).toBe(200);
+    expect(mocks.transcribeCreate.mock.calls[0][0].prompt).toContain("음, 어");
+    const updated = vi.mocked(mocks.update).mock.results[0].value as { set: ReturnType<typeof vi.fn> };
+    expect(updated.set).toHaveBeenCalledWith(expect.objectContaining({ answer: spoken, answerSeconds: 12 }));
+    const habits = response.body.session.speechHabits;
+    expect(habits).toEqual(expect.objectContaining({ answeredCount: 1, totalSeconds: 12, fillerCount: 1 }));
+    expect(habits.habitWords).toContainEqual({ word: "이제", count: 2 });
+    expect(response.body.session.questions[0].answerSeconds).toBe(12);
+  });
+
+  it("adds a short speech-habit summary to the overall evaluation prompt and none for text interviews", async () => {
+    const answeredBase = { ...base, answer: "음 어 이제 협업했습니다.", answerSeconds: 10, score: 70, feedback: "f" };
+    mocks.aiCreate.mockResolvedValue({ choices: [{ message: { content: JSON.stringify({ overallScore: 70, overallFeedback: "군말이 조금 있습니다." }) } }] });
+    setSelectResults([
+      [liveSession], [{ title: "이력서" }], [company], [answeredBase],
+      [company],
+      [{ ...liveSession, status: "evaluated" }], [{ title: "이력서" }], [company], [answeredBase],
+    ]);
+    const response = await request(makeApp()).post("/interviews/11/live/finish").set("x-user-id", "1");
+    expect(response.status).toBe(200);
+    const prompt = mocks.aiCreate.mock.calls[0][0].messages[1].content as string;
+    expect(prompt).toContain("말버릇 자동 분석");
+    expect(prompt).toContain("간투사(음·어 등) 2회");
+
+    setSelectResults([[session], [{ title: "이력서" }], [company], [answeredBase]]);
+    const textDetail = await request(makeApp()).get("/interviews/11").set("x-user-id", "1");
+    expect(textDetail.body.speechHabits).toBeNull();
+  });
+
+  it("stores the browser's camera summary, ignores malformed ones and reports posture", async () => {
+    const camera = { samples: 50, faceRatio: 1, gazeRatio: 0.4, lookAwayRatio: 0.3, headDownRatio: 0, tiltRatio: 0, movement: 0.1 };
+    mocks.transcribeCreate.mockResolvedValue({ text: "저는 백엔드를 맡았습니다." });
+    mocks.aiCreate.mockResolvedValue({ choices: [{ message: { content: JSON.stringify({ score: 70, feedback: "좋습니다.", followUp: "" }) } }] });
+    const answered = { ...base, answer: "저는 백엔드를 맡았습니다.", score: 70, feedback: "좋습니다.", cameraMetrics: JSON.stringify(camera) };
+    setSelectResults([
+      [liveSession], [{ title: "이력서" }], [company], [base],
+      [company],
+      [liveSession], [{ title: "이력서" }], [company], [answered],
+    ]);
+
+    const response = await request(makeApp())
+      .post("/interviews/11/live/answers/41")
+      .set("x-user-id", "1")
+      .field("camera", JSON.stringify(camera))
+      .attach("audio", Buffer.from("a"), { filename: "answer.webm", contentType: "audio/webm" });
+
+    expect(response.status).toBe(200);
+    const updated = vi.mocked(mocks.update).mock.results[0].value as { set: ReturnType<typeof vi.fn> };
+    expect(updated.set).toHaveBeenCalledWith(expect.objectContaining({ cameraMetrics: JSON.stringify(camera) }));
+    const posture = response.body.session.cameraPosture;
+    expect(posture).toEqual(expect.objectContaining({ analyzedCount: 1, gazeOnPercent: 40, gazeLevel: "poor", lookAwayPercent: 30 }));
+    expect(posture.tips.join(" ")).toContain("카메라 렌즈");
+
+    vi.mocked(mocks.update).mockClear();
+    setSelectResults([
+      [liveSession], [{ title: "이력서" }], [company], [base],
+      [company],
+      [liveSession], [{ title: "이력서" }], [company], [{ ...answered, cameraMetrics: null }],
+    ]);
+    const malformed = await request(makeApp())
+      .post("/interviews/11/live/answers/41")
+      .set("x-user-id", "1")
+      .field("camera", "{broken")
+      .attach("audio", Buffer.from("a"), { filename: "answer.webm", contentType: "audio/webm" });
+    expect(malformed.status).toBe(200);
+    const updatedAgain = vi.mocked(mocks.update).mock.results[0].value as { set: ReturnType<typeof vi.fn> };
+    expect(updatedAgain.set).toHaveBeenCalledWith(expect.objectContaining({ cameraMetrics: null }));
+    expect(malformed.body.session.cameraPosture).toBeNull();
+  });
+
   it("refuses to finish before any question is answered", async () => {
     setSelectResults([[liveSession], [{ title: "이력서" }], [company], [base]]);
     const response = await request(makeApp()).post("/interviews/11/live/finish").set("x-user-id", "1");

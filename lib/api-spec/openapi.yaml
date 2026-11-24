@@ -1598,6 +1598,9 @@ components:
             - $ref: "#/components/schemas/FollowUpTone"
             - type: "null"
           description: 꼬리 질문 말투 (기본 질문은 null)
+        answerSeconds:
+          type: ["number", "null"]
+          description: 실시간(음성) 면접 답변 녹음 길이(초)
 
     FollowUpAnswerInput:
       type: object
@@ -1626,6 +1629,16 @@ components:
           $ref: "#/components/schemas/InterviewMode"
         difficulty:
           $ref: "#/components/schemas/InterviewDifficulty"
+        speechHabits:
+          oneOf:
+            - $ref: "#/components/schemas/SpeechHabitReport"
+            - type: "null"
+          description: 실시간(음성) 면접 말버릇 분석 (AI 없이 규칙으로 계산, 답한 질문이 없거나 글 면접이면 null)
+        cameraPosture:
+          oneOf:
+            - $ref: "#/components/schemas/CameraPostureReport"
+            - type: "null"
+          description: 실시간 면접 카메라 자세·시선 분석 (카메라를 켜고 답한 질문이 없으면 null)
         questions:
           type: array
           items:
@@ -1690,6 +1703,113 @@ components:
         difficulty:
           $ref: "#/components/schemas/InterviewDifficulty"
 
+    SpeechCount:
+      type: object
+      required: [word, count]
+      properties:
+        word:
+          type: string
+        count:
+          type: integer
+
+    SpeechHabitAnswer:
+      type: object
+      required: [questionId, seconds, syllablesPerMinute, fillerCount, length]
+      properties:
+        questionId:
+          type: integer
+        seconds:
+          type: ["number", "null"]
+        syllablesPerMinute:
+          type: ["number", "null"]
+        fillerCount:
+          type: integer
+        length:
+          type: string
+          enum: [short, long, ok, unknown]
+
+    SpeechHabitReport:
+      type: object
+      required: [answeredCount, totalSeconds, averageAnswerSeconds, syllablesPerMinute, paceLevel, fillerCount, fillersPerMinute, fillers, habitWords, habitPhrases, repeatedWords, answers, tips]
+      properties:
+        answeredCount:
+          type: integer
+        totalSeconds:
+          type: number
+        averageAnswerSeconds:
+          type: ["number", "null"]
+        syllablesPerMinute:
+          type: ["number", "null"]
+          description: 분당 음절 수
+        paceLevel:
+          type: string
+          enum: [slow, normal, fast, unknown]
+        fillerCount:
+          type: integer
+          description: 음·어 같은 간투사 횟수
+        fillersPerMinute:
+          type: ["number", "null"]
+        fillers:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpeechCount"
+        habitWords:
+          type: array
+          description: 이제·약간·그냥 같은 습관어
+          items:
+            $ref: "#/components/schemas/SpeechCount"
+        habitPhrases:
+          type: array
+          description: "~것 같습니다 같은 습관 표현"
+          items:
+            $ref: "#/components/schemas/SpeechCount"
+        repeatedWords:
+          type: array
+          description: 질문에 없는데 자주 반복한 단어
+          items:
+            $ref: "#/components/schemas/SpeechCount"
+        answers:
+          type: array
+          items:
+            $ref: "#/components/schemas/SpeechHabitAnswer"
+        tips:
+          type: array
+          items:
+            type: string
+
+    CameraPostureReport:
+      type: object
+      required: [analyzedCount, faceVisiblePercent, gazeOnPercent, lookAwayPercent, headDownPercent, tiltPercent, gazeLevel, movementLevel, tips]
+      properties:
+        analyzedCount:
+          type: integer
+          description: 카메라로 분석한 답변 수
+        faceVisiblePercent:
+          type: integer
+          description: 얼굴이 화면에 보인 시간(%)
+        gazeOnPercent:
+          type: ["integer", "null"]
+          description: 카메라를 바라본 시간(%)
+        lookAwayPercent:
+          type: ["integer", "null"]
+          description: 고개를 옆으로 돌린 시간(%)
+        headDownPercent:
+          type: ["integer", "null"]
+          description: 고개를 숙이거나 든 시간(%)
+        tiltPercent:
+          type: ["integer", "null"]
+          description: 고개를 기울인 시간(%)
+        gazeLevel:
+          type: string
+          enum: [good, fair, poor, unknown]
+        movementLevel:
+          type: string
+          enum: [steady, normal, restless, unknown]
+        tips:
+          type: array
+          items:
+            type: string
+
     InterviewDifficulty:
       type: string
       enum: [easy, normal, hard]
@@ -1712,6 +1832,9 @@ components:
         audio:
           type: string
           format: binary
+        camera:
+          type: string
+          description: 카메라 자세·시선 요약 JSON (브라우저가 계산, 영상은 보내지 않음). 카메라를 끄면 생략
 
     LiveAnswerResult:
       type: object

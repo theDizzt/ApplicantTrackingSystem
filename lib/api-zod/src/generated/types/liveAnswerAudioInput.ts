@@ -8,4 +8,6 @@
 
 export interface LiveAnswerAudioInput {
   audio: Blob;
+  /** 카메라 자세·시선 요약 JSON (브라우저가 계산, 영상은 보내지 않음). 카메라를 끄면 생략 */
+  camera?: string;
 }

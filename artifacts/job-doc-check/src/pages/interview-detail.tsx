@@ -13,6 +13,8 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { ChevronLeft, BrainCircuit, CheckCircle2, CornerDownRight, Mic, Target } from "lucide-react"
 import { TONE_LABEL, difficultyLabel } from "@/lib/interview-labels"
+import { SpeechHabitsCard, formatSeconds } from "@/components/interview/speech-habits-card"
+import { CameraPostureCard } from "@/components/interview/camera-posture-card"
 
 // ── 꼬리 질문 ────────────────────────────────────────────────────────────────
 /** 기본 질문 아래로 이어진 꼬리 질문들(얕은 것부터) */
@@ -273,6 +275,9 @@ export default function InterviewDetail() {
         </Card>
       )}
 
+      {isCompleted && isLive && interview.speechHabits && <SpeechHabitsCard report={interview.speechHabits} />}
+      {isCompleted && isLive && interview.cameraPosture && <CameraPostureCard report={interview.cameraPosture} />}
+
       <div className="space-y-6">
         {interview.questions?.filter(q => q.parentQuestionId == null).sort((a,b) => a.order - b.order).map((q, idx) => (
           <Card key={q.id} className={isCompleted ? (q.score && q.score >= 70 ? "border-success/50" : "border-warning/50") : ""}>
@@ -304,6 +309,7 @@ export default function InterviewDetail() {
                   <div>
                     <div className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wider">
                       {isLive ? "나의 답변 (음성 인식)" : "나의 답변"}
+                      {isLive && q.answerSeconds != null && <span className="ml-1.5 normal-case tracking-normal font-normal">· {formatSeconds(q.answerSeconds)}</span>}
                     </div>
                     <div className={`text-sm p-4 bg-slate-50 dark:bg-slate-900 rounded-md whitespace-pre-wrap ${q.answer == null ? "text-muted-foreground italic" : ""}`}>
                       {q.answer ?? "답하지 않음"}

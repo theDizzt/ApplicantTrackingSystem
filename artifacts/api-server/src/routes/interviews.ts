@@ -23,7 +23,9 @@ import { db, interviewSessionsTable, interviewQuestionsTable, resumesTable, comp
 import { requireAuth } from "../middlewares/auth";
 import { aiBlockedMessage, getAI } from "../lib/openai";
 import { resumeHtmlToText } from "../lib/resume-text";
-import { handleAudioUpload, limitConcurrentAudioJobs, transcribeUpload } from "../lib/audio-transcription";
+import { handleAudioUpload, limitConcurrentAudioJobs, transcribeUploadDetailed } from "../lib/audio-transcription";
+import { analyzeSpeechHabits, speechHabitSummary } from "../lib/speech-habits";
+import { analyzeCameraPosture, cameraPostureSummary, parseCameraMetrics, readStoredCameraMetrics } from "../lib/camera-posture";
 import {
   FOLLOW_UP_ANSWER_SYSTEM,
   FOLLOW_UP_RULES,
@@ -49,6 +51,11 @@ import {
 const router: IRouter = Router();
 const LIVE_ONLY_MESSAGE = "실시간 면접은 음성으로 한 문제씩 답합니다. 실시간 면접 화면에서 이어서 진행해주세요.";
 const MIN_SPOKEN_ANSWER_LENGTH = 2;
+/**
+ * 면접 답변 받아쓰기 문체 예시. STT가 "음·어" 같은 군말을 지우지 않고 그대로 적도록 유도해
+ * 말버릇 분석이 가능하게 한다. (예시 문장이 결과에 섞이지 않게 짧게 둔다)
+ */
+const VERBATIM_TRANSCRIPTION_PROMPT = "음, 어… 네. 저는 그, 이제 프로젝트에서 백엔드를 맡았는데요.";
 
 function parseId(params: unknown, schema: typeof GetInterviewParams) {
   return schema.safeParse(params);
@@ -92,7 +99,20 @@ async function getSessionWithQuestions(sessionId: number, userId: number) {
       depth: q.depth ?? 0,
       focus: q.focus ?? null,
       tone: q.tone === "pressure" || q.tone === "neutral" || q.tone === "positive" ? q.tone : null,
+      answerSeconds: q.answerSeconds ?? null,
     })),
+    // 말버릇 분석은 저장하지 않고 답변·녹음 길이로 매번 계산한다 (AI 호출 없음)
+    speechHabits: session.mode === "live"
+      ? analyzeSpeechHabits(questions.map((q) => ({
+        questionId: q.id,
+        question: q.question,
+        answer: q.answer ?? null,
+        answerSeconds: q.answerSeconds ?? null,
+      })))
+      : null,
+    cameraPosture: session.mode === "live"
+      ? analyzeCameraPosture(questions.filter((q) => q.answer != null).map((q) => readStoredCameraMetrics(q.cameraMetrics)))
+      : null,
     overallScore: session.overallScore ?? null,
     overallFeedback: session.overallFeedback ?? null,
     resumeTitle: resume?.title ?? null,
@@ -132,9 +152,15 @@ function companyContext(
   ].join("\n");
 }
 
+const ABSTRACT_QUOTE_MAX = 60;
+
 function abstractQuestion(paper: { title?: string; abstract?: string }): string {
-  const evidence = resumeHtmlToText(paper.abstract).replace(/\s+/g, " ").slice(0, 180);
-  return `"${paper.title || "해당 논문"}"의 Abstract에 기재된 “${evidence}${evidence.length === 180 ? "…" : ""}” 내용을 바탕으로, 연구 문제와 본인의 구체적인 기여를 설명해 주세요.`;
+  // 질문은 짧게: Abstract는 첫 문장만, 길면 잘라서 인용한다.
+  const text = resumeHtmlToText(paper.abstract).replace(/\s+/g, " ").trim();
+  const firstSentence = text.split(/(?<=[.!?。])\s/)[0] ?? text;
+  const evidence = firstSentence.length > ABSTRACT_QUOTE_MAX ? `${firstSentence.slice(0, ABSTRACT_QUOTE_MAX)}…` : firstSentence;
+  const title = (paper.title || "해당 논문").slice(0, 40);
+  return `"${title}" Abstract에 “${evidence}”라고 쓰셨는데, 본인의 기여는 무엇인가요?`;
 }
 
 router.get("/interviews", requireAuth, async (req, res): Promise<void> => {
@@ -608,8 +634,11 @@ router.post(
     }
 
     let transcript: string;
+    let answerSeconds: number | null;
     try {
-      transcript = await transcribeUpload(req.file, req.log);
+      const result = await transcribeUploadDetailed(req.file, req.log, { prompt: VERBATIM_TRANSCRIPTION_PROMPT });
+      transcript = result.text;
+      answerSeconds = result.durationSeconds;
     } catch (err) {
       req.log.error({ err, sessionId: session.id, questionId: target.id }, "Live interview transcription failed");
       res.status(502).json({
@@ -649,7 +678,15 @@ router.post(
         throw new Error("AI returned an invalid live answer evaluation");
       }
 
-      await db.update(interviewQuestionsTable).set({ answer: transcript, score: parsed.score, feedback: parsed.feedback.trim() })
+      // 카메라 요약은 형식이 틀려도 답변 처리를 막지 않고 버린다
+      const camera = parseCameraMetrics((req.body as { camera?: unknown } | undefined)?.camera);
+      await db.update(interviewQuestionsTable).set({
+        answer: transcript,
+        answerSeconds,
+        cameraMetrics: camera ? JSON.stringify(camera) : null,
+        score: parsed.score,
+        feedback: parsed.feedback.trim(),
+      })
         .where(and(eq(interviewQuestionsTable.id, target.id), eq(interviewQuestionsTable.sessionId, session.id)));
       const next = canGoDeeper ? cleanFollowUpQuestion(parsed.followUp) : null;
       if (next) {
@@ -721,7 +758,7 @@ router.post("/interviews/:id/live/finish", requireAuth, async (req, res): Promis
       model: ai.model,
       messages: [
         { role: "system", content: `${LIVE_SUMMARY_SYSTEM}\n${DIFFICULTY_RULES[session.difficulty].scoringStyle}` },
-        { role: "user", content: `지원 회사 정보:\n${companyContext(company)}\n\n면접 기록:\n${transcriptText}` },
+        { role: "user", content: `지원 회사 정보:\n${companyContext(company)}\n\n면접 기록:\n${transcriptText}${speechHabitSummary(session.speechHabits)}${cameraPostureSummary(session.cameraPosture)}` },
       ],
       response_format: { type: "json_object" },
     });

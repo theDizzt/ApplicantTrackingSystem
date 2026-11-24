@@ -8,7 +8,7 @@ import {
   useGetInterview,
   type InterviewQuestion,
 } from "@workspace/api-client-react"
-import { AlertCircle, Bot, ChevronLeft, CornerDownRight, Loader2, Mic, RotateCcw, Square, Volume2, VolumeX } from "lucide-react"
+import { AlertCircle, Bot, Camera, CameraOff, ChevronLeft, CornerDownRight, Loader2, Mic, RotateCcw, Square, Volume2, VolumeX } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -16,6 +16,8 @@ import { Switch } from "@/components/ui/switch"
 import { LiveWaveform } from "@/components/audio/live-waveform"
 import { cancelSpeech, hasKoreanVoice, liveProgress, nextLiveQuestion, speak } from "@/lib/live-interview"
 import { difficultyLabel } from "@/lib/interview-labels"
+import type { CameraMetrics } from "@/lib/camera-analysis"
+import { useCameraAnalysis, type CameraHint } from "@/lib/use-camera-analysis"
 
 /** 한 답변의 최대 녹음 시간 (넘으면 자동으로 답변 완료) */
 const MAX_ANSWER_SECONDS = 3 * 60
@@ -27,6 +29,12 @@ const getSupportedMimeType = () => {
     if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(type)) return type
   }
   return ""
+}
+
+const CAMERA_HINT: Record<Exclude<CameraHint, null>, { text: string; className: string }> = {
+  ok: { text: "카메라를 잘 보고 있어요", className: "bg-emerald-600/80" },
+  "look-camera": { text: "카메라 렌즈를 봐 주세요", className: "bg-amber-600/80" },
+  "no-face": { text: "얼굴이 보이지 않아요", className: "bg-red-600/80" },
 }
 
 const formatTime = (seconds: number) =>
@@ -70,6 +78,8 @@ export default function InterviewLivePage() {
   const [liveStream, setLiveStream] = useState<MediaStream | null>(null)
   const [seconds, setSeconds] = useState(0)
   const [askingId, setAskingId] = useState<number | null>(null)
+  const [cameraOn, setCameraOn] = useState(false)
+  const camera = useCameraAnalysis()
 
   const mountedRef = useRef(true)
   const streamRef = useRef<MediaStream | null>(null)
@@ -126,6 +136,7 @@ export default function InterviewLivePage() {
     finishLive.mutate({ id: interviewId }, {
       onSuccess: (data) => {
         releaseMic()
+        camera.disable()
         queryClient.setQueryData(getGetInterviewQueryKey(interviewId), data)
         setLocation(`/interviews/${interviewId}`)
       },
@@ -138,11 +149,13 @@ export default function InterviewLivePage() {
     })
   }
 
-  const upload = (blob: Blob, questionId: number) => {
+  const upload = (blob: Blob, questionId: number, cameraMetrics: CameraMetrics | null) => {
     const type = blob.type || "audio/webm"
     const ext = type.includes("mp4") ? "mp4" : type.includes("ogg") ? "ogg" : "webm"
     const file = new File([blob], `answer.${ext}`, { type })
-    answerLive.mutate({ id: interviewId, questionId, data: { audio: file } }, {
+    // 영상은 보내지 않고 자세·시선 숫자 요약만 함께 보낸다
+    const data = cameraMetrics ? { audio: file, camera: JSON.stringify(cameraMetrics) } : { audio: file }
+    answerLive.mutate({ id: interviewId, questionId, data }, {
       onSuccess: (data) => {
         if (!mountedRef.current) return
         queryClient.setQueryData(getGetInterviewQueryKey(interviewId), data.session)
@@ -172,9 +185,10 @@ export default function InterviewLivePage() {
     recorder.onstop = () => {
       recorderRef.current = null
       stopTimer()
+      const cameraMetrics = camera.endAnswer()
       if (discardRef.current || !mountedRef.current) return
       const blob = new Blob(chunksRef.current, { type: recorder.mimeType || "audio/webm" })
-      upload(blob, questionId)
+      upload(blob, questionId, cameraMetrics)
     }
     recorder.onerror = () => {
       stopTimer()
@@ -184,6 +198,7 @@ export default function InterviewLivePage() {
       setPhase("error")
     }
     recorder.start()
+    camera.beginAnswer()
     setSeconds(0)
     setPhase("recording")
     timerRef.current = window.setInterval(() => {
@@ -229,6 +244,9 @@ export default function InterviewLivePage() {
       }
       streamRef.current = stream
       setLiveStream(stream)
+      // 카메라는 선택 사항: 켜지 못해도 음성 면접은 그대로 진행한다
+      if (cameraOn) await camera.enable()
+      if (!mountedRef.current) return
       stream.getAudioTracks().forEach(track => {
         track.onended = () => {
           if (!mountedRef.current) return
@@ -302,6 +320,28 @@ export default function InterviewLivePage() {
         </div>
       </div>
 
+      {camera.stream && phase !== "intro" && (
+        <div className="flex justify-end">
+          <div className="relative w-40 md:w-48 aspect-[4/3] rounded-lg overflow-hidden border bg-black">
+            {/* 거울처럼 좌우를 뒤집어 보여 준다 */}
+            <video ref={camera.attachVideo} muted playsInline autoPlay className="w-full h-full object-cover -scale-x-100" aria-label="내 카메라 화면" />
+            {camera.status === "loading" && (
+              <div className="absolute inset-0 flex items-center justify-center bg-black/50 text-white text-xs gap-1.5">
+                <Loader2 className="w-3.5 h-3.5 animate-spin" />분석 준비 중
+              </div>
+            )}
+            {camera.hint && (
+              <div className={`absolute bottom-0 inset-x-0 px-2 py-1 text-[11px] text-white text-center ${CAMERA_HINT[camera.hint].className}`} aria-live="polite">
+                {CAMERA_HINT[camera.hint].text}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {camera.error && phase !== "intro" && (
+        <p className="text-xs text-muted-foreground flex items-center gap-1.5"><CameraOff className="w-3.5 h-3.5" />{camera.error}</p>
+      )}
+
       <Card className="overflow-hidden">
         <CardContent className="p-6 md:p-8 space-y-6">
           <div className="flex items-start gap-4">
@@ -340,6 +380,18 @@ export default function InterviewLivePage() {
                   )}
                 </div>
                 <Switch checked={voiceOn && voiceAvailable !== false} disabled={voiceAvailable === false} onCheckedChange={setVoiceOn} aria-label="질문 소리 내어 읽기" />
+              </div>
+              <div className="flex items-start justify-between gap-4 rounded-lg border p-3">
+                <div className="flex items-start gap-2 text-sm">
+                  {cameraOn ? <Camera className="w-4 h-4 mt-0.5 shrink-0" /> : <CameraOff className="w-4 h-4 mt-0.5 shrink-0" />}
+                  <div>
+                    <div>카메라로 자세·시선 분석 <span className="text-xs text-muted-foreground">(선택)</span></div>
+                    <p className="text-xs text-muted-foreground mt-0.5 leading-relaxed">
+                      영상은 이 기기에서만 분석하고 서버로 보내거나 저장하지 않습니다. 처음 켤 때 얼굴 분석 기능(약 15MB)을 내려받습니다.
+                    </p>
+                  </div>
+                </div>
+                <Switch checked={cameraOn} onCheckedChange={setCameraOn} aria-label="카메라로 자세·시선 분석" />
               </div>
               <Button size="lg" className="w-full" onClick={() => void begin()}>
                 <Mic className="w-5 h-5 mr-2" />{resuming ? "이어서 시작" : "면접 시작"}

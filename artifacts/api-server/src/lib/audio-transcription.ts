@@ -102,12 +102,14 @@ async function transcribeWav(
   client: OpenAI,
   wav: Buffer,
   model: string,
+  prompt?: string,
 ): Promise<{ text: string; usedModel: string }> {
   const transcribe = async (selectedModel: string) => client.audio.transcriptions.create({
     file: await toFile(wav, "recording.wav", { type: "audio/wav" }),
     model: selectedModel,
     language: "ko",
     response_format: "json",
+    ...(prompt ? { prompt } : {}),
   });
 
   try {
@@ -132,15 +134,33 @@ export async function transcribeUpload(
   file: { buffer: Buffer; originalname: string },
   log: { warn: (obj: object, msg: string) => void },
 ): Promise<string> {
+  return (await transcribeUploadDetailed(file, log)).text;
+}
+
+/** 16kHz · 모노 · 16bit PCM WAV(헤더 44바이트)의 재생 시간(초). 알 수 없으면 null */
+export function wavDurationSeconds(wav: Buffer): number | null {
+  const seconds = (wav.length - 44) / (16_000 * 2);
+  return seconds > 0 ? Math.round(seconds * 10) / 10 : null;
+}
+
+/**
+ * transcribeUpload와 같고, 녹음 길이도 함께 돌려준다.
+ * prompt는 STT에 주는 받아쓰기 문체 예시다(예: 군말까지 그대로 적게 하기).
+ */
+export async function transcribeUploadDetailed(
+  file: { buffer: Buffer; originalname: string },
+  log: { warn: (obj: object, msg: string) => void },
+  options: { prompt?: string } = {},
+): Promise<{ text: string; durationSeconds: number | null }> {
   const wav = await convertToWav(file.buffer, file.originalname);
   const client = getTranscriptionClient();
   const sttModel = (await getSetting("ai_stt_model"))?.trim() || DEFAULT_STT_MODEL;
-  const transcription = await transcribeWav(client, wav, sttModel);
+  const transcription = await transcribeWav(client, wav, sttModel, options.prompt);
   if (transcription.usedModel !== sttModel) {
     log.warn(
       { configuredModel: sttModel, fallbackModel: transcription.usedModel },
       "Configured STT model unsupported; used default model",
     );
   }
-  return transcription.text.trim();
+  return { text: transcription.text.trim(), durationSeconds: wavDurationSeconds(wav) };
 }
