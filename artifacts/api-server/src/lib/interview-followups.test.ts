@@ -4,6 +4,7 @@ import {
   canAddFollowUp,
   cleanFollowUpQuestion,
   descendantIds,
+  extractPrepTopics,
   extractWeaknesses,
   FOLLOW_UP_ANSWER_SYSTEM,
   FOLLOW_UP_RULES,
@@ -11,6 +12,7 @@ import {
   LIVE_ANSWER_SYSTEM,
   QUESTION_LENGTH_RULE,
   parseDifficulty,
+  prepTopicInstruction,
   questionStyleInstruction,
   toneInstruction,
   truncateForPrompt,
@@ -41,6 +43,39 @@ describe("extractWeaknesses", () => {
     expect(extractWeaknesses(null)).toEqual([]);
     expect(extractWeaknesses("{not json")).toEqual([]);
     expect(weaknessInstruction([])).toBe("");
+  });
+});
+
+describe("extractPrepTopics", () => {
+  const rich = JSON.stringify({
+    rejectionReport: { reasons: [{ title: "AWS 미충족", detail: "" }] },
+    interviewPrep: { points: [
+      { title: "역할 범위가 모호함", quote: "주요 역할: PL, 개발", quoteVerified: true },
+      { title: "원문에 없는 인용", quote: "쿠버네티스 운영", quoteVerified: false },
+      { title: "AWS 미충족", quote: "AWS 경험 없음", quoteVerified: true },
+      { title: "기간 표기 불일치", quote: "2022.12 ~ 현재 (약 3개월)", quoteVerified: true },
+      { title: "세 번째", quote: "또 다른 문장", quoteVerified: true },
+    ] },
+  });
+
+  it("uses only verified quotes, skips titles already used as weaknesses, max 2", () => {
+    expect(extractPrepTopics(rich, ["AWS 미충족"])).toEqual([
+      { title: "역할 범위가 모호함", quote: "주요 역할: PL, 개발" },
+      { title: "기간 표기 불일치", quote: "2022.12 ~ 현재 (약 3개월)" },
+    ]);
+  });
+
+  it("returns nothing for older analyses or broken data", () => {
+    expect(extractPrepTopics(JSON.stringify({ rejectionReport: { reasons: [] } }))).toEqual([]);
+    expect(extractPrepTopics("{not json")).toEqual([]);
+    expect(extractPrepTopics(null)).toEqual([]);
+  });
+
+  it("builds an instruction that quotes the resume and asks for the focus title", () => {
+    expect(prepTopicInstruction([])).toBe("");
+    const text = prepTopicInstruction([{ title: "역할 범위가 모호함", quote: "주요 역할: PL, 개발" }]);
+    expect(text).toContain('역할 범위가 모호함 — 원문: "주요 역할: PL, 개발"');
+    expect(text).toContain("source를 weakness로");
   });
 });
 

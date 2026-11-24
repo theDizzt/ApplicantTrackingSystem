@@ -38,8 +38,10 @@ import {
   chainFrom,
   cleanFollowUpQuestion,
   descendantIds,
+  extractPrepTopics,
   extractWeaknesses,
   followUpTone,
+  prepTopicInstruction,
   formatChain,
   parseDifficulty,
   questionStyleInstruction,
@@ -225,7 +227,8 @@ router.post("/interviews", requireAuth, async (req, res): Promise<void> => {
     ? `\n지원자의 최종학력 졸업연도는 ${gradYear}년입니다. 졸업 후 기간 및 역량 유지 노력 질문을 1~2개 반드시 포함하세요.`
     : "";
   const weaknesses = extractWeaknesses(latestAnalysis?.richAnalysisResult);
-  const weaknessTitles = new Set(weaknesses.map((w) => w.title));
+  const prepTopics = extractPrepTopics(latestAnalysis?.richAnalysisResult, weaknesses.map((w) => w.title));
+  const weaknessTitles = new Set([...weaknesses.map((w) => w.title), ...prepTopics.map((t) => t.title)]);
 
   try {
     const ai = await getAI("interview");
@@ -237,7 +240,7 @@ router.post("/interviews", requireAuth, async (req, res): Promise<void> => {
           content: `당신은 채용 면접관입니다. 반드시 아래에 제공된 정확한 회사명, 인재상, 채용공고/직무기술서에 맞춰 이력서 기반 면접 질문 5개를 생성하세요. 다른 회사나 일반적인 회사로 바꾸지 마세요.${questionStyleInstruction(difficulty)}${gapInstruction}${paperWithAbstract ? "\n논문 Abstract가 제공된 경우 그 연구 내용·방법·기여를 직접 확인하는 질문을 1개 포함하고 source를 paper_abstract로 지정하세요." : ""}
 JSON 형식으로만 반환: { "questions": [{ "question": "질문", "source": "resume|company|paper_abstract|weakness", "focus": "weakness일 때 약점 제목, 아니면 빈 문자열" }] }`,
         },
-        { role: "user", content: `이력서:\n${resumeText || "(내용 없음)"}${paperContext}\n\n지원 회사 정보:\n${companyContext(company)}${weaknessInstruction(weaknesses)}` },
+        { role: "user", content: `이력서:\n${resumeText || "(내용 없음)"}${paperContext}\n\n지원 회사 정보:\n${companyContext(company)}${weaknessInstruction(weaknesses)}${prepTopicInstruction(prepTopics)}` },
       ],
       response_format: { type: "json_object" },
     });

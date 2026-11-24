@@ -340,6 +340,38 @@ describe("interview routes", () => {
     expect(inserted[1]).toEqual(expect.objectContaining({ focus: null }));
   });
 
+  it("asks about verified interview prep points and accepts their titles as focus labels", async () => {
+    mocks.insertResults.push([session]);
+    mocks.aiCreate.mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({
+        questions: [
+          { question: "직접 맡은 개발 범위는 어디까지였나요?", source: "weakness", focus: "역할 범위가 모호함" },
+          { question: "원문에 없는 문장 질문입니다.", source: "weakness", focus: "원문 미확인 보완점" },
+        ],
+      }) } }],
+    });
+    setSelectResults([
+      [{ id: 21, userId: 1, title: "백엔드 이력서", content: "지원자 경력", coverLetter: null }],
+      [company],
+      [{ richAnalysisResult: JSON.stringify({
+        interviewPrep: { points: [
+          { title: "역할 범위가 모호함", quote: "주요 역할: PL, 개발", quoteVerified: true },
+          { title: "원문 미확인 보완점", quote: "지어낸 문장", quoteVerified: false },
+        ] },
+      }) }],
+      [session], [{ title: "백엔드 이력서" }], [company], [],
+    ]);
+
+    const response = await request(makeApp()).post("/interviews").set("x-user-id", "1").send({ resumeId: 21, companyId: 31 });
+    expect(response.status).toBe(201);
+    const prompt = mocks.aiCreate.mock.calls[0][0].messages.map((message: { content: string }) => message.content).join("\n");
+    expect(prompt).toContain('역할 범위가 모호함 — 원문: "주요 역할: PL, 개발"');
+    expect(prompt).not.toContain("지어낸 문장");
+    const inserted = mocks.insertedValues.find((value) => Array.isArray(value)) as Array<{ question: string; focus: string | null }>;
+    expect(inserted[0]).toEqual(expect.objectContaining({ focus: "역할 범위가 모호함" }));
+    expect(inserted[1]).toEqual(expect.objectContaining({ focus: null }));
+  });
+
   it("stores the chosen difficulty and asks for pressure questions on hard", async () => {
     mocks.insertResults.push([{ ...session, difficulty: "hard" }]);
     mocks.aiCreate.mockResolvedValue({ choices: [{ message: { content: JSON.stringify({ questions: ["질문"] }) } }] });

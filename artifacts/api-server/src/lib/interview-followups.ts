@@ -165,6 +165,47 @@ export function weaknessInstruction(weaknesses: Weakness[]): string {
 위 약점 중 중요한 것을 면접관이 실제로 파고들 질문으로 2개 포함하세요. 약점을 그대로 지적하기보다, 지원자가 그 우려를 어떻게 해소하는지 확인하는 질문으로 만드세요. 이 질문들은 source를 weakness로, focus에 해당 약점 제목을 그대로 적으세요.`;
 }
 
+const MAX_PREP_TOPICS = 2;
+
+export interface PrepTopic {
+  title: string;
+  quote: string;
+}
+
+/**
+ * 서류 심사의 "면접 대비 보완점"에서 면접 질문으로 확인할 표현을 뽑는다.
+ * 인용문이 이력서 원문에서 확인된 보완점만 쓴다 — 이력서에 없는 문장을 근거로 질문하지 않도록.
+ */
+export function extractPrepTopics(richAnalysisResult: string | null | undefined, exclude: Iterable<string> = []): PrepTopic[] {
+  if (!richAnalysisResult) return [];
+  let rich: { interviewPrep?: { points?: { title?: unknown; quote?: unknown; quoteVerified?: unknown }[] } };
+  try {
+    rich = JSON.parse(richAnalysisResult);
+  } catch {
+    return [];
+  }
+  const taken = new Set(exclude);
+  const points = Array.isArray(rich.interviewPrep?.points) ? rich.interviewPrep.points : [];
+  const topics: PrepTopic[] = [];
+  for (const p of points) {
+    if (!p || p.quoteVerified !== true) continue;
+    const title = typeof p.title === "string" ? p.title.trim() : "";
+    const quote = typeof p.quote === "string" ? p.quote.trim() : "";
+    if (!title || !quote || taken.has(title)) continue;
+    taken.add(title);
+    topics.push({ title, quote });
+    if (topics.length >= MAX_PREP_TOPICS) break;
+  }
+  return topics;
+}
+
+export function prepTopicInstruction(topics: PrepTopic[]): string {
+  if (topics.length === 0) return "";
+  const list = topics.map((t, i) => `${i + 1}. ${t.title} — 원문: "${t.quote}"`).join("\n");
+  return `\n\n서류 표현에서 면접관이 확인할 만한 부분(면접 대비 보완점):\n${list}
+이 중 1개를 원문 표현을 짚어 지원자가 실제로 무엇을 했는지 확인하는 질문으로 포함하세요 (예: "이력서에 'PL, 개발'이라고 쓰셨는데, 직접 맡은 개발 범위는 어디까지였나요?"). 이 질문은 source를 weakness로, focus에 해당 보완점 제목을 그대로 적으세요.`;
+}
+
 /** AI가 준 꼬리 질문 문자열을 정리한다. 쓸 수 없으면 null. */
 export function cleanFollowUpQuestion(raw: unknown): string | null {
   if (typeof raw !== "string") return null;
