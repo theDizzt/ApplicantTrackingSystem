@@ -18,6 +18,7 @@ import { cancelSpeech, hasKoreanVoice, liveProgress, nextLiveQuestion, speak } f
 import { difficultyLabel } from "@/lib/interview-labels"
 import type { CameraMetrics } from "@/lib/camera-analysis"
 import { useCameraAnalysis, type CameraHint } from "@/lib/use-camera-analysis"
+import { cameraLabel } from "@/lib/camera-devices"
 
 /** 한 답변의 최대 녹음 시간 (넘으면 자동으로 답변 완료) */
 const MAX_ANSWER_SECONDS = 3 * 60
@@ -321,7 +322,7 @@ export default function InterviewLivePage() {
       </div>
 
       {camera.stream && phase !== "intro" && (
-        <div className="flex justify-end">
+        <div className="flex flex-col items-end gap-1.5">
           <div className="relative w-40 md:w-48 aspect-[4/3] rounded-lg overflow-hidden border bg-black">
             {/* 거울처럼 좌우를 뒤집어 보여 준다 */}
             <video ref={camera.attachVideo} muted playsInline autoPlay className="w-full h-full object-cover -scale-x-100" aria-label="내 카메라 화면" />
@@ -330,12 +331,34 @@ export default function InterviewLivePage() {
                 <Loader2 className="w-3.5 h-3.5 animate-spin" />분석 준비 중
               </div>
             )}
-            {camera.hint && (
+            {/* 검은 화면이면 얼굴 안내보다 이것을 먼저 보여 준다 (캡처 보드·가상 카메라가 잡힌 경우) */}
+            {camera.dark ? (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 px-3 text-center text-white" aria-live="polite">
+                <CameraOff className="w-4 h-4" />
+                <p className="text-[11px] leading-snug">카메라 화면이 검게 나와요.{camera.devices.length > 1 ? " 아래에서 다른 카메라를 골라 주세요." : " 렌즈 덮개나 다른 앱 사용 여부를 확인해 주세요."}</p>
+              </div>
+            ) : camera.hint && (
               <div className={`absolute bottom-0 inset-x-0 px-2 py-1 text-[11px] text-white text-center ${CAMERA_HINT[camera.hint].className}`} aria-live="polite">
                 {CAMERA_HINT[camera.hint].text}
               </div>
             )}
           </div>
+          {camera.devices.length > 1 && (
+            <label className="flex w-40 md:w-48 items-center gap-1.5 text-[11px] text-muted-foreground">
+              <Camera className="w-3.5 h-3.5 shrink-0" />
+              <span className="sr-only">사용할 카메라</span>
+              <select
+                value={camera.deviceId ?? ""}
+                onChange={(e) => void camera.selectDevice(e.target.value)}
+                className="min-w-0 flex-1 truncate rounded border bg-background px-1.5 py-1 text-[11px] text-foreground"
+                aria-label="사용할 카메라"
+              >
+                {camera.devices.map((d, i) => (
+                  <option key={d.deviceId} value={d.deviceId}>{cameraLabel(d, i)}</option>
+                ))}
+              </select>
+            </label>
+          )}
         </div>
       )}
       {camera.error && phase !== "intro" && (
