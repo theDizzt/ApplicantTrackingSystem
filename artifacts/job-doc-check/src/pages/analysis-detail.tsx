@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { AiEstimateBadge, AiEstimateNote } from "@/components/ai-estimate-badge"
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+import { GrowthPlanCard, type GrowthPlan } from "@/components/growth-plan-card"
 import {
   ChevronLeft, CheckCircle2, XCircle, AlertTriangle,
   Link2, ExternalLink, TrendingUp, Banknote, GraduationCap, Heart, RotateCcw, Users,
@@ -90,6 +91,7 @@ interface RichAnalysis {
   }
   rejectionReport?: RejectionReport
   interviewPrep?: InterviewPrep
+  growthPlan?: GrowthPlan
 }
 
 interface InterviewPrep {
@@ -596,6 +598,7 @@ export default function AnalysisDetail() {
             <RejectionReportCard report={rich.rejectionReport} passed={analysis.overallResult === "pass"} />
           )}
           {rich?.interviewPrep && <InterviewPrepCard prep={rich.interviewPrep} />}
+          {analysis.status === "completed" && rich && <GrowthPlanCard analysisId={analysisId} plan={rich.growthPlan} />}
           {rich?.scoreEvidence && <ScoreEvidenceCard evidence={rich.scoreEvidence} />}
 
           {/* ── 서류 기본 점검 ── */}

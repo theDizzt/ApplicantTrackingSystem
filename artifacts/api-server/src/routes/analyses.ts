@@ -24,6 +24,14 @@ import {
   sanitizeInterviewPrep,
   type InterviewPrep,
 } from "../lib/interview-prep";
+import {
+  WEEKLY_HOURS_RANGE,
+  buildGrowthPlanInput,
+  buildGrowthPlanSystem,
+  parseLearnerStage,
+  parseWeeklyHours,
+  sanitizeGrowthPlan,
+} from "../lib/growth-plan";
 import type OpenAI from "openai";
 
 const router: IRouter = Router();
@@ -208,6 +216,96 @@ router.get("/analyses/:id", requireAuth, async (req, res): Promise<void> => {
     .where(and(eq(companiesTable.id, analysis.companyId), eq(companiesTable.userId, req.session.userId!)));
 
   res.json(serializeAnalysis(analysis, resume?.title, company?.name));
+});
+
+// ─── 취업 역량 강화 계획 (요청할 때만 생성) ──────────────────────────────────
+// 완료된 서류 심사 결과로 4~8주 계획을 만들어 richAnalysisResult.growthPlan에 저장한다.
+// 서류 심사 한도는 소비하지 않는다 (재시도와 같은 정책). 같은 심사에 동시에 두 번 만들지 않는다.
+const growthPlanInProgress = new Set<number>();
+
+router.post("/analyses/:id/growth-plan", requireAuth, async (req, res): Promise<void> => {
+  const rawId = Array.isArray(req.params.id) ? req.params.id[0] : req.params.id;
+  const id = parseInt(rawId, 10);
+  if (isNaN(id)) { res.status(400).json({ error: "유효하지 않은 ID입니다." }); return; }
+
+  const body = (req.body ?? {}) as { stage?: unknown; weeklyHours?: unknown };
+  const stage = parseLearnerStage(body.stage);
+  if (!stage) { res.status(400).json({ error: "현재 단계를 선택해주세요." }); return; }
+  const weeklyHours = parseWeeklyHours(body.weeklyHours);
+  if (weeklyHours === null) {
+    res.status(400).json({ error: `주당 가능 시간은 ${WEEKLY_HOURS_RANGE.min}~${WEEKLY_HOURS_RANGE.max}시간 사이로 입력해주세요.` });
+    return;
+  }
+
+  const userId = req.session.userId!;
+  const [analysis] = await db.select().from(analysesTable)
+    .where(and(eq(analysesTable.id, id), eq(analysesTable.userId, userId)));
+  if (!analysis) { res.status(404).json({ error: "분석을 찾을 수 없습니다." }); return; }
+  if (analysis.status !== "completed" || !analysis.richAnalysisResult) {
+    res.status(400).json({ error: "서류 심사가 끝난 뒤에 계획을 만들 수 있습니다." });
+    return;
+  }
+
+  const [resume] = await db.select().from(resumesTable)
+    .where(and(eq(resumesTable.id, analysis.resumeId), eq(resumesTable.userId, userId)));
+  if (!resume) { res.status(400).json({ error: "이력서를 찾을 수 없습니다." }); return; }
+  const [company] = await db.select().from(companiesTable)
+    .where(and(eq(companiesTable.id, analysis.companyId), eq(companiesTable.userId, userId)));
+  if (!company) { res.status(400).json({ error: "회사를 찾을 수 없습니다." }); return; }
+
+  let rich: Record<string, unknown>;
+  try { rich = JSON.parse(analysis.richAnalysisResult); } catch { rich = {}; }
+
+  if (growthPlanInProgress.has(id)) {
+    res.status(409).json({ error: "이미 계획을 만들고 있습니다. 잠시 후 다시 확인해주세요." });
+    return;
+  }
+
+  const health = await checkAIHealth();
+  if (!health.ok) { res.status(503).json({ error: health.error }); return; }
+
+  growthPlanInProgress.add(id);
+  try {
+    const companyText = [
+      `회사명: ${company.name}`,
+      company.talentProfile ? `인재상: ${company.talentProfile}` : "",
+      company.jobDescription ? `채용공고 내용: ${company.jobDescription}` : "",
+    ].filter(Boolean).join("\n");
+
+    const result = await callAI([
+      { role: "system", content: buildGrowthPlanSystem(stage, weeklyHours) },
+      { role: "user", content: buildGrowthPlanInput({ resumeContent: resume.content, coverLetter: resume.coverLetter, companyText, rich }) },
+    ]);
+    const plan = sanitizeGrowthPlan(
+      result.data,
+      [resume.content ?? "", resume.coverLetter ?? ""].join("\n"),
+      { stage, weeklyHours },
+    );
+    if (plan.items.length === 0) {
+      logger.warn({ analysisId: id }, "Growth plan AI response had no usable items");
+      res.status(502).json({ error: "계획을 만들지 못했습니다. 잠시 후 다시 시도해주세요." });
+      return;
+    }
+
+    // 생성하는 동안 다른 곳에서 바뀌었을 수 있으니 최신 값을 다시 읽어 growthPlan만 바꾼다
+    const [latest] = await db.select({ richAnalysisResult: analysesTable.richAnalysisResult }).from(analysesTable)
+      .where(and(eq(analysesTable.id, id), eq(analysesTable.userId, userId)));
+    let latestRich: Record<string, unknown> = rich;
+    try { if (latest?.richAnalysisResult) latestRich = JSON.parse(latest.richAnalysisResult); } catch { /* 위의 값 사용 */ }
+
+    await db.update(analysesTable).set({
+      richAnalysisResult: JSON.stringify({ ...latestRich, growthPlan: plan }),
+      inputTokens:  (analysis.inputTokens  ?? 0) + result.inputTokens,
+      outputTokens: (analysis.outputTokens ?? 0) + result.outputTokens,
+    }).where(and(eq(analysesTable.id, id), eq(analysesTable.userId, userId)));
+
+    res.json({ growthPlan: plan });
+  } catch (err) {
+    logger.error({ err, analysisId: id }, "Growth plan generation failed");
+    res.status(502).json({ error: "계획을 만드는 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요." });
+  } finally {
+    growthPlanInProgress.delete(id);
+  }
 });
 
 // ─── 3-parallel AI analysis ───────────────────────────────────────────────
