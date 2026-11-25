@@ -132,7 +132,8 @@
 
   --app-font-sans: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif;
   --app-font-serif: Georgia, serif;
-  --app-font-mono: Menlo, monospace;
+  /* 고정폭 자리(font-mono)도 본문과 같은 폰트를 쓴다. 숫자 폭은 아래 .font-mono의 tabular-nums로 고정 */
+  --app-font-mono: 'Plus Jakarta Sans', 'Noto Sans KR', sans-serif;
   --radius: 0.5rem; /* 8px */
   --shadow-2xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
   --shadow-xs: 0px 2px 0px 0px hsl(202.8169 89.1213% 53.1373% / 0);
@@ -271,6 +272,12 @@
  * need to be distinguished from eachother visually.
  */
 @layer utilities {
+  /* font-mono는 본문 폰트를 쓰되 숫자는 모두 같은 폭으로 (점수·타이머가 바뀔 때 글자가 흔들리지 않게) */
+  .font-mono {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: "tnum" 1;
+  }
+
   /* Hide ugly search cancel button in Chrome until we can style it properly */
   input[type='search']::-webkit-search-cancel-button {
     @apply hidden;
