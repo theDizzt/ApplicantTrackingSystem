@@ -1,4 +1,4 @@
-# Windows PC에서 도메인으로 서비스할 때 쓰는 Caddy 설정 (dev-windows.bat --host, host-windows.bat이 사용)
+# Windows PC에서 도메인으로 서비스할 때 쓰는 Caddy 설정 (dev-windows.bat --host가 사용)
 # - {$DOMAIN}: .env의 DOMAIN (예: dragonascent.xyz)
 # - 인증서는 Let's Encrypt에서 자동 발급/갱신, http:// 는 https:// 로 자동 이동
 # - 보관 위치: %AppData%\Caddy (지우면 재발급)

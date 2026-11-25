@@ -69,3 +69,4 @@ certs/
 
 # 개인 파일
 ATS/
+*.lnk
