@@ -44,4 +44,4 @@ foreach ($r in $rules) {
 }
 
 Write-Host ''
-Write-Host '설정 완료. 이제 host-windows.bat을 실행하세요.' -ForegroundColor Green
+Write-Host '설정 완료. 이제 dev-windows.bat --host (또는 host-windows.bat)을 실행하세요.' -ForegroundColor Green

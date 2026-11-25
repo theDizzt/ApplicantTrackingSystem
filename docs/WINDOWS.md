@@ -211,9 +211,44 @@ dev-windows.bat
 |---|---|
 | `dev-windows.bat --push` | DB 스키마를 다시 적용 (스키마를 바꿨을 때) |
 | `dev-windows.bat --no-open` | 브라우저를 자동으로 열지 않음 |
+| `dev-windows.bat --host` | 개발 서버를 띄운 뒤 `.env`의 `DOMAIN`으로 https 공개 (아래 "도메인으로 공개하기") |
+
+이미 떠 있는 API·웹 서버는 다시 띄우지 않고 건너뜁니다.
 
 `drizzle-kit push`가 데이터 손실 가능성이 있는 변경을 감지하면 터미널에서 확인을 물어볼 수 있습니다. 내용을 읽고 선택하세요.
 
+
+### 도메인으로 공개하기 (`--host`)
+
+이 PC를 `https://내도메인`으로 외부에 공개합니다. [Caddy](https://caddyserver.com)가 Let's Encrypt 인증서를 자동으로 받고, 웹 서버(포트 3000)로 요청을 넘깁니다. `/api` 요청은 웹 서버가 다시 API 서버로 넘깁니다.
+
+처음 한 번:
+
+1. 도메인의 DNS A 레코드가 이 PC(공유기)의 공인 IP를 가리키게 합니다.
+2. 공유기에서 TCP 80, 443(그리고 UDP 443) 포트를 이 PC로 넘깁니다.
+3. **관리자 PowerShell**에서 설정 스크립트를 실행합니다. IIS를 끄고, Caddy를 설치하고, 방화벽에서 80·443을 엽니다.
+   ```powershell
+   powershell -ExecutionPolicy Bypass -File scripts\windows\setup-host.ps1
+   ```
+4. `.env`에 `DOMAIN=내도메인`을 넣습니다.
+
+실행:
+
+```bat
+dev-windows.bat --host
+```
+
+`host-windows.bat`을 더블클릭해도 같습니다. 개발 서버가 꺼져 있으면 함께 띄우고, 이미 떠 있으면 `My ATS - Domain (Caddy)` 창만 추가로 엽니다. 처음에는 인증서 발급에 몇 초~1분 걸립니다. **종료:** Caddy 창을 닫으면 공개만 멈추고, 개발 서버는 그대로 둡니다.
+
+| 증상 | 원인 / 해결 |
+|---|---|
+| `.env에 DOMAIN이 비어 있습니다` | `.env`에 `DOMAIN=`을 채우세요. |
+| `caddy가 없습니다` | 위 3번 설정 스크립트를 관리자 PowerShell에서 실행하세요. |
+| `도메인 공개(--host)는 Caddy가 인증서를 맡습니다` | 휴대폰 테스트용 개발 인증서(`DEV_HTTPS_CERT`, `DEV_HTTPS_KEY`)를 켜 둔 상태입니다. 도메인 공개 때는 비워 두세요. |
+| Caddy 창에 `challenge failed`, `timeout` | 80번 포트가 막혔거나 DNS가 아직 이 PC를 가리키지 않습니다. 공유기 포트 포워딩과 DNS를 확인하세요. |
+| Caddy 창에 `address already in use` (80/443) | IIS 같은 다른 웹 서버가 포트를 쓰고 있습니다. 설정 스크립트를 다시 실행하세요. |
+
+> 공유기 포트를 열 수 없으면 Cloudflare Tunnel을 쓰세요 ([HTTPS.md](HTTPS.md) 참고).
 ---
 
 ## 5. 문제 해결

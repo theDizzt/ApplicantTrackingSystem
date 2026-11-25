@@ -11,6 +11,10 @@ rem
 rem  선행 조건: Node.js 22+, Git for Windows, PostgreSQL 실행 중
 rem  옵션:  dev-windows.bat --push   DB 스키마를 다시 적용
 rem         dev-windows.bat --no-open 브라우저 자동 실행 안 함
+rem         dev-windows.bat --host    .env의 DOMAIN으로 https 공개 (Caddy 창 추가)
+rem                                   처음 한 번: 관리자 PowerShell에서 scripts\windows\setup-host.ps1
+rem  이미 떠 있는 API·웹 서버는 다시 띄우지 않으므로, 개발 중에 --host로
+rem  다시 실행하면 도메인 공개(Caddy)만 추가됩니다.
 rem =========================================================
 
 set "ROOT=%~dp0"
@@ -19,10 +23,13 @@ cd /d "%ROOT%"
 
 set "FORCE_PUSH=0"
 set "OPEN_BROWSER=1"
+set "HOST_DOMAIN=0"
 for %%A in (%*) do (
   if /i "%%~A"=="--push" set "FORCE_PUSH=1"
   if /i "%%~A"=="--no-open" set "OPEN_BROWSER=0"
+  if /i "%%~A"=="--host" set "HOST_DOMAIN=1"
 )
+if "%HOST_DOMAIN%"=="1" title My ATS - 개발 서버 + 도메인
 
 rem ---- 1. 필수 도구 확인 ------------------------------------
 where node >nul 2>&1 || (
@@ -97,6 +104,25 @@ rem 개발용 HTTPS: .env에 DEV_HTTPS_CERT/DEV_HTTPS_KEY가 있으면 웹 서�
 set "WEB_SCHEME=http"
 if defined DEV_HTTPS_CERT set "WEB_SCHEME=https"
 
+rem 도메인 공개(--host) 사전 점검 — 서버를 띄우기 전에 빠르게 실패한다
+if "%HOST_DOMAIN%"=="1" (
+  if not defined DOMAIN (
+    echo [오류] .env에 DOMAIN이 비어 있습니다. 예: DOMAIN=example.com
+    goto :fail
+  )
+  where caddy >nul 2>&1 || (
+    echo [오류] caddy가 없습니다. 관리자 PowerShell에서 아래를 한 번 실행하세요.
+    echo        powershell -ExecutionPolicy Bypass -File scripts\windows\setup-host.ps1
+    goto :fail
+  )
+)
+rem Caddy는 웹 서버에 http로 연결한다. 개발용 https 인증서를 켜 두면 연결이 깨지므로 막는다.
+if "%HOST_DOMAIN%"=="1" if "%WEB_SCHEME%"=="https" (
+  echo [오류] 도메인 공개^(--host^)는 Caddy가 인증서를 맡습니다.
+  echo        .env의 DEV_HTTPS_CERT, DEV_HTTPS_KEY를 비우고 다시 실행하세요.
+  goto :fail
+)
+
 rem ---- 3. 의존성 설치 (처음 한 번 / lock 파일 변경 시) --------
 set "NEED_INSTALL=0"
 if not exist "artifacts\job-doc-check\node_modules" set "NEED_INSTALL=1"
@@ -126,6 +152,10 @@ if not exist "%PUSH_MARKER%" (
 )
 
 rem ---- 5. API 서버 ------------------------------------------
+curl -sf "http://127.0.0.1:%API_PORT%/api/healthz" >nul 2>&1 && (
+  echo [3/4] API 서버가 이미 실행 중입니다 ^(포트 %API_PORT%^)
+  goto :api_ready
+)
 echo [3/4] API 서버 시작 ^(포트 %API_PORT%^)...
 start "My ATS - API (%API_PORT%)" cmd /k "set PORT=%API_PORT%&& %PNPM% --filter @workspace/api-server run dev"
 
@@ -143,6 +173,10 @@ goto :wait_api
 echo       API 서버 준비 완료
 
 rem ---- 6. 웹 프론트엔드 --------------------------------------
+curl -skf "%WEB_SCHEME%://127.0.0.1:%WEB_PORT%/" >nul 2>&1 && (
+  echo [4/4] 웹 프론트엔드가 이미 실행 중입니다 ^(포트 %WEB_PORT%^)
+  goto :web_ready
+)
 echo [4/4] 웹 프론트엔드 시작 ^(포트 %WEB_PORT%^)...
 start "My ATS - Web (%WEB_PORT%)" cmd /k "set PORT=%WEB_PORT%&& set BASE_PATH=/&& set API_PROXY_TARGET=http://127.0.0.1:%API_PORT%&& %PNPM% --filter @workspace/job-doc-check run dev"
 
@@ -159,16 +193,37 @@ timeout /t 1 /nobreak >nul
 goto :wait_web
 :web_ready
 
+rem ---- 7. 도메인 공개 (--host) -------------------------------
+rem Caddyfile은 이 창의 환경 변수 DOMAIN, WEB_PORT를 읽는다 (start로 연 창에 그대로 전달됨)
+if not "%HOST_DOMAIN%"=="1" goto :after_host
+tasklist /fi "imagename eq caddy.exe" 2>nul | find /i "caddy.exe" >nul && (
+  echo [+] Caddy가 이미 실행 중입니다 ^(https://%DOMAIN%^)
+  goto :after_host
+)
+echo [+] 도메인 공개 시작 ^(https://%DOMAIN%^)...
+echo     처음 실행하면 인증서 발급에 몇 초~1분 걸립니다. 공유기에서 80, 443 포트를 이 PC로 넘겨야 합니다.
+start "My ATS - Domain (Caddy)" cmd /k caddy run --config scripts\windows\Caddyfile --adapter caddyfile
+:after_host
+
 if "%OPEN_BROWSER%"=="1" start "" "%WEB_SCHEME%://localhost:%WEB_PORT%"
 
 echo.
 echo =========================================
-echo  개발 서버 실행 중
+if "%HOST_DOMAIN%"=="1" (
+  echo  개발 서버 + 도메인 공개 실행 중
+) else (
+  echo  개발 서버 실행 중
+)
 echo =========================================
 echo   웹:      %WEB_SCHEME%://localhost:%WEB_PORT%
+if "%HOST_DOMAIN%"=="1" echo   도메인:  https://%DOMAIN%
 echo   API:     http://localhost:%API_PORT%/api/healthz
 echo   관리자:  %WEB_SCHEME%://localhost:%WEB_PORT%/admin
-echo   종료:    "My ATS - API" / "My ATS - Web" 창을 닫으세요
+if "%HOST_DOMAIN%"=="1" (
+  echo   종료:    "My ATS - API" / "My ATS - Web" / "My ATS - Domain (Caddy)" 창을 닫으세요
+) else (
+  echo   종료:    "My ATS - API" / "My ATS - Web" 창을 닫으세요
+)
 echo.
 pause
 exit /b 0
