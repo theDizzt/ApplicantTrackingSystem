@@ -111,7 +111,8 @@ workspace/
 
 ### `lib/db`
 - Drizzle ORM 스키마 정의 (`lib/db/src/schema/`)
-- `drizzle.config.ts`로 마이그레이션 관리
+- `drizzle.config.ts`로 `push` (개발용 스키마 동기화)
+- `migrations/*.sql`: 서버 시작 시 `scripts/migrate.mjs`가 파일명 순서로 모두 적용하는 재실행 안전 SQL. **스키마를 바꾸면 여기에도 SQL을 추가해야 합니다** (규칙은 `replit.md`의 "DB 스키마 변경 규칙")
 - `@workspace/db`로 api-server에서 임포트
 
 ### `lib/api-client-react`

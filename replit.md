@@ -31,6 +31,14 @@ DB 마이그레이션:
 cd lib/db && pnpm run push
 ```
 
+DB 스키마 변경 규칙 (2026-11-25):
+- `lib/db/src/schema/`를 바꾸면 **같은 변경을 `lib/db/migrations/NNNN_설명.sql`로도 추가**합니다. `push`만 하고 끝내지 않습니다.
+  - 이유: API 서버는 시작할 때(`dev`·`start`) `pnpm --filter @workspace/db run migrate`로 이 폴더의 SQL만 파일명 순서대로 적용합니다. `push`를 다시 하지 않은 DB(다른 PC, Replit, Docker)에는 스키마 변경이 반영되지 않아 "column does not exist"로 실패합니다 (예: 면접 열 5개 누락 → `0003_interview_columns.sql`).
+- SQL은 재실행해도 안전하게 씁니다: `ALTER TABLE IF EXISTS … ADD COLUMN IF NOT EXISTS …`, `CREATE TABLE IF NOT EXISTS …`, `CREATE INDEX IF NOT EXISTS …`.
+- 기본값·NOT NULL은 스키마와 똑같이 맞춥니다. NOT NULL 열을 추가할 때는 기존 행을 위해 `DEFAULT`를 함께 줍니다.
+- 열 삭제·이름 변경·타입 변경은 데이터를 잃을 수 있으므로 자동 마이그레이션에 넣지 말고, 백업 후 따로 처리합니다.
+- 개발 중 `pnpm --filter @workspace/db run push`는 계속 써도 됩니다.
+
 ---
 
 ## User Preferences

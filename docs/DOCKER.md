@@ -86,7 +86,7 @@ docker compose run --rm migrate
 docker compose -f docker-compose.web.yml run --rm migrate
 ```
 
-현재 저장소는 버전 파일 기반 마이그레이션이 아니라 Drizzle `push`를 사용합니다. 따라서 다음 원칙을 지킵니다.
+`migrate` 서비스는 Drizzle `push`로 스키마를 맞춥니다. 이와 별도로 API 서버는 시작할 때 `lib/db/migrations/*.sql`(재실행 안전 SQL)을 적용하므로, 스키마를 바꿀 때는 이 폴더에도 SQL을 추가합니다 (규칙: `replit.md`의 "DB 스키마 변경 규칙"). 운영에서는 다음 원칙을 지킵니다.
 
 1. 운영 스키마 변경 전 `pg_dump` 백업
 2. 앱 이미지 빌드
