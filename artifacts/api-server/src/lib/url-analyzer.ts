@@ -176,7 +176,7 @@ function buildGitHubAnalysis(data: GitHubData): string {
   if (data.pinnedRepos && data.pinnedRepos.length > 0) {
     lines.push("주요 프로젝트:");
     for (const repo of data.pinnedRepos) {
-      const star = repo.stars > 0 ? ` ⭐${repo.stars}` : "";
+      const star = repo.stars > 0 ? ` (스타 ${repo.stars})` : "";
       const lang = repo.language ? ` [${repo.language}]` : "";
       lines.push(`  - ${repo.name}${lang}${star}: ${repo.description ?? "(설명 없음)"}`);
     }

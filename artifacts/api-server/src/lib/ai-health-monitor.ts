@@ -30,11 +30,11 @@ export async function runAIHealthCheck(): Promise<AIHealthStatus> {
     if (!result.ok) {
       if (!downSince) {
         downSince = now;
-        logger.warn({ code: result.code, error: result.error }, "🚨 AI 서버 장애 감지");
+        logger.warn({ code: result.code, error: result.error }, "AI 서버 장애 감지");
       }
     } else {
       if (downSince) {
-        logger.info("✅ AI 서버 정상 복구");
+        logger.info("AI 서버 정상 복구");
       }
       downSince = null;
     }

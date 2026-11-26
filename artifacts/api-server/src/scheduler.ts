@@ -14,17 +14,17 @@ export function startScheduler(): void {
   cron.schedule(
     "0 9 * * 1",
     async () => {
-      logger.info("🔄 [주간 업데이트] 회사 목록 동기화 시작");
+      logger.info("[주간 업데이트] 회사 목록 동기화 시작");
       try {
         const result = await db.execute(
           sql`UPDATE companies SET is_recommended = false, synced_at = NOW()`
         );
         logger.info(
           { rowCount: (result as any).rowCount },
-          "✅ [주간 업데이트] 완료 — 추천 초기화 및 동기화 시각 갱신"
+          "[주간 업데이트] 완료 — 추천 초기화 및 동기화 시각 갱신"
         );
       } catch (err) {
-        logger.error({ err }, "❌ [주간 업데이트] 실패");
+        logger.error({ err }, "[주간 업데이트] 실패");
       }
     },
     { timezone: "Asia/Seoul" }
@@ -35,12 +35,12 @@ export function startScheduler(): void {
     try {
       await runAIHealthCheck();
     } catch (err) {
-      logger.error({ err }, "❌ AI 헬스체크 실행 실패");
+      logger.error({ err }, "AI 헬스체크 실행 실패");
     }
   });
   void runAIHealthCheck().catch((err) =>
-    logger.error({ err }, "❌ 초기 AI 헬스체크 실패")
+    logger.error({ err }, "초기 AI 헬스체크 실패")
   );
 
-  logger.info("⏰ 스케줄러 시작 — 매주 월요일 09:00 KST 회사 목록 자동 갱신, 5분마다 AI 헬스체크");
+  logger.info("스케줄러 시작 — 매주 월요일 09:00 KST 회사 목록 자동 갱신, 5분마다 AI 헬스체크");
 }

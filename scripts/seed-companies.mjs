@@ -412,7 +412,7 @@ async function seed() {
         [TARGET_USER_ID, c.name]
       );
       if (exist.rows.length > 0) {
-        console.log(`⏭  이미 존재 → ${c.name}`);
+        console.log(`이미 존재 → ${c.name}`);
         skipped++;
         continue;
       }
@@ -424,11 +424,11 @@ async function seed() {
          RETURNING id`,
         [TARGET_USER_ID, c.name, c.siteUrl, c.jobPostingUrl, c.talentProfile, c.jobDescription, c.notes]
       );
-      console.log(`✅ 등록 완료 → [id=${res.rows[0].id}] ${c.name}`);
+      console.log(`등록 완료 → [id=${res.rows[0].id}] ${c.name}`);
       inserted++;
     }
 
-    console.log(`\n📊 결과: ${inserted}개 등록, ${skipped}개 스킵 (총 ${companies.length}개)`);
+    console.log(`\n결과: ${inserted}개 등록, ${skipped}개 스킵 (총 ${companies.length}개)`);
   } finally {
     client.release();
     await pool.end();
